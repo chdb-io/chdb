@@ -730,3 +730,81 @@ class TestSelectAliasedColumnExpr:
         assert_datastore_equals_pandas(
             ds, pd_result, check_index=source == "dataframe"
         )
+
+
+def _orders():
+    return pd.DataFrame(
+        {
+            "region": list("nsnsnsns"),
+            "price": [8, 7, 6, 5, 4, 3, 2, 1],
+            "qty": [5, 20, 15, 30, 11, 12, 1, 40],
+            "w": [0.5, 0.1, 0.9, 0.3, 0.7, 0.2, 0.8, 0.4],
+        }
+    )
+
+
+def _ties():
+    return pd.DataFrame({"k": [2, 1, 2, 1, 2, 1], "v": [1, 2, 3, 4, 5, 6]})
+
+
+class TestSortOrderAcrossLayers:
+    """A sort's order survives later layers that overwrite or drop the sort
+    key: head() picks rows by the order the sort produced, as in pandas."""
+
+    def test_sort_head_assign_overwrite_key_head(self, make_ds):
+        def chain(d):
+            d = d.sort_values("qty").head(3)
+            d["z"] = d["qty"]
+            d["qty"] = d["z"] * -1
+            return d.head(1)
+
+        _assert_chain(make_ds, chain, _orders())
+
+    def test_issue_718_projection_drops_sort_key(self, make_ds):
+        def chain(d):
+            d = d.sort_values("price", ascending=False)
+            d = d[d["qty"] > 10][["region", "qty"]]
+            return d.head(3).head(2)
+
+        _assert_chain(make_ds, chain, _orders())
+
+    def test_filter_sort_head_projection_without_key_filter(self, make_ds):
+        def chain(d):
+            d = d[d["qty"] > 0]
+            d = d.sort_values("w", ascending=False).head(3)
+            d = d[["region", "qty"]]
+            return d[d["qty"] > 5]
+
+        _assert_chain(make_ds, chain, _orders())
+
+    def test_sort_overwrite_key_head(self, make_ds):
+        def chain(d):
+            d = d.sort_values("qty")
+            d["qty"] = d["qty"] * -1
+            return d.head(3)
+
+        _assert_chain(make_ds, chain, _orders())
+
+    def test_sort_head_overwrite_key_sort_other_head(self, make_ds):
+        def chain(d):
+            d = d.sort_values("qty").head(5)
+            d["qty"] = d["qty"] * -1
+            d = d.sort_values("w")
+            return d.head(2)
+
+        _assert_chain(make_ds, chain, _orders())
+
+    def test_stable_ties_survive_key_overwrite(self, make_ds):
+        def chain(d):
+            d = d.sort_values("k", kind="stable")
+            d["k"] = d["v"] * 0
+            return d.head(4)
+
+        _assert_chain(make_ds, chain, _ties())
+
+    def test_stable_ties_survive_projection(self, make_ds):
+        def chain(d):
+            d = d.sort_values("k", kind="stable").head(4)
+            return d[["v"]].head(3)
+
+        _assert_chain(make_ds, chain, _ties())

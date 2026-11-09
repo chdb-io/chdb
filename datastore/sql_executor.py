@@ -383,6 +383,17 @@ def extract_clauses_from_ops(
     return result
 
 
+class _SQLText(Expression):
+    """Already-rendered SQL, e.g. an ORDER BY list inside OVER (...)."""
+
+    def __init__(self, sql: str):
+        super().__init__()
+        self.sql = sql
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        return self.sql
+
+
 def rewrite_column_refs_in_expression(expr: Any, rename_map: Dict[str, str]) -> Any:
     """
     Recursively rewrite ``Field`` references in an Expression/Condition tree.
@@ -975,6 +986,7 @@ class SQLExecutionEngine:
         has_column_assignments: bool = False,
         preserved_orderby: Optional[List[Tuple[Any, bool]]] = None,
         preserved_orderby_kind: Optional[str] = None,
+        star_except: Optional[List[str]] = None,
     ) -> "LayerBuildResult":
         """
         Build SQL for a single nested-subquery layer (unified entry point).
@@ -1023,6 +1035,8 @@ class SQLExecutionEngine:
             preserved_orderby: ORDER BY from a previous layer to keep when
                 this layer has no explicit ORDER BY (wrapper layers only).
             preserved_orderby_kind: Sort kind for stable sort detection.
+            star_except: Inherited columns a ``*`` of this layer leaves out
+                (wrapper layers only).
 
         Returns:
             LayerBuildResult containing the SQL text and every temp alias
@@ -1259,6 +1273,7 @@ class SQLExecutionEngine:
                 where_temp_alias_columns=(
                     where_temp_alias_columns if where_needs_temp_alias else None
                 ),
+                star_except=star_except,
             )
 
         # Renames introduced by this layer: aliases its SELECT actually
@@ -1380,6 +1395,7 @@ class SQLExecutionEngine:
         add_row_order_fallback: bool = False,
         include_star: bool = False,
         where_temp_alias_columns: Optional[List[Tuple[str, str]]] = None,
+        star_except: Optional[List[str]] = None,
     ) -> str:
         """
         Emit SQL for a layer that reads from an explicit FROM source:
@@ -1410,16 +1426,24 @@ class SQLExecutionEngine:
         ``SELECT __tmp_col__ AS col, ...`` so the final result keeps the
         user-visible column names. ORDER BY / LIMIT / OFFSET are pushed to
         the outer layer so they bind to the user-visible names.
+
+        ``star_except`` lists inherited columns ``*`` leaves out.
         """
         wrap_temp_aliases = bool(where_temp_alias_columns)
+        star = "*"
+        if star_except:
+            excluded = ", ".join(
+                format_identifier(c, self.quote_char) for c in star_except
+            )
+            star = f"* EXCEPT ({excluded})"
         if select_fields:
             fields_sql = ", ".join(
                 f.to_sql(quote_char=self.quote_char, with_alias=True)
                 for f in select_fields
             )
-            select_sql = f"*, {fields_sql}" if include_star else fields_sql
+            select_sql = f"{star}, {fields_sql}" if include_star else fields_sql
         else:
-            select_sql = "*"
+            select_sql = star
 
         parts = [f"SELECT {select_sql}", f"FROM {from_source}"]
 
@@ -2300,6 +2324,16 @@ class SQLExecutionEngine:
         preserved_orderby: Optional[List[Tuple[Any, bool]]] = None
         preserved_orderby_kind: Optional[str] = None
         input_columns = list(source_columns) if source_columns else None
+        # A sort key names a column of the layer that sorted. Outer layers
+        # may overwrite or drop that column, so a layer whose order the
+        # next layer keeps also outputs the sorted row position under a
+        # hidden alias, and outer layers order by that position. Hidden
+        # columns in the current output; the last layer leaves them out.
+        from .functions import WindowFunction
+
+        hidden_columns: List[str] = []
+        taken_names: set = set(source_columns or [])
+        last_idx = len(layers) - 1
 
         for layer_idx, layer_ops in enumerate(layers):
             is_first = layer_idx == 0
@@ -2307,6 +2341,14 @@ class SQLExecutionEngine:
                 first_layer_from_source
                 if is_first
                 else f"({sql}) AS __subq{layer_idx}__"
+            )
+            layer_has_agg = any(isinstance(o, LazyGroupByAgg) for o in layer_ops)
+            layer_orderby, layer_orderby_kind = (
+                (None, None)
+                if layer_has_agg
+                else self._layer_orderby(
+                    layer_ops, alias_renames, previously_emitted_renames
+                )
             )
 
             # Derive per-layer select fields so each layer only emits its
@@ -2324,6 +2366,57 @@ class SQLExecutionEngine:
             else:
                 effective_select_fields = layer_sql_select_fields
                 effective_has_assignments = layer_has_column_assignments
+            effective_select_fields = list(effective_select_fields or [])
+            taken_names.update(input_columns or [])
+            taken_names.update(
+                name
+                for name in (projection_name(f) for f in effective_select_fields)
+                if name
+            )
+            projects = bool(effective_select_fields) and not effective_has_assignments
+            is_last = layer_idx == last_idx
+
+            # The preserved order's position column, carried through an
+            # explicit projection of an inner layer.
+            carried = [
+                name
+                for name, _ in (preserved_orderby or [])
+                if isinstance(name, Field) and name.name in hidden_columns
+            ]
+            if layer_has_agg:
+                hidden_columns = []
+            elif projects:
+                hidden_columns = []
+                if not is_last and not layer_orderby:
+                    for f in carried:
+                        effective_select_fields.append(Field(f.name))
+                        hidden_columns.append(f.name)
+
+            sort_position = None
+            if (
+                layer_orderby
+                and not is_last
+                and self._keeps_inner_order(layers[layer_idx + 1])
+            ):
+                sort_position = self._unique_hidden_name("__sort_pos__", taken_names)
+                order_sql = build_orderby_clause(
+                    layer_orderby,
+                    self.quote_char,
+                    stable=is_stable_sort(layer_orderby_kind),
+                )
+                effective_select_fields.append(
+                    WindowFunction("row_number", alias=sort_position).over(
+                        order_by=[_SQLText(order_sql)]
+                    )
+                )
+                if not projects:
+                    effective_has_assignments = True
+                hidden_columns.append(sort_position)
+
+            star_except = None
+            if is_last and not projects and hidden_columns:
+                star_except = list(hidden_columns)
+                hidden_columns = []
 
             result = self._build_layer(
                 layer_ops,
@@ -2338,6 +2431,7 @@ class SQLExecutionEngine:
                 preserved_orderby_kind=(
                     preserved_orderby_kind if not is_first else None
                 ),
+                star_except=star_except,
             )
             sql = result.sql
             alias_renames.update(result.renames_introduced)
@@ -2349,29 +2443,53 @@ class SQLExecutionEngine:
             #   visible downstream (previous source-col renames are gone).
             # - Otherwise propagate previously-emitted forward unchanged
             #   (a non-agg wrapper doesn't introduce new emissions).
-            layer_has_agg = any(isinstance(o, LazyGroupByAgg) for o in layer_ops)
             if layer_has_agg:
                 previously_emitted_renames = dict(result.renames_introduced)
                 preserved_orderby = None
                 preserved_orderby_kind = None
-            else:
-                # WHERE/ORDER BY emissions are not introduced by non-agg
-                # layers; propagate previous map unchanged.
-                layer_clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
-                visible_to_temp = {
-                    orig: temp for temp, orig in previously_emitted_renames.items()
-                }
-                layer_clauses.orderby_fields = rewrite_column_refs_in_orderby(
-                    apply_alias_renames_to_orderby(
-                        layer_clauses.orderby_fields, alias_renames
-                    ),
-                    visible_to_temp,
-                )
-                if layer_clauses.orderby_fields:
-                    preserved_orderby = layer_clauses.orderby_fields
-                    preserved_orderby_kind = layer_clauses.orderby_kind
+            elif sort_position is not None:
+                preserved_orderby = [(Field(sort_position), True)]
+                preserved_orderby_kind = None
+            elif layer_orderby:
+                preserved_orderby = layer_orderby
+                preserved_orderby_kind = layer_orderby_kind
 
         return sql
+
+    def _layer_orderby(
+        self,
+        layer_ops: List[LazyOp],
+        alias_renames: Dict[str, str],
+        previously_emitted_renames: Dict[str, str],
+    ) -> Tuple[List[Tuple[Any, bool]], Optional[str]]:
+        """ORDER BY of a non-aggregating layer, bound to the names it
+        reads, and its sort kind."""
+        layer_clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
+        visible_to_temp = {
+            orig: temp for temp, orig in previously_emitted_renames.items()
+        }
+        orderby = rewrite_column_refs_in_orderby(
+            apply_alias_renames_to_orderby(layer_clauses.orderby_fields, alias_renames),
+            visible_to_temp,
+        )
+        return orderby, layer_clauses.orderby_kind
+
+    def _keeps_inner_order(self, layer_ops: List[LazyOp]) -> bool:
+        """Whether a layer re-applies its input's order: it neither sorts
+        nor aggregates."""
+        if any(isinstance(o, LazyGroupByAgg) for o in layer_ops):
+            return False
+        return not extract_clauses_from_ops(layer_ops, self.quote_char).orderby_fields
+
+    @staticmethod
+    def _unique_hidden_name(base: str, taken: set) -> str:
+        stem = base.strip("_")
+        name, suffix = base, 1
+        while name in taken:
+            name = f"__{stem}_{suffix}__"
+            suffix += 1
+        taken.add(name)
+        return name
 
     def _build_temp_alias_query(
         self,
