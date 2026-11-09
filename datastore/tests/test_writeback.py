@@ -40,6 +40,7 @@ from datastore.exceptions import (
     ExecutionError,
     QueryError,
 )
+from tests.test_utils import assert_frame_equal
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +137,13 @@ def _columns(table: str, db: str = DATABASE, srv: _Server = SOURCE):
     )
     df = _q(sql)
     return list(zip(df["name"], df["type"]))
+
+
+def _assert_written(table: str, expected: pd.DataFrame, key: list) -> None:
+    """Compare a written table with its pandas mirror. A table has no row
+    order, so both sides are ordered by ``key``, which must be unique."""
+    result = _select_all(table, order_by=", ".join(key))
+    assert_frame_equal(result, expected.sort_values(key, ignore_index=True))
 
 
 def _make_ds(table: str = None, db: str = DATABASE, srv: _Server = SOURCE):
@@ -645,6 +653,275 @@ class TestToClickHouseDataFrameUpload:
 
 
 # ============================================================================
+# Pipelines the executor runs in several stages
+# ============================================================================
+
+
+def _dependent_assignment(frame):
+    frame["c"] = frame["amount"] * 2
+    frame["d"] = frame["c"] + 1
+    return frame
+
+
+def _reassign_twice(frame):
+    frame["c"] = frame["amount"] * 2
+    frame["c"] = frame["c"] + 1
+    return frame
+
+
+MULTI_STAGE_CHAINS = [
+    pytest.param(_dependent_assignment, id="d_reads_c"),
+    pytest.param(_reassign_twice, id="c_reassigned"),
+]
+
+
+class TestMultiStagePipeline:
+    """Every op here is SQL-compatible, but the planner splits the chain into
+    several segments: an assignment that reads or overwrites a column assigned
+    in the same segment starts a new one. No single SELECT reproduces such a
+    plan, so writeback must not emit one that covers only the first stage."""
+
+    @pytest.mark.parametrize("if_exists", ["fail", "replace", "append"])
+    @pytest.mark.parametrize("chain", MULTI_STAGE_CHAINS)
+    def test_to_clickhouse_matches_pandas(self, source_table, chain, if_exists):
+        target = "wb_multi_stage"
+        _drop(target)
+        try:
+            expected = chain(_select_all(source_table, order_by="city, amount"))
+            ds = chain(_make_ds(source_table))
+            ds.to_clickhouse(f"{DATABASE}.{target}", if_exists=if_exists)
+            result = _select_all(target, order_by="city, amount")
+            assert_frame_equal(result, expected)
+        finally:
+            _drop(target)
+
+    @pytest.mark.parametrize("chain", MULTI_STAGE_CHAINS)
+    def test_save_table_matches_pandas(self, source_table, chain):
+        target = "wb_multi_stage_save"
+        _drop(target)
+        try:
+            expected = chain(_select_all(source_table, order_by="city, amount"))
+            chain(_make_ds(source_table)).save(f"{DATABASE}.{target}")
+            result = _select_all(target, order_by="city, amount")
+            assert_frame_equal(result, expected)
+        finally:
+            _drop(target)
+
+    @pytest.mark.parametrize("chain", MULTI_STAGE_CHAINS)
+    def test_create_view_rejected(self, source_table, chain):
+        view = "wb_multi_stage_view"
+        _drop_view(view)
+        try:
+            ds = chain(_make_ds(source_table))
+            with pytest.raises(QueryError, match="single SQL query"):
+                ds.create_view(f"{DATABASE}.{view}")
+            assert not ds._check_remote_table_exists(DATABASE, view)
+        finally:
+            _drop_view(view)
+
+    @pytest.mark.parametrize("chain", MULTI_STAGE_CHAINS)
+    def test_create_materialized_view_rejected(self, source_table, chain):
+        mv = "wb_multi_stage_mv"
+        target = "wb_multi_stage_mv_target"
+        _drop_view(mv)
+        _drop(target)
+        try:
+            ds = chain(_make_ds(source_table))
+            with pytest.raises(QueryError, match="single SQL query"):
+                ds.create_materialized_view(
+                    f"{DATABASE}.{mv}", to=f"{DATABASE}.{target}",
+                )
+            assert not ds._check_remote_table_exists(DATABASE, mv)
+            assert not ds._check_remote_table_exists(DATABASE, target)
+        finally:
+            _drop_view(mv)
+            _drop(target)
+
+    def test_single_stage_assignment_stays_server_side(self, source_table):
+        """Independent assignments share one segment, so they keep the
+        server-side CREATE ... AS SELECT path."""
+        target = "wb_single_stage"
+        _drop(target)
+        try:
+            expected = _select_all(source_table, order_by="city, amount")
+            expected["c"] = expected["amount"] * 2
+            expected["d"] = expected["amount"] + 1
+            ds = _make_ds(source_table)
+            ds["c"] = ds["amount"] * 2
+            ds["d"] = ds["amount"] + 1
+            assert ds._is_fully_sql_pushable()
+            ds.to_clickhouse(f"{DATABASE}.{target}", if_exists="replace")
+            result = _select_all(target, order_by="city, amount")
+            assert_frame_equal(result, expected)
+        finally:
+            _drop(target)
+
+    @pytest.mark.parametrize("chain", MULTI_STAGE_CHAINS)
+    def test_replace_existing_target_refused_and_left_unchanged(
+        self, source_table, chain
+    ):
+        """The upload path cannot replace atomically, so an existing target
+        must be refused and keep its rows rather than get a partial write."""
+        target = "wb_multi_stage_existing"
+        _drop(target)
+        try:
+            ds = _make_ds(source_table)
+            ds.filter(ds["status"] == "pending").to_clickhouse(
+                f"{DATABASE}.{target}"
+            )
+            before = _select_all(target, order_by="city, amount")
+            with pytest.raises(QueryError, match="Cannot atomically replace"):
+                chain(_make_ds(source_table)).to_clickhouse(
+                    f"{DATABASE}.{target}", if_exists="replace",
+                )
+            assert_frame_equal(_select_all(target, order_by="city, amount"), before)
+            assert {name for name, _ in _columns(target)} == {
+                "city", "amount", "status",
+            }
+        finally:
+            _drop(target)
+
+    def test_column_selection_after_dependent_assignment(self, source_table):
+        target = "wb_multi_stage_projection"
+        _drop(target)
+        try:
+            expected = _dependent_assignment(
+                _select_all(source_table, order_by="city, amount")
+            )[["city", "amount", "d"]]
+            ds = _dependent_assignment(_make_ds(source_table))
+            ds[["city", "amount", "d"]].to_clickhouse(f"{DATABASE}.{target}")
+            result = _select_all(target, order_by="city, amount")
+            assert_frame_equal(result, expected)
+        finally:
+            _drop(target)
+
+    def test_schema_evolution_append_adds_dependent_columns(self, source_table):
+        """Appending a multi-stage pipeline with schema evolution must add
+        both computed columns, not just the first stage's. The pipeline is
+        uploaded, so the new columns get the uploaded frame's Nullable types
+        and the pre-existing rows read back as NULL."""
+        target = "wb_multi_stage_evolution"
+        _drop(target)
+        try:
+            _make_ds(source_table).to_clickhouse(f"{DATABASE}.{target}")
+            _dependent_assignment(_make_ds(source_table)).to_clickhouse(
+                f"{DATABASE}.{target}", if_exists="append",
+                enable_schema_evolution=True,
+            )
+            source = _select_all(source_table, order_by="city, amount")
+            existing = source.assign(c=float("nan"), d=float("nan"))
+            appended = _dependent_assignment(source.copy())
+            expected = pd.concat([existing, appended])
+            _assert_written(target, expected, ["city", "amount", "c"])
+        finally:
+            _drop(target)
+
+
+# ============================================================================
+# LazySQLQuery pipelines (ds.sql(...), SQL-style groupby().agg())
+# ============================================================================
+
+
+class TestLazySQLQueryWriteback:
+    """``ds.sql(...)`` carries its query only in the lazy op, so the flat
+    SELECT does not render it; such pipelines must be materialized rather
+    than written as the bare source. A SQL-style ``groupby().agg()`` is
+    rendered by the flat SELECT and stays server-side."""
+
+    def test_sql_filter_matches_pandas(self, source_table):
+        target = "wb_sql_filter"
+        _drop(target)
+        try:
+            source = _select_all(source_table, order_by="city, amount")
+            expected = source[source["amount"] > 150]
+            _make_ds(source_table).sql("amount > 150").to_clickhouse(
+                f"{DATABASE}.{target}"
+            )
+            _assert_written(target, expected, ["city", "amount"])
+        finally:
+            _drop(target)
+
+    def test_sql_filter_then_assignment_matches_pandas(self, source_table):
+        target = "wb_sql_filter_assign"
+        _drop(target)
+        try:
+            source = _select_all(source_table, order_by="city, amount")
+            expected = source[source["amount"] > 150].copy()
+            expected["c"] = expected["amount"] * 2
+            ds = _make_ds(source_table).sql("amount > 150")
+            ds["c"] = ds["amount"] * 2
+            ds.to_clickhouse(f"{DATABASE}.{target}", if_exists="replace")
+            _assert_written(target, expected, ["city", "amount"])
+        finally:
+            _drop(target)
+
+    def test_sql_filter_view_rejected(self, source_table):
+        view = "wb_sql_filter_view"
+        _drop_view(view)
+        try:
+            ds = _make_ds(source_table).sql("amount > 150")
+            with pytest.raises(QueryError, match="Cannot create VIEW"):
+                ds.create_view(f"{DATABASE}.{view}")
+            assert not ds._check_remote_table_exists(DATABASE, view)
+        finally:
+            _drop_view(view)
+
+    def test_sql_filter_materialized_view_rejected(self, source_table):
+        mv = "wb_sql_filter_mv"
+        target = "wb_sql_filter_mv_target"
+        _drop_view(mv)
+        _drop(target)
+        try:
+            ds = _make_ds(source_table).sql("amount > 150")
+            with pytest.raises(QueryError, match="Cannot create MATERIALIZED VIEW"):
+                ds.create_materialized_view(
+                    f"{DATABASE}.{mv}", to=f"{DATABASE}.{target}",
+                )
+            assert not ds._check_remote_table_exists(DATABASE, target)
+        finally:
+            _drop_view(mv)
+            _drop(target)
+
+    def test_filter_then_sql_agg_stays_server_side(self, source_table):
+        target = "wb_sql_agg_server_side"
+        _drop(target)
+        try:
+            source = _select_all(source_table, order_by="city, amount")
+            completed = source[source["status"] == "completed"]
+            expected = completed.groupby("city", as_index=False).agg(
+                total=("amount", "sum")
+            )
+            ds = _make_ds(source_table)
+            summary = (ds.filter(ds["status"] == "completed")
+                         .groupby("city")
+                         .agg(total=col("amount").sum()))
+            assert summary._is_fully_sql_pushable()
+            summary.to_clickhouse(f"{DATABASE}.{target}")
+            _assert_written(target, expected, ["city"])
+        finally:
+            _drop(target)
+
+    def test_filter_applied_to_sql_agg_result_matches_pandas(self, source_table):
+        """A filter on the aggregated result is not part of the flat SELECT
+        (which would turn it into a pre-aggregation WHERE)."""
+        target = "wb_sql_agg_then_filter"
+        _drop(target)
+        try:
+            source = _select_all(source_table, order_by="city, amount")
+            totals = source.groupby("city", as_index=False).agg(
+                total=("amount", "sum")
+            )
+            expected = totals[totals["total"] > 400]
+            summary = _make_ds(source_table).groupby("city").agg(
+                total=col("amount").sum()
+            )
+            summary[summary["total"] > 400].to_clickhouse(f"{DATABASE}.{target}")
+            _assert_written(target, expected, ["city"])
+        finally:
+            _drop(target)
+
+
+# ============================================================================
 # to_clickhouse — pure in-memory DataFrame source (no ClickHouse connection)
 # ============================================================================
 
@@ -905,6 +1182,43 @@ class TestToClickHouseLocalDataFrame:
         ds = DataStore.from_df(_local_df())
         with pytest.raises(DataStoreError, match="in-memory DataFrame"):
             ds.to_clickhouse(f"{DATABASE}.wb_localdf_fromdf_nohost")
+
+    @pytest.mark.parametrize("ds_chain, pd_chain", [
+        pytest.param(
+            lambda d: d.assign(k=d["amount"] * 2).sort_values("amount"),
+            lambda d: d.assign(k=d["amount"] * 2).sort_values("amount"),
+            id="assign_sort",
+        ),
+        pytest.param(
+            lambda d: d.assign(k=col("amount") * 2),
+            lambda d: d.assign(k=d["amount"] * 2),
+            id="assign_col",
+        ),
+        pytest.param(
+            lambda d: d[d["amount"] > 150],
+            lambda d: d[d["amount"] > 150],
+            id="filter",
+        ),
+    ])
+    def test_from_df_sql_ops_are_uploaded(self, ds_chain, pd_chain):
+        """SQL-compatible ops on a from_df source run against Python(df), which
+        only this process can read, so they must be uploaded rather than sent
+        to the server as a SELECT."""
+        target = "wb_localdf_fromdf_sql_ops"
+        _drop(target)
+        try:
+            df = pd.DataFrame({
+                "city": ["Shanghai", "Beijing", "Guangzhou"],
+                "amount": [300.0, 100.0, 400.0],
+            })
+            expected = pd_chain(df.copy())
+            ds_chain(DataStore.from_df(df)).to_clickhouse(
+                f"{DATABASE}.{target}",
+                host=HOST, user=USER, password=PASSWORD,
+            )
+            _assert_written(target, expected, ["city"])
+        finally:
+            _drop(target)
 
 
 @requires_target
