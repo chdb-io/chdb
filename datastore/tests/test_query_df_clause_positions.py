@@ -39,3 +39,25 @@ def test_sort_by_comparison_with_literal_like_a_clause(word):
 
     pdf = pd.DataFrame({"s": ["a", word, "b", word], "v": [3, 2, 1, 0]})
     assert_datastore_equals_pandas(chain(DataStore(pdf.copy())), chain(pdf))
+
+
+COMMENTED_QUERIES = [
+    pytest.param("SELECT * FROM __df__ /* it's */ ORDER BY v", id="block"),
+    pytest.param("SELECT * FROM __df__ -- it's\nORDER BY v", id="line"),
+    pytest.param("SELECT * FROM __df__ # it's\nORDER BY v", id="hash"),
+    pytest.param("SELECT * FROM __df__ /* a /* it's */ b */ ORDER BY v", id="nested"),
+    pytest.param("SELECT * /* it's */ FROM __df__ ORDER BY v -- it's", id="trailing"),
+]
+
+
+@pytest.mark.parametrize("query", COMMENTED_QUERIES)
+def test_sql_with_apostrophe_in_comment(query):
+    pdf = pd.DataFrame({"v": [3, 1, 2, 1], "k": [0, 1, 2, 3]})
+    ds_result = DataStore(pdf.copy()).sql(query)
+    assert_datastore_equals_pandas(ds_result, pdf.sort_values("v", kind="stable"))
+
+
+def test_sql_ending_in_line_comment_keeps_row_order():
+    pdf = pd.DataFrame({"v": list(range(50)), "k": [i % 3 for i in range(50)]})
+    ds_result = DataStore(pdf.copy()).sql("SELECT * FROM __df__ WHERE k > 0 -- it's")
+    assert_datastore_equals_pandas(ds_result, pdf[pdf["k"] > 0])
