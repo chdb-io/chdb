@@ -837,6 +837,155 @@ def col(name: str) -> Field:
     return Field(name)
 
 
+def is_star_item(item: Any) -> bool:
+    """Whether ``item`` is the ``"*"`` marker of a SELECT field list.
+
+    ``Field.__eq__`` builds a condition, so ``field == "*"`` is truthy and
+    must never be used to detect the marker.
+    """
+    return isinstance(item, str) and item.strip() == "*"
+
+
+def projection_name(item: Any) -> Optional[str]:
+    """Output column name of a SELECT field list item, or None if unnamed."""
+    if isinstance(item, str):
+        return item.strip('"')
+    alias = getattr(item, "alias", None)
+    if alias:
+        return alias
+    if isinstance(item, Field):
+        return item.name.strip('"')
+    return None
+
+
+def bind_projection_item(items: List[Any], item: Any) -> None:
+    """Bind ``item`` into an ordered SELECT list.
+
+    An item whose output name is already in the list replaces that entry in
+    place (pandas ``df[col] = ...`` keeps the column position); otherwise it is
+    appended.
+    """
+    name = projection_name(item)
+    if name is not None:
+        for i, existing in enumerate(items):
+            if projection_name(existing) == name:
+                items[i] = item
+                return
+    items.append(item)
+
+
+def resolve_computed_references(
+    expr: Optional["Expression"], computed: dict, _visited: set = None
+) -> Optional["Expression"]:
+    """
+    Recursively expand references to computed columns in an expression.
+
+    Args:
+        expr: Expression to resolve
+        computed: Column name -> expression defining it
+        _visited: Names being expanded; a reference to one of them (e.g.
+            ``a = a + 1``) is kept as a plain column reference.
+
+    Returns:
+        Expression with computed column references expanded
+    """
+    from .functions import Function
+    from copy import copy
+
+    if expr is None:
+        return None
+
+    # Initialize visited set on first call
+    if _visited is None:
+        _visited = set()
+
+    # If it's a Field that references a computed column, expand it
+    if isinstance(expr, Field):
+        col_name = expr.name.strip("\"'")  # Remove quotes if present
+        if col_name in computed:
+            # Check for circular reference to prevent infinite recursion
+            # This happens when overwriting a column: a = a + 1, then a = a * 2
+            # In this case, we should NOT expand the reference - just use the Field as-is
+            if col_name in _visited:
+                return expr
+            # Mark this column as being visited
+            _visited.add(col_name)
+            try:
+                # Recursively resolve the computed column's expression
+                resolved = resolve_computed_references(
+                    computed[col_name], computed, _visited
+                )
+                # Preserve any alias from the original Field
+                if expr.alias:
+                    resolved = copy(resolved)
+                    resolved.alias = expr.alias
+                return resolved
+            finally:
+                # Remove from visited after processing (allow re-visiting in different branches)
+                _visited.discard(col_name)
+        return expr
+
+    # For ArithmeticExpression, recursively resolve left and right
+    if isinstance(expr, ArithmeticExpression):
+        resolved_left = resolve_computed_references(expr.left, computed, _visited)
+        resolved_right = resolve_computed_references(expr.right, computed, _visited)
+        # Only create new expression if something changed
+        if resolved_left is expr.left and resolved_right is expr.right:
+            return expr
+        result = ArithmeticExpression(
+            expr.operator, resolved_left, resolved_right, expr.alias
+        )
+        return result
+
+    # For Function, recursively resolve all arguments
+    if isinstance(expr, Function):
+        resolved_args = [
+            resolve_computed_references(arg, computed, _visited) for arg in expr.args
+        ]
+        # Only create new function if something changed
+        if all(r is o for r, o in zip(resolved_args, expr.args)):
+            return expr
+        result = Function(
+            expr.name,
+            *resolved_args,
+            alias=expr.alias,
+            pandas_name=getattr(expr, "pandas_name", None),
+            pandas_kwargs=getattr(expr, "pandas_kwargs", {}),
+        )
+        return result
+
+    # For BinaryCondition (e.g., x > 5, a = b), resolve both sides
+    from .conditions import BinaryCondition, CompoundCondition, NullSafeCondition
+
+    if isinstance(expr, BinaryCondition):
+        resolved_left = resolve_computed_references(expr.left, computed, _visited)
+        resolved_right = resolve_computed_references(expr.right, computed, _visited)
+        if resolved_left is expr.left and resolved_right is expr.right:
+            return expr
+        result = BinaryCondition(
+            expr.operator, resolved_left, resolved_right, expr.alias
+        )
+        return result
+
+    # For CompoundCondition (AND, OR), resolve both sides
+    if isinstance(expr, CompoundCondition):
+        resolved_left = resolve_computed_references(expr.left, computed, _visited)
+        resolved_right = resolve_computed_references(expr.right, computed, _visited)
+        if resolved_left is expr.left and resolved_right is expr.right:
+            return expr
+        result = CompoundCondition(expr.operator, resolved_left, resolved_right)
+        return result
+
+    if isinstance(expr, NullSafeCondition):
+        resolved = resolve_computed_references(expr.condition, computed, _visited)
+        if resolved is expr.condition:
+            return expr
+        return NullSafeCondition(resolved, expr.alias)
+
+    # For Literal and other types, return as-is
+    return expr
+
+
 class DateTimePropertyExpr(Expression):
     """
     Expression representing a datetime accessor property (.dt.year, .dt.month, etc.)

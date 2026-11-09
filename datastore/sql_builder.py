@@ -150,9 +150,21 @@ class SQLLayer:
         select_items = []
 
         if self.explicit_columns is not None:
-            # Explicit column selection mode
+            # Explicit column selection: computed columns replace a selected
+            # column of the same name in place, others follow the selection.
+            computed_by_name = dict(self.computed_columns)
             for col in self.explicit_columns:
-                select_items.append(f"{quote_char}{col}{quote_char}")
+                if col in computed_by_name:
+                    expr_sql = computed_by_name[col].to_sql(quote_char=quote_char)
+                    select_items.append(f"({expr_sql}) AS {quote_char}{col}{quote_char}")
+                else:
+                    select_items.append(f"{quote_char}{col}{quote_char}")
+            for name, expr in self.computed_columns:
+                if name in self.explicit_columns:
+                    continue
+                expr_sql = expr.to_sql(quote_char=quote_char)
+                select_items.append(f"({expr_sql}) AS {quote_char}{name}{quote_char}")
+            return select_items
         else:
             # Build computed column lookup for in-place replacement
             computed_by_name = {name: expr for name, expr in self.computed_columns}
@@ -435,6 +447,11 @@ class SQLBuilder:
         self.current_layer.explicit_columns = columns
         return self
 
+    def wrap_layer(self) -> "SQLBuilder":
+        """Start a new outer layer that reads the current one as a subquery."""
+        self._wrap_current_layer()
+        return self
+
     def _wrap_current_layer(self) -> None:
         """
         Wrap the current layer as a subquery, creating a new outer layer.
@@ -446,20 +463,24 @@ class SQLBuilder:
         """
         self._alias_counter += 1
 
-        # Update known columns: add current layer's computed columns
-        new_known = self._known_columns | self.current_layer.get_computed_column_names()
-        self._known_columns = new_known
-        # Update column order - add new computed columns to the end
-        if self._known_column_order is not None:
-            new_cols = [
-                c
-                for c in self.current_layer.get_computed_column_names()
-                if c not in self._known_column_order
+        # The new layer's input columns are the wrapped layer's output columns.
+        layer = self.current_layer
+        computed_names = [name for name, _ in layer.computed_columns]
+        if layer.explicit_columns is not None:
+            base_order = list(layer.explicit_columns)
+        else:
+            base_order = self._known_column_order
+        if base_order is not None:
+            self._known_column_order = base_order + [
+                c for c in computed_names if c not in base_order
             ]
-            self._known_column_order = self._known_column_order + new_cols
+            self._known_columns = set(self._known_column_order)
+        else:
+            self._known_columns = self._known_columns | set(computed_names)
 
-        # Create new outer layer with current layer as source
-        self.current_layer = SQLLayer(source=self.current_layer)
+        self.current_layer = SQLLayer(
+            source=layer, known_column_order=self._known_column_order
+        )
 
     def build(self, quote_char: str = '"') -> str:
         """

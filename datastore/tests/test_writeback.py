@@ -653,7 +653,7 @@ class TestToClickHouseDataFrameUpload:
 
 
 # ============================================================================
-# Pipelines the executor runs in several stages
+# Assignments that read or overwrite a column assigned just before
 # ============================================================================
 
 
@@ -669,35 +669,36 @@ def _reassign_twice(frame):
     return frame
 
 
-MULTI_STAGE_CHAINS = [
+LAYERED_CHAINS = [
     pytest.param(_dependent_assignment, id="d_reads_c"),
     pytest.param(_reassign_twice, id="c_reassigned"),
 ]
 
 
-class TestMultiStagePipeline:
-    """Every op here is SQL-compatible, but the planner splits the chain into
-    several segments: an assignment that reads or overwrites a column assigned
-    in the same segment starts a new one. No single SELECT reproduces such a
-    plan, so writeback must not emit one that covers only the first stage."""
+class TestLayeredAssignmentPipeline:
+    """An assignment that reads or overwrites a column assigned in the same
+    query gets its own subquery layer, so the whole chain is one SQL query.
+    Writeback must emit that full layered query: a single flat SELECT would
+    bind the later expressions to the source columns."""
 
     @pytest.mark.parametrize("if_exists", ["fail", "replace", "append"])
-    @pytest.mark.parametrize("chain", MULTI_STAGE_CHAINS)
+    @pytest.mark.parametrize("chain", LAYERED_CHAINS)
     def test_to_clickhouse_matches_pandas(self, source_table, chain, if_exists):
-        target = "wb_multi_stage"
+        target = "wb_layered"
         _drop(target)
         try:
             expected = chain(_select_all(source_table, order_by="city, amount"))
             ds = chain(_make_ds(source_table))
+            assert ds._is_fully_sql_pushable()
             ds.to_clickhouse(f"{DATABASE}.{target}", if_exists=if_exists)
             result = _select_all(target, order_by="city, amount")
             assert_frame_equal(result, expected)
         finally:
             _drop(target)
 
-    @pytest.mark.parametrize("chain", MULTI_STAGE_CHAINS)
+    @pytest.mark.parametrize("chain", LAYERED_CHAINS)
     def test_save_table_matches_pandas(self, source_table, chain):
-        target = "wb_multi_stage_save"
+        target = "wb_layered_save"
         _drop(target)
         try:
             expected = chain(_select_all(source_table, order_by="city, amount"))
@@ -707,40 +708,63 @@ class TestMultiStagePipeline:
         finally:
             _drop(target)
 
-    @pytest.mark.parametrize("chain", MULTI_STAGE_CHAINS)
-    def test_create_view_rejected(self, source_table, chain):
-        view = "wb_multi_stage_view"
+    @pytest.mark.parametrize("chain", LAYERED_CHAINS)
+    def test_create_view_matches_pandas(self, source_table, chain):
+        view = "wb_layered_view"
         _drop_view(view)
         try:
-            ds = chain(_make_ds(source_table))
-            with pytest.raises(QueryError, match="single SQL query"):
-                ds.create_view(f"{DATABASE}.{view}")
-            assert not ds._check_remote_table_exists(DATABASE, view)
+            expected = chain(_select_all(source_table, order_by="city, amount"))
+            chain(_make_ds(source_table)).create_view(f"{DATABASE}.{view}")
+            result = _select_all(view, order_by="city, amount")
+            assert_frame_equal(result, expected)
         finally:
             _drop_view(view)
 
-    @pytest.mark.parametrize("chain", MULTI_STAGE_CHAINS)
-    def test_create_materialized_view_rejected(self, source_table, chain):
-        mv = "wb_multi_stage_mv"
-        target = "wb_multi_stage_mv_target"
+    @pytest.mark.parametrize("chain", LAYERED_CHAINS)
+    def test_create_materialized_view_matches_pandas(self, source_table, chain):
+        mv = "wb_layered_mv"
+        target = "wb_layered_mv_target"
         _drop_view(mv)
         _drop(target)
         try:
-            ds = chain(_make_ds(source_table))
-            with pytest.raises(QueryError, match="single SQL query"):
-                ds.create_materialized_view(
-                    f"{DATABASE}.{mv}", to=f"{DATABASE}.{target}",
-                )
-            assert not ds._check_remote_table_exists(DATABASE, mv)
-            assert not ds._check_remote_table_exists(DATABASE, target)
+            chain(_make_ds(source_table)).create_materialized_view(
+                f"{DATABASE}.{mv}", to=f"{DATABASE}.{target}",
+            )
+            _ddl(
+                f'INSERT INTO "{DATABASE}"."{source_table}" VALUES '
+                f"('Hangzhou', 777.0, 'completed')"
+            )
+            inserted = _q(
+                f"SELECT * FROM {_remote_func(SOURCE, DATABASE, source_table)} "
+                f"WHERE city = 'Hangzhou'"
+            )
+            assert_frame_equal(_select_all(target), chain(inserted))
         finally:
             _drop_view(mv)
             _drop(target)
 
-    def test_single_stage_assignment_stays_server_side(self, source_table):
-        """Independent assignments share one segment, so they keep the
-        server-side CREATE ... AS SELECT path."""
-        target = "wb_single_stage"
+    @pytest.mark.parametrize("chain", LAYERED_CHAINS)
+    def test_replace_existing_target_matches_pandas(self, source_table, chain):
+        """The query runs server-side, so replacing an existing target is
+        allowed and swaps in the full result."""
+        target = "wb_layered_existing"
+        _drop(target)
+        try:
+            ds = _make_ds(source_table)
+            ds.filter(ds["status"] == "pending").to_clickhouse(
+                f"{DATABASE}.{target}"
+            )
+            expected = chain(_select_all(source_table, order_by="city, amount"))
+            chain(_make_ds(source_table)).to_clickhouse(
+                f"{DATABASE}.{target}", if_exists="replace",
+            )
+            result = _select_all(target, order_by="city, amount")
+            assert_frame_equal(result, expected)
+        finally:
+            _drop(target)
+
+    def test_independent_assignments_stay_server_side(self, source_table):
+        target = "wb_independent_assignments"
         _drop(target)
         try:
             expected = _select_all(source_table, order_by="city, amount")
@@ -756,33 +780,8 @@ class TestMultiStagePipeline:
         finally:
             _drop(target)
 
-    @pytest.mark.parametrize("chain", MULTI_STAGE_CHAINS)
-    def test_replace_existing_target_refused_and_left_unchanged(
-        self, source_table, chain
-    ):
-        """The upload path cannot replace atomically, so an existing target
-        must be refused and keep its rows rather than get a partial write."""
-        target = "wb_multi_stage_existing"
-        _drop(target)
-        try:
-            ds = _make_ds(source_table)
-            ds.filter(ds["status"] == "pending").to_clickhouse(
-                f"{DATABASE}.{target}"
-            )
-            before = _select_all(target, order_by="city, amount")
-            with pytest.raises(QueryError, match="Cannot atomically replace"):
-                chain(_make_ds(source_table)).to_clickhouse(
-                    f"{DATABASE}.{target}", if_exists="replace",
-                )
-            assert_frame_equal(_select_all(target, order_by="city, amount"), before)
-            assert {name for name, _ in _columns(target)} == {
-                "city", "amount", "status",
-            }
-        finally:
-            _drop(target)
-
     def test_column_selection_after_dependent_assignment(self, source_table):
-        target = "wb_multi_stage_projection"
+        target = "wb_layered_projection"
         _drop(target)
         try:
             expected = _dependent_assignment(
@@ -796,11 +795,10 @@ class TestMultiStagePipeline:
             _drop(target)
 
     def test_schema_evolution_append_adds_dependent_columns(self, source_table):
-        """Appending a multi-stage pipeline with schema evolution must add
-        both computed columns, not just the first stage's. The pipeline is
-        uploaded, so the new columns get the uploaded frame's Nullable types
-        and the pre-existing rows read back as NULL."""
-        target = "wb_multi_stage_evolution"
+        """Appending with schema evolution must add both computed columns.
+        The append runs server-side, so the new columns take the pipeline's
+        types and the pre-existing rows read back as their zero default."""
+        target = "wb_layered_evolution"
         _drop(target)
         try:
             _make_ds(source_table).to_clickhouse(f"{DATABASE}.{target}")
@@ -809,10 +807,89 @@ class TestMultiStagePipeline:
                 enable_schema_evolution=True,
             )
             source = _select_all(source_table, order_by="city, amount")
-            existing = source.assign(c=float("nan"), d=float("nan"))
+            existing = source.assign(c=0.0, d=0.0)
             appended = _dependent_assignment(source.copy())
             expected = pd.concat([existing, appended])
             _assert_written(target, expected, ["city", "amount", "c"])
+        finally:
+            _drop(target)
+
+
+# ============================================================================
+# Pipelines the executor runs in several stages
+# ============================================================================
+
+
+def _sql_filter_then_dependent_assignment(ds):
+    ds = ds.sql("amount > 150")
+    return _dependent_assignment(ds)
+
+
+class TestMultiStagePipeline:
+    """``ds.sql(...)`` runs on the first stage's result, so the assignments
+    after it run as a later stage. No single SELECT reproduces such a plan,
+    so writeback must not emit one that covers only the first stage."""
+
+    def test_to_clickhouse_matches_pandas(self, source_table):
+        target = "wb_multi_stage"
+        _drop(target)
+        try:
+            source = _select_all(source_table, order_by="city, amount")
+            expected = _dependent_assignment(source[source["amount"] > 150].copy())
+            ds = _sql_filter_then_dependent_assignment(_make_ds(source_table))
+            assert not ds._is_fully_sql_pushable()
+            ds.to_clickhouse(f"{DATABASE}.{target}")
+            _assert_written(target, expected, ["city", "amount"])
+        finally:
+            _drop(target)
+
+    def test_create_view_rejected(self, source_table):
+        view = "wb_multi_stage_view"
+        _drop_view(view)
+        try:
+            ds = _sql_filter_then_dependent_assignment(_make_ds(source_table))
+            with pytest.raises(QueryError, match="single SQL query"):
+                ds.create_view(f"{DATABASE}.{view}")
+            assert not ds._check_remote_table_exists(DATABASE, view)
+        finally:
+            _drop_view(view)
+
+    def test_create_materialized_view_rejected(self, source_table):
+        mv = "wb_multi_stage_mv"
+        target = "wb_multi_stage_mv_target"
+        _drop_view(mv)
+        _drop(target)
+        try:
+            ds = _sql_filter_then_dependent_assignment(_make_ds(source_table))
+            with pytest.raises(QueryError, match="single SQL query"):
+                ds.create_materialized_view(
+                    f"{DATABASE}.{mv}", to=f"{DATABASE}.{target}",
+                )
+            assert not ds._check_remote_table_exists(DATABASE, mv)
+            assert not ds._check_remote_table_exists(DATABASE, target)
+        finally:
+            _drop_view(mv)
+            _drop(target)
+
+    def test_replace_existing_target_refused_and_left_unchanged(self, source_table):
+        """The upload path cannot replace atomically, so an existing target
+        must be refused and keep its rows rather than get a partial write."""
+        target = "wb_multi_stage_existing"
+        _drop(target)
+        try:
+            ds = _make_ds(source_table)
+            ds.filter(ds["status"] == "pending").to_clickhouse(
+                f"{DATABASE}.{target}"
+            )
+            before = _select_all(target, order_by="city, amount")
+            with pytest.raises(QueryError, match="Cannot atomically replace"):
+                _sql_filter_then_dependent_assignment(
+                    _make_ds(source_table)
+                ).to_clickhouse(f"{DATABASE}.{target}", if_exists="replace")
+            assert_frame_equal(_select_all(target, order_by="city, amount"), before)
+            assert {name for name, _ in _columns(target)} == {
+                "city", "amount", "status",
+            }
         finally:
             _drop(target)
 
