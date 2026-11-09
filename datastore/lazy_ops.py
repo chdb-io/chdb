@@ -170,7 +170,7 @@ class LazyColumnAssignment(LazyOp):
         column: str,
         expr: Union[Expression, Any],
         null_as_nan: Optional[bool] = None,
-        evaluate_on_source: bool = False,
+        source: Optional["DataStore"] = None,
     ):
         """
         Args:
@@ -181,16 +181,16 @@ class LazyColumnAssignment(LazyOp):
                 (so pandas compares it as False). ``None`` means unknown;
                 ``DataStore._add_lazy_op`` fills it from the pipeline's
                 source dtypes.
-            evaluate_on_source: ``expr`` is a ColumnExpr of another
-                DataStore (or of other rows): it is evaluated on its own
-                DataStore and assigned aligned by index, as pandas assigns
-                a Series.
+            source: When set, ``expr`` is a ColumnExpr of another DataStore
+                (or of other rows or column values): it is evaluated on this
+                snapshot of its DataStore, taken when it was assigned, and
+                assigned aligned by index, as pandas assigns a Series.
         """
         super().__init__()
         self.column = column
         self.expr = expr
         self.null_as_nan = null_as_nan
-        self.evaluate_on_source = evaluate_on_source
+        self.source = source
 
     def transform_columns(self, columns: List[str]) -> List[str]:
         """Add the assigned column if it doesn't exist."""
@@ -205,12 +205,12 @@ class LazyColumnAssignment(LazyOp):
         self._log_execute("ColumnAssignment", f"column='{self.column}'")
         df = df.copy()  # Don't modify input
 
-        if self.evaluate_on_source:
-            value = self.expr._execute()
+        # Use unified expression evaluator (respects function_config)
+        if self.source is not None:
+            evaluator = ExpressionEvaluator(self.source._execute(), self.source)
         else:
-            # Use unified expression evaluator (respects function_config)
             evaluator = ExpressionEvaluator(df, context)
-            value = evaluator.evaluate(self.expr)
+        value = evaluator.evaluate(self.expr)
 
         # Assign
         df[self.column] = value
@@ -358,7 +358,7 @@ class LazyColumnAssignment(LazyOp):
         from .column_expr import ColumnExpr
         from .functions import Function
 
-        if self.evaluate_on_source:
+        if self.source is not None:
             return False
 
         # Check for pandas-specific kwargs that can't be properly expressed in SQL

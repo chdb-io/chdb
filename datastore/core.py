@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from datetime import datetime, date
 import pandas as pd
 import numpy as np
-from typing import Any, Optional, List, Dict, Union, TYPE_CHECKING
+from typing import Any, Optional, List, Dict, Tuple, Union, TYPE_CHECKING
 from copy import copy
 
 if TYPE_CHECKING:
@@ -85,6 +85,70 @@ def _clickhouse_type_null_is_nan(ch_type: str) -> bool:
     return inner.startswith(("Float", "String", "FixedString", "Date"))
 
 
+def _columns_read(value) -> Optional[set]:
+    """Names of the columns a ColumnExpr or expression reads; None if unknown."""
+    from .column_expr import ColumnExpr
+
+    if isinstance(value, Expression):
+        return {f.name.strip('"') for f in value.find(Field)}
+    if not isinstance(value, ColumnExpr):
+        return None if _is_lazy_value(value) else set()
+    if value._exec_mode == "expr":
+        parts = [value._expr]
+    elif value._exec_mode in ("method", "agg"):
+        parts = [value._source, *value._method_args, *value._method_kwargs.values()]
+    elif value._exec_mode == "op":
+        parts = [value._op_source, *value._op_args, *value._op_kwargs.values()]
+    else:
+        return None
+    names = set()
+    for part in parts:
+        part_names = _columns_read(part)
+        if part_names is None:
+            return None
+        names |= part_names
+    return names
+
+
+def _keeps_read_columns(op, reads: Optional[set], rowwise: bool) -> bool:
+    """
+    Whether ``op`` keeps the values of the columns in ``reads`` (``None``:
+    unknown columns) and, unless ``rowwise``, the rows.
+    """
+    from .expressions import is_star_item, projection_name
+    from .lazy_ops import LazyAssignCallable, LazyColumnAssignment
+
+    if isinstance(op, LazyRelationalOp):
+        if op.op_type in ("WHERE", "ORDER BY", "LIMIT", "OFFSET", "PANDAS_FILTER"):
+            return rowwise
+        if op.op_type != "SELECT" or reads is None:
+            return False
+        fields = op.fields or []
+        if any(is_star_item(f) for f in fields):
+            return not reads & {projection_name(f) for f in fields if not is_star_item(f)}
+        plain = {
+            f.strip('"') if isinstance(f, str) else f.name.strip('"')
+            for f in fields
+            if isinstance(f, str) or (isinstance(f, Field) and not f.alias)
+        }
+        return reads <= plain
+    if isinstance(op, (LazyColumnAssignment, LazyAssignCallable)):
+        return reads is not None and op.column not in reads
+    return False
+
+
+def _value_source(frame: "DataStore", value) -> Optional["DataStore"]:
+    """
+    The DataStore to compute ``value`` on when ``frame`` can't read it (see
+    ``DataStore._reads_frame``): a snapshot of the value's DataStore as it is
+    now, as pandas takes a Series' values when it is assigned. None when the
+    frame reads it.
+    """
+    if frame._reads_frame(value):
+        return None
+    return value._datastore._snapshot()
+
+
 def _is_lazy_value(value) -> bool:
     """Whether ``value`` is an unevaluated expression or lazy result."""
     return isinstance(value, Expression) or hasattr(value, "_execute")
@@ -103,7 +167,7 @@ def _assigned_null_as_nan(op, kinds: Dict[str, bool]) -> bool:
     from .column_expr import ColumnExpr
 
     value = op.expr
-    if op.evaluate_on_source:
+    if op.source is not None:
         return False
     if isinstance(value, ColumnExpr):
         if value._exec_mode != "expr" or value._expr is None:
@@ -1250,29 +1314,75 @@ class DataStore(PandasCompatMixin):
         self._lazy_ops.append(op)
         self._invalidate_cache()
 
-    def _is_column_of_other_rows(self, value, base_ops, ancestors=False) -> bool:
+    def _source_identity(self) -> tuple:
         """
-        Whether ``value`` is a ColumnExpr whose DataStore doesn't hold the rows
-        of the frame ``base_ops`` builds on this source: another DataStore, a
-        derived one, or (unless ``ancestors``) an ancestor such as the frame
-        before a filter. pandas assigns such a Series aligned by index.
+        What this DataStore reads before its lazy ops: the DataFrame of its
+        source op, or the table function or table it reads with the database
+        and connection settings it reads them through. Two DataStores whose
+        identities are equal read the same data.
+        """
+        from .lazy_ops import LazyDataFrameSource
+
+        ops = self._lazy_ops
+        if ops and isinstance(ops[0], LazyDataFrameSource):
+            return ("dataframe", id(ops[0]))
+        table_function = self._table_function
+        if isinstance(table_function, PythonTableFunction):
+            reads = ("python", id(table_function._df))
+        elif table_function is not None:
+            try:
+                reads = ("table_function", table_function.to_sql())
+            except Exception:
+                reads = ("table_function", id(table_function))
+        else:
+            reads = ("table", self.table_name)
+        settings = sorted((str(k), repr(v)) for k, v in self.connection_params.items())
+        return reads + (self.source_type, self.database, tuple(settings))
+
+    def _lineage(self) -> Tuple[tuple, list]:
+        """
+        ``(source identity, ops)`` this pipeline was built from. A DataFrame
+        source that ``_ensure_sql_source`` turned into a table function keeps
+        the identity and the ops it was built from.
+        """
+        lineage = getattr(self._table_function, "_lineage", None)
+        if lineage is not None:
+            identity, ops, kept = lineage
+            current = self._lazy_ops
+            if len(current) >= len(kept) and all(a is b for a, b in zip(kept, current)):
+                return identity, ops + current[len(kept) :]
+        return self._source_identity(), self._lazy_ops
+
+    def _snapshot(self) -> "DataStore":
+        """This pipeline as it is now; later ops on this DataStore don't change it."""
+        snapshot = copy(self)
+        snapshot._computed_columns = dict(getattr(self, "_computed_columns", None) or {})
+        return snapshot
+
+    def _reads_frame(self, value, rowwise=False) -> bool:
+        """
+        Whether ``value`` gives the values pandas computed for it when read on
+        this frame. True for a value that is not a ColumnExpr or belongs to
+        this frame; for a column of an ancestor (an earlier state of the same
+        pipeline) only when every later op keeps the columns it reads and,
+        unless it is ``rowwise`` (a row-wise expression, aligned by index),
+        keeps the rows. Otherwise the value is computed on its own DataStore,
+        as pandas assigns a Series.
         """
         from .column_expr import ColumnExpr
-        from .lazy_ops import LazyDataFrameSource
 
         source = value._datastore if isinstance(value, ColumnExpr) else None
         if not isinstance(source, DataStore) or source is self:
-            return False
-        ops = source._lazy_ops
-        if len(ops) > len(base_ops) or (not ancestors and len(ops) < len(base_ops)):
             return True
-        if any(a is not b for a, b in zip(ops, base_ops)):
-            return True
-        if ops and isinstance(ops[0], LazyDataFrameSource):
+        identity, frame_ops = self._lineage()
+        source_identity, ops = source._lineage()
+        if source_identity != identity:
             return False
-        return (
-            source._table_function is not self._table_function
-            or source.table_name != self.table_name
+        if len(ops) > len(frame_ops) or any(a is not b for a, b in zip(ops, frame_ops)):
+            return False
+        reads = _columns_read(value)
+        return all(
+            _keeps_read_columns(op, reads, rowwise) for op in frame_ops[len(ops) :]
         )
 
     def _null_as_nan_inputs(self, expr) -> bool:
@@ -3374,6 +3484,10 @@ class DataStore(PandasCompatMixin):
                 LazyColumnSelection,
             )
 
+            # The table function stands for the DataFrame source and the ops
+            # baked into it below; the pipeline keeps their lineage.
+            lineage_identity, lineage_ops = self._lineage()
+
             # Use the unified column tracking method to get current columns
             # This handles SELECT, drop, rename, and other column-changing operations
             current_cols = self._get_current_columns()
@@ -3453,6 +3567,11 @@ class DataStore(PandasCompatMixin):
                 )
                 and not (isinstance(op, LazyColumnSelection) and columns_changed)
             ]
+            self._table_function._lineage = (
+                lineage_identity,
+                list(lineage_ops),
+                list(self._lazy_ops),
+            )
             return True
 
         return False
@@ -7182,7 +7301,7 @@ class DataStore(PandasCompatMixin):
             LazyColumnAssignment(
                 name,
                 expr,
-                evaluate_on_source=self._is_column_of_other_rows(expr, self._lazy_ops),
+                source=_value_source(self, expr),
             )
         )
         # Note: Don't return self - @immutable decorator will return the copy
@@ -7531,15 +7650,16 @@ class DataStore(PandasCompatMixin):
         from .case_when import CaseWhenExpr
         from .lazy_ops import LazyAssignCallable, LazyColumnAssignment
 
-        def is_sql_value(alias, value, base_ops, frame):
+        def is_sql_value(alias, value, frame):
             if isinstance(value, ColumnExpr):
                 if value.is_pandas_only():
                     return False
                 # A column of a derived or unrelated DataStore (e.g.
                 # ``d.assign(z=...)['z']`` or ``d[d.a > 1]['a']``) doesn't
-                # exist on these rows; only the same pipeline or an ancestor
-                # of it can be referenced in SQL.
-                if frame._is_column_of_other_rows(value, base_ops, ancestors=True):
+                # exist on these rows, and an ancestor's column may have been
+                # overwritten since; SQL can only reference what the frame
+                # still holds.
+                if not frame._reads_frame(value, rowwise=True):
                     return False
             elif not isinstance(value, Expression):
                 return False
@@ -7548,7 +7668,6 @@ class DataStore(PandasCompatMixin):
             ).can_push_to_sql()
 
         result = self
-        entry_ops = list(self._lazy_ops)
 
         # Ensure _computed_columns is a fresh copy (not shared due to shallow copy from @immutable)
         if not hasattr(result, "_computed_columns") or result._computed_columns is None:
@@ -7561,7 +7680,6 @@ class DataStore(PandasCompatMixin):
         sql_kwargs = {}
         for alias, value in kwargs.items():
             func = deferred_func = None
-            base_ops = entry_ops
             frame = result
             if callable(value):
                 # pandas calls each callable once, on the frame with all
@@ -7593,18 +7711,15 @@ class DataStore(PandasCompatMixin):
                 else:
                     if is_pandas_col_expression(value):
                         value = translate_pandas_expression(value)
-                # Read after the call: a callable that needs the data
-                # executes the frame, which replaces its ops.
-                base_ops = frame._lazy_ops
 
-            if deferred_func is None and is_sql_value(alias, value, base_ops, frame):
+            if deferred_func is None and is_sql_value(alias, value, frame):
                 sql_kwargs[alias] = value
                 continue
             if (
                 func is not None
                 and deferred_func is None
                 and _is_lazy_value(value)
-                and not frame._is_column_of_other_rows(value, base_ops)
+                and frame._reads_frame(value)
             ):
                 deferred_func = func
 
@@ -7625,11 +7740,7 @@ class DataStore(PandasCompatMixin):
                     # serialized to SQL.
                     value = ColumnExpr(expr=value, datastore=result)
                 op = LazyColumnAssignment(
-                    alias,
-                    value,
-                    evaluate_on_source=result._is_column_of_other_rows(
-                        value, base_ops
-                    ),
+                    alias, value, source=_value_source(result, value)
                 )
             # Later SQL runs on the materialized DataFrame, where computed
             # columns are real columns and must not be expanded again.

@@ -2584,25 +2584,35 @@ class ColumnExpr:
         """
         from .config import get_cross_datastore_engine, ExecutionEngine
 
+        from .expression_evaluator import ExpressionEvaluator
+
         # Capture references for the closure
         self_expr = self
         other_expr = other
         cross_engine = get_cross_datastore_engine()
+        # Each side is read from its DataStore as it is now, as pandas
+        # computes the operation at once: later ops on either DataStore (e.g.
+        # assigning this result back to one of them) don't change it.
+        sources = {
+            id(expr): (
+                expr._datastore._snapshot()
+                if hasattr(expr._datastore, "_snapshot")
+                else expr._datastore
+            )
+            for expr in (self, other)
+        }
 
         def executor():
             import pandas as pd
 
             def get_series(expr: "ColumnExpr") -> pd.Series:
                 """Get Series from ColumnExpr, using pandas path if configured and possible."""
+                df = sources[id(expr)]._get_df()
                 if cross_engine == ExecutionEngine.PANDAS:
                     # Try pure pandas path for simple Field expressions
-                    if isinstance(expr._expr, Field) and expr._datastore is not None:
-                        col_name = expr._expr.name
-                        df = expr._datastore._get_df()
-                        if col_name in df.columns:
-                            return df[col_name]
-                # Fall back to execute (may use SQL for complex expressions)
-                return expr._execute()
+                    if isinstance(expr._expr, Field) and expr._expr.name in df.columns:
+                        return df[expr._expr.name]
+                return ExpressionEvaluator(df, sources[id(expr)]).evaluate(expr)
 
             # Get Series based on configured engine
             s1 = get_series(self_expr)

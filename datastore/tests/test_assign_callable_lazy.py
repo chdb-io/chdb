@@ -489,3 +489,166 @@ class TestAssignColumnOfAnotherDataStore:
             return df[df["qty"] > 15].assign(running=df["qty"].cumsum())
 
         assert_datastore_equals_pandas(chain(DataStore(_frame())), chain(_frame()))
+
+
+class TestAssignedColumnKeepsItsValues:
+    """
+    A column assigned from a DataStore takes that DataStore's values at the
+    time of the assignment, as pandas copies a Series: later ops on the
+    source, or ops between an ancestor and the frame, don't change it.
+    """
+
+    @staticmethod
+    def _frames(cls):
+        return cls({"a": [1, 2], "b": [3, 4]}), cls({"a": [10, 20], "b": [30, 40]})
+
+    def test_reciprocal_setitem(self, execute_calls):
+        def chain(cls):
+            left, right = self._frames(cls)
+            left["x"] = right["a"]
+            right["y"] = left["b"]
+            return left, right
+
+        ds_left, ds_right = chain(DataStore)
+        assert len(execute_calls) == 0
+        pd_left, pd_right = chain(pd.DataFrame)
+        assert_datastore_equals_pandas(ds_left, pd_left)
+        assert_datastore_equals_pandas(ds_right, pd_right)
+
+    def test_reciprocal_assign_chain(self):
+        def chain(cls):
+            left, right = self._frames(cls)
+            left = left.assign(x=right["a"])
+            right = right.assign(y=left["x"] * 2)
+            return left.assign(z=right["y"])
+
+        assert_datastore_equals_pandas(chain(DataStore), chain(pd.DataFrame))
+
+    def test_source_changed_after_assignment(self):
+        def chain(cls):
+            left, right = self._frames(cls)
+            left["x"] = right["a"].cumsum()
+            right["a"] = right["a"] * 100
+            return left
+
+        assert_datastore_equals_pandas(chain(DataStore), chain(pd.DataFrame))
+
+    def test_cross_datastore_arithmetic_assigned_back(self):
+        def chain(cls):
+            left, right = self._frames(cls)
+            left["x"] = right["a"] + left["b"]
+            return left
+
+        assert_datastore_equals_pandas(chain(DataStore), chain(pd.DataFrame))
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(
+                lambda d: d.assign(a=d["a"] * 2).assign(original=d["a"]),
+                id="column_overwritten_since",
+            ),
+            pytest.param(
+                lambda d: d.assign(a=d["a"] * 2).assign(original=d["a"] + 1),
+                id="expression_over_overwritten_column",
+            ),
+            pytest.param(
+                lambda d: d.assign(a=d["a"] * 2, running=d["a"].cumsum()),
+                id="same_call_after_overwrite",
+            ),
+            pytest.param(
+                lambda d: d.assign(a=d["a"] * 2, n=np.array([7, 8, 9]), plus=d["a"] + 1),
+                id="same_call_after_pandas_value",
+            ),
+            pytest.param(
+                lambda d: d[["b"]].assign(z=d["a"] + 1),
+                id="projected_away_since",
+            ),
+            pytest.param(
+                lambda d: d.assign(b=d["b"] * 2).assign(z=d["a"] + 1),
+                id="other_column_changed",
+            ),
+        ],
+    )
+    def test_ancestor_column(self, chain, execute_calls):
+        data = {"a": [1, 2, 3], "b": [4, 5, 6]}
+        ds_result = chain(DataStore(data))
+        assert len(execute_calls) == 0
+        assert_datastore_equals_pandas(ds_result, chain(pd.DataFrame(data)))
+
+    def test_ancestor_column_renamed_since(self):
+        def chain(d):
+            return d.rename(columns={"a": "b", "b": "a"}).assign(orig=d["a"])
+
+        data = {"a": [1, 2, 3], "b": [4, 5, 6]}
+        assert_datastore_equals_pandas(chain(DataStore(data)), chain(pd.DataFrame(data)))
+
+    def test_unchanged_ancestor_column_stays_in_sql(self, sales_parquet):
+        def chain(df):
+            changed = df.assign(qty=df["qty"] * 2)
+            return changed.assign(next_price=df["price"] + 1)
+
+        ds_result = chain(DataStore.from_file(sales_parquet))
+        sql = ds_result.to_sql(execution_format=True)
+        assert '("price"+1) AS "next_price"' in sql
+        assert_datastore_equals_pandas(ds_result, chain(pd.read_parquet(sales_parquet)))
+
+
+class TestSourceIdentity:
+    def test_same_file_is_the_same_source(self, sales_parquet):
+        def chain(df, other):
+            return df.assign(next_price=other["price"] + 1)
+
+        ds_result = chain(DataStore.from_file(sales_parquet), DataStore.from_file(sales_parquet))
+        assert '("price"+1) AS "next_price"' in ds_result.to_sql(execution_format=True)
+        pdf = pd.read_parquet(sales_parquet)
+        assert_datastore_equals_pandas(ds_result, chain(pdf, pdf))
+
+    def test_tables_in_different_databases_are_different_sources(self, tmp_path):
+        first = DataStore(table="t", database=str(tmp_path / "db1"))
+        second = DataStore(table="t", database=str(tmp_path / "db2"))
+        same = DataStore(table="t", database=str(tmp_path / "db1"))
+        assert first._source_identity() != second._source_identity()
+        assert first._source_identity() == same._source_identity()
+        assert not first._reads_frame(second["a"], rowwise=True)
+        assert first._reads_frame(same["a"], rowwise=True)
+
+    def test_assign_from_table_in_other_database_is_not_inlined(self, tmp_path):
+        """chDB opens one database path per process, so each step runs in its
+        own interpreter; reading the other table must never yield this one's
+        values."""
+        import json
+        import subprocess
+        import sys
+
+        make = (
+            "import chdb.session, sys\n"
+            "s = chdb.session.Session(sys.argv[1])\n"
+            "s.query('CREATE TABLE t (a Int64) ENGINE = MergeTree ORDER BY tuple()')\n"
+            "s.query('INSERT INTO t VALUES ' + sys.argv[2])\n"
+            "s.close()\n"
+        )
+        first, second = str(tmp_path / "db1"), str(tmp_path / "db2")
+        subprocess.run([sys.executable, "-c", make, first, "(1),(2)"], check=True)
+        subprocess.run([sys.executable, "-c", make, second, "(10),(20)"], check=True)
+        use = (
+            "import json, sys\n"
+            "from datastore import DataStore\n"
+            "left = DataStore(table='t', database=sys.argv[1])\n"
+            "right = DataStore(table='t', database=sys.argv[2])\n"
+            "try:\n"
+            "    print(json.dumps(left.assign(z=right['a']).to_df()['z'].tolist()))\n"
+            "except Exception as e:\n"
+            "    print(json.dumps(type(e).__name__))\n"
+        )
+        out = (
+            subprocess.run(
+                [sys.executable, "-c", use, first, second],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            .stdout.strip()
+            .splitlines()[-1]
+        )
+        assert json.loads(out) != [1, 2]
