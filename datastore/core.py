@@ -1825,7 +1825,7 @@ class DataStore(PandasCompatMixin):
         #   FROM is ``Python(__df__)``, not the original source.
         # - No segments / single Pandas-only segment: same fallback.
         planner = QueryPlanner()
-        schema = self._schema or {}
+        schema = self.schema() or {}
         local_source = self._source_df is not None or isinstance(
             self._table_function, PythonTableFunction
         )

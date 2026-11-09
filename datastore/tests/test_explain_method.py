@@ -548,9 +548,9 @@ class TestBuildExecutionSQLFirstSegment(unittest.TestCase):
 
         self.temp_dir = tempfile.mkdtemp()
         self.parquet_file = os.path.join(self.temp_dir, "data.parquet")
-        pd.DataFrame({"a": list(range(10)), "b": list(range(10))}).to_parquet(
-            self.parquet_file
-        )
+        pd.DataFrame(
+            {"a": list(range(10)), "b": list(range(100, 110))}
+        ).to_parquet(self.parquet_file)
 
     def tearDown(self):
         if os.path.exists(self.parquet_file):
@@ -578,6 +578,64 @@ class TestBuildExecutionSQLFirstSegment(unittest.TestCase):
         self.assertNotIn("Python(", sql)
         self.assertNotIn("__df__", sql)
 
+    def test_overwritten_column_before_schema_load(self):
+        """Regression for #665: before the schema is loaded, overwriting an
+        existing column must replace it in the execution SQL, not add a second
+        column with the same name (which ClickHouse renames to ``b_1``)."""
+        import chdb
+        import pandas as pd
+        from tests.test_utils import assert_frame_equal
+
+        pd_df = pd.read_parquet(self.parquet_file)
+        pd_df["b"] = pd_df["b"] * 2
+
+        ds = DataStore.from_file(self.parquet_file)
+        ds["b"] = ds["b"] * 2
+
+        sql = ds.to_sql(execution_format=True)
+        assert_frame_equal(chdb.query(sql, "DataFrame"), pd_df)
+
+        ds.schema()
+        self.assertEqual(ds.to_sql(execution_format=True), sql)
+
+        ds_explained = DataStore.from_file(self.parquet_file)
+        ds_explained["b"] = ds_explained["b"] * 2
+        self.assertIn(sql, _capture_explain(ds_explained))
+
+    def test_overwritten_column_then_loc_before_schema_load(self):
+        """Overwrite followed by ``.loc[cond, cols]``: without the schema the
+        SQL kept the right columns but selected the original, unmultiplied
+        values."""
+        import chdb
+        import pandas as pd
+
+        pd_df = pd.read_parquet(self.parquet_file)
+        pd_df["b"] = pd_df["b"] * 2
+        pd_result = pd_df.loc[pd_df["a"] > 5, ["b"]]
+
+        ds = DataStore.from_file(self.parquet_file)
+        ds["b"] = ds["b"] * 2
+        ds_result = ds.loc[ds["a"] > 5, ["b"]]
+
+        sql_result = chdb.query(ds_result.to_sql(execution_format=True), "DataFrame")
+        self.assertEqual(list(sql_result.columns), list(pd_result.columns))
+        self.assertEqual(sql_result.to_dict("list"), pd_result.to_dict("list"))
+
+    def test_overwritten_column_writeback_sql_before_schema_load(self):
+        """The writeback SELECT behind ``save()`` / ``to_clickhouse()`` is
+        built through the same path and must not duplicate the column."""
+        import chdb
+        import pandas as pd
+        from tests.test_utils import assert_frame_equal
+
+        pd_df = pd.read_parquet(self.parquet_file)
+        pd_df["b"] = pd_df["b"] * 2
+
+        ds = DataStore.from_file(self.parquet_file)
+        ds["b"] = ds["b"] * 2
+
+        sql = ds._canonical_writeback_sql()
+        assert_frame_equal(chdb.query(sql, "DataFrame"), pd_df)
 
 if __name__ == '__main__':
     unittest.main()
