@@ -652,3 +652,59 @@ class TestSourceIdentity:
             .splitlines()[-1]
         )
         assert json.loads(out) != [1, 2]
+
+
+class TestAssignAfterAggregation:
+    """assign() after groupby().agg() computes on the aggregated rows."""
+
+    @staticmethod
+    def _frame():
+        return pd.DataFrame(
+            {"g": ["x", "y", "z", "x", "y", "w"], "v": [5, 3, 9, 1, 7, 2], "k": [1, 1, 2, 2, 3, 3]}
+        )
+
+    @pytest.fixture(params=["file", "dataframe"])
+    def make_ds(self, request, tmp_path):
+        if request.param == "dataframe":
+            return lambda: DataStore(self._frame())
+        path = str(tmp_path / "agg.parquet")
+        self._frame().to_parquet(path)
+        return lambda: DataStore.from_file(path)
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(
+                lambda d: d.groupby("g").agg({"v": "sum"}).assign(v=lambda x: x["v"] * 2),
+                id="overwrite_callable",
+            ),
+            pytest.param(
+                lambda d: (lambda a: a.assign(v=a["v"] * 2))(d.groupby("g").agg({"v": "sum"})),
+                id="overwrite_expression",
+            ),
+            pytest.param(
+                lambda d: d.groupby("g")
+                .agg({"v": "sum"})
+                .sort_values("v")
+                .assign(v=lambda x: x["v"] * 2)
+                .head(2),
+                id="sort_overwrite_head",
+            ),
+            pytest.param(
+                lambda d: d.groupby("g")
+                .agg(total=("v", "sum"), n=("k", "count"))
+                .assign(total=lambda x: x["total"] + x["n"]),
+                id="named_aggregation_overwrite",
+            ),
+            pytest.param(
+                lambda d: d.groupby("g", as_index=False)
+                .agg({"v": "max", "k": "min"})
+                .assign(k=lambda x: x["k"] * 10, w=lambda x: x["v"] - x["k"]),
+                id="keys_as_columns",
+            ),
+        ],
+    )
+    def test_matches_pandas(self, make_ds, chain, execute_calls):
+        ds_result = chain(make_ds())
+        assert len(execute_calls) == 0
+        assert_datastore_equals_pandas(ds_result, chain(self._frame()))

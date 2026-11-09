@@ -3480,6 +3480,7 @@ class DataStore(PandasCompatMixin):
             from .table_functions import PythonTableFunction
             from .lazy_ops import (
                 LazyDataFrameSource,
+                LazyGroupByAgg,
                 LazyRelationalOp,
                 LazyColumnSelection,
             )
@@ -3488,9 +3489,16 @@ class DataStore(PandasCompatMixin):
             # baked into it below; the pipeline keeps their lineage.
             lineage_identity, lineage_ops = self._lineage()
 
-            # Use the unified column tracking method to get current columns
-            # This handles SELECT, drop, rename, and other column-changing operations
-            current_cols = self._get_current_columns()
+            # Columns before the first aggregation: ops after it read the
+            # aggregated rows, so only the ops before it can be baked into the
+            # DataFrame below.
+            first_agg = next(
+                (i for i, op in enumerate(self._lazy_ops) if isinstance(op, LazyGroupByAgg)),
+                len(self._lazy_ops),
+            )
+            current_cols = list(self._source_df.columns)
+            for op in self._lazy_ops[:first_agg]:
+                current_cols = op.transform_columns(current_cols)
             source_cols = list(self._source_df.columns)
 
             # Check if columns have changed from the source
@@ -3558,14 +3566,16 @@ class DataStore(PandasCompatMixin):
             # - LazyColumnSelection that we've already applied
             self._lazy_ops = [
                 op
-                for op in self._lazy_ops
+                for i, op in enumerate(self._lazy_ops)
                 if not isinstance(op, LazyDataFrameSource)
                 and not (
-                    isinstance(op, LazyRelationalOp)
-                    and op.op_type == "SELECT"
+                    i < first_agg
                     and columns_changed
+                    and (
+                        isinstance(op, LazyColumnSelection)
+                        or (isinstance(op, LazyRelationalOp) and op.op_type == "SELECT")
+                    )
                 )
-                and not (isinstance(op, LazyColumnSelection) and columns_changed)
             ]
             self._table_function._lineage = (
                 lineage_identity,

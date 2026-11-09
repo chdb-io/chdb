@@ -414,9 +414,13 @@ class QueryPlanner:
                 elif (
                     seen_groupby
                     and op.op_type == "SELECT"
-                    and not _is_pure_projection_select(op)
+                    and (
+                        not _is_pure_projection_select(op)
+                        or self._computed_columns_of(op)
+                    )
                 ):
-                    # Assignment after an aggregation computes on its result
+                    # Assignment after an aggregation computes on its result,
+                    # also when it overwrites a column in an explicit projection
                     needs_new_layer = True
                 elif _is_pure_projection_select(op):
                     proj_fields = _projection_field_names(op)

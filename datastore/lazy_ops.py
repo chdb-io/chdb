@@ -1347,6 +1347,19 @@ class LazyGroupByAgg(LazyOp):
             func_str = self.agg_func
         return f"GroupBy({self.groupby_cols}).{func_str}()"
 
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """
+        The group keys followed by the aggregate outputs. The keys stay
+        columns of the SQL result until execution moves them to the index;
+        when the outputs aren't named (``size()``) the columns are unknown
+        and passed through.
+        """
+        outputs = [name for name, _, _ in self.aggregate_outputs(columns)]
+        if not outputs:
+            return columns
+        keys = list(self.groupby_cols)
+        return keys + [name for name in outputs if name not in keys]
+
     def aggregate_outputs(
         self, all_columns: Optional[List[str]] = None
     ) -> List[Tuple[str, str, str]]:
