@@ -70,9 +70,8 @@ class QueryPlan:
        ``_build_layer`` per layer; each layer dispatches by op type.
     4. Any temp aliases the SQL builders introduce
        (``temp_alias -> original_alias``) are recorded in
-       ``alias_renames``. After execution the post-processing step in
-       ``core.py`` reads ``alias_renames`` and renames the result
-       DataFrame columns back to the user-visible names.
+       ``alias_renames``. Each aggregation layer renames its temp aliases
+       back in SQL, so the SQL result already has the user-visible names.
 
     Attributes:
         sql_ops: Relational + column-assignment ops in the segment, with
@@ -97,12 +96,9 @@ class QueryPlan:
         has_sql_source: Whether the segment has a SQL-compatible source.
         first_df_op_idx: Vestigial - was set by the removed ``plan()``
             method. Always ``None`` from segmented planning.
-        where_columns: Source-column names referenced in pre-aggregation
-            WHEREs. Drives the planner's source-col / agg-alias conflict
-            detection (which pre-populates ``alias_renames``).
-        alias_renames: Map ``temp_alias -> original_alias``. Written
-            during SQL building, consumed at post-execution to rename
-            result DataFrame columns back to user-visible names.
+        alias_renames: Map ``temp_alias -> original_alias``. Filled during
+            SQL building with every temp alias used inside an aggregation
+            layer.
     """
 
     sql_ops: List[LazyOp] = field(default_factory=list)
@@ -112,7 +108,6 @@ class QueryPlan:
     layers: List[List[LazyOp]] = field(default_factory=list)
     has_sql_source: bool = False
     first_df_op_idx: Optional[int] = None
-    where_columns: Set[str] = field(default_factory=set)
     alias_renames: Dict[str, str] = field(default_factory=dict)
 
     def has_two_phases(self) -> bool:
@@ -244,101 +239,6 @@ class QueryPlanner:
     # ``plan_segments`` and take the plan from the first SQL segment when
     # they need a single-plan view.
 
-    def _collect_where_columns(self, ops: List[LazyOp]) -> Set[str]:
-        """
-        Extract source-column names referenced in pre-aggregation WHERE clauses.
-
-        Convenience wrapper around
-        :meth:`_collect_where_columns_per_segment` that returns the source-col
-        set for the chain *up to* (and used as input by) the first
-        ``LazyGroupByAgg``. The result is consumed by alias-conflict detection:
-        an aggregate output alias that collides with a source column referenced
-        in a pre-agg WHERE has to be renamed to a temp alias so chDB doesn't
-        mis-bind the aggregate inside the WHERE.
-
-        Post-aggregation WHEREs are intentionally excluded - they operate on
-        the *output* of the aggregation (e.g. ``count > 5000``), so treating
-        them as source-col conflicts would force a useless rename and break
-        the outer reference.
-
-        Args:
-            ops: List of lazy operations
-
-        Returns:
-            Set of column names referenced in pre-aggregation WHERE conditions.
-        """
-        # Plans currently carry at most one LazyGroupByAgg per QueryPlan, so
-        # the per-segment helper collapses to "ops before the (only) agg".
-        return self._collect_where_columns_per_segment(ops, segment_end=None)
-
-    def _collect_where_columns_per_segment(
-        self,
-        ops: List[LazyOp],
-        segment_end: Optional[int] = None,
-    ) -> Set[str]:
-        """
-        Position-aware collector: source columns referenced in WHEREs that
-        come strictly before the chain's first ``LazyGroupByAgg`` (or before
-        ``segment_end`` if supplied).
-
-        This makes the conflict-detection semantics explicit: WHEREs after
-        the boundary act on aggregation output, not source rows, and must not
-        contribute source-col aliases.
-
-        Args:
-            ops: List of lazy operations
-            segment_end: Optional explicit upper bound (exclusive); when None,
-                stops at the first encountered ``LazyGroupByAgg``.
-
-        Returns:
-            Set of column names from WHERE conditions within the segment.
-        """
-        where_columns: Set[str] = set()
-        for idx, op in enumerate(ops):
-            if segment_end is not None and idx >= segment_end:
-                break
-            if segment_end is None and isinstance(op, LazyGroupByAgg):
-                break
-            if (
-                isinstance(op, LazyRelationalOp)
-                and op.op_type == "WHERE"
-                and op.condition
-            ):
-                try:
-                    cond_sql = op.condition.to_sql(quote_char='"')
-                    where_columns.update(re.findall(r'"(\w+)"', cond_sql))
-                except Exception:
-                    pass
-        return where_columns
-
-    def _get_agg_aliases(
-        self, op: LazyGroupByAgg, schema: Dict[str, str] = None
-    ) -> Set[str]:
-        """
-        Get alias names that would be created by a GroupByAgg operation.
-
-        Args:
-            op: LazyGroupByAgg operation
-            schema: Column schema (used for count() to get non-groupby columns)
-
-        Returns:
-            Set of alias names
-        """
-        agg_aliases = set()
-
-        if op.agg_dict is not None and isinstance(op.agg_dict, dict):
-            for col, funcs in op.agg_dict.items():
-                if isinstance(funcs, (list, tuple)):
-                    agg_aliases.update(funcs)  # Function names as aliases
-                else:
-                    agg_aliases.add(col)  # Column name as alias for single func
-        elif op.agg_func == "count" and schema:
-            # count() creates aliases for all non-groupby columns
-            non_groupby_cols = [c for c in schema.keys() if c not in op.groupby_cols]
-            agg_aliases.update(non_groupby_cols)
-
-        return agg_aliases
-
     def _build_layers(self, ops: List[LazyOp]) -> List[List[LazyOp]]:
         """
         Build nested subquery layers for complex SQL patterns.
@@ -361,6 +261,10 @@ class QueryPlanner:
           (WHERE, ORDER BY, computed expression) or computes. Within one
           SELECT, ClickHouse binds every reference to a name to that
           SELECT's alias, so the earlier op would see the new value.
+        - A column assignment (``LazyColumnAssignment`` or an
+          assignment-style ``SELECT *, expr``) follows a LazyGroupByAgg:
+          it computes on the aggregated rows, while in the GROUP BY layer
+          its fields would be taken as the aggregation targets.
 
         This preserves pandas-like execution order semantics in SQL.
 
@@ -376,6 +280,7 @@ class QueryPlanner:
         seen_offset = False  # Have we seen an OFFSET in current layer?
         pending_column_assignments = []  # Column assignments after LIMIT/OFFSET
         computed_columns_after_limit = set()  # Computed columns added after LIMIT
+        seen_groupby = False  # Has the current layer a LazyGroupByAgg?
 
         def _is_pure_projection_select(op):
             """Pure projection SELECT = ``SELECT col1, col2, ...`` with no
@@ -420,8 +325,10 @@ class QueryPlanner:
             return bool((read & computed) - op_set)
 
         def _append(op):
-            nonlocal seen_limit, seen_offset
+            nonlocal seen_limit, seen_offset, seen_groupby
             current_layer.append(op)
+            if isinstance(op, LazyGroupByAgg):
+                seen_groupby = True
             if isinstance(op, LazyRelationalOp):
                 if op.op_type == "LIMIT":
                     seen_limit = True
@@ -429,11 +336,11 @@ class QueryPlanner:
                     seen_offset = True
 
         def _open_layer_with(op):
-            nonlocal current_layer, seen_limit, seen_offset
+            nonlocal current_layer, seen_limit, seen_offset, seen_groupby
             nonlocal computed_columns_after_limit
             layers.append(current_layer)
             current_layer = []
-            seen_limit = seen_offset = False
+            seen_limit = seen_offset = seen_groupby = False
             computed_columns_after_limit = set()
             _append(op)
 
@@ -490,6 +397,13 @@ class QueryPlanner:
                     # Second LIMIT means chained limits like [:50][:20]
                     # The second limit operates on the result of the first
                     needs_new_layer = True
+                elif (
+                    seen_groupby
+                    and op.op_type == "SELECT"
+                    and not _is_pure_projection_select(op)
+                ):
+                    # Assignment after an aggregation computes on its result
+                    needs_new_layer = True
                 elif _is_pure_projection_select(op):
                     proj_fields = _projection_field_names(op)
                     if _drops_used_computed_column(proj_fields, current_layer):
@@ -508,7 +422,10 @@ class QueryPlanner:
 
             elif isinstance(op, LazyColumnAssignment):
                 # Column assignment after LIMIT/OFFSET needs special handling
-                if seen_limit or seen_offset:
+                if seen_groupby:
+                    # Assignment after an aggregation computes on its result
+                    _start_new_layer_with(op)
+                elif seen_limit or seen_offset:
                     # Track the column for dependency checking
                     computed_columns_after_limit.add(op.column)
                     # Queue the assignment to be added before any dependent WHERE/ORDER BY
@@ -1000,24 +917,10 @@ class QueryPlanner:
                 plan = QueryPlan(has_sql_source=True)
                 plan.sql_ops = ops.copy()
 
-                # Collect WHERE columns first for alias conflict detection
-                plan.where_columns = self._collect_where_columns(ops)
-
                 # Handle special ops
                 for op in ops:
                     if isinstance(op, LazyGroupByAgg):
                         plan.groupby_agg = op
-                        # Check for alias conflicts with WHERE columns
-                        agg_aliases = self._get_agg_aliases(op, schema)
-                        conflict_aliases = agg_aliases & plan.where_columns
-                        if conflict_aliases:
-                            for alias in conflict_aliases:
-                                temp_alias = f"__agg_{alias}__"
-                                plan.alias_renames[temp_alias] = alias
-                            self._logger.debug(
-                                "  [GroupBy] Using temp aliases for conflict resolution: %s",
-                                plan.alias_renames,
-                            )
                     elif isinstance(op, LazyApply) and op.can_push_to_sql():
                         # Convert LazyApply with simple aggregation to LazyGroupByAgg
                         agg_func = op.get_detected_agg_func()

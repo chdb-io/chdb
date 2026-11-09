@@ -11,6 +11,7 @@ for all operations. This ensures pandas-like behavior is preserved.
 
 from __future__ import annotations
 
+import functools
 from typing import Any, Optional, TYPE_CHECKING, Iterator, List
 
 import pandas as pd
@@ -100,6 +101,26 @@ if TYPE_CHECKING:
 
 # Sentinel value for detecting if argument was passed
 _MISSING = object()
+
+
+def _operand_without_expression_uses_method_mode(method):
+    """
+    Decorate a ColumnExpr binary operator: when the other operand is a
+    ColumnExpr without an expression tree (method/op/agg/executor mode, e.g.
+    ``astype()`` or ``cumsum()``), the result is evaluated in pandas, since
+    an expression tree can't reference it.
+    """
+    name = method.__name__
+
+    @functools.wraps(method)
+    def wrapper(self, other):
+        if isinstance(other, ColumnExpr) and (
+            other._exec_mode != "expr" or other._expr is None
+        ):
+            return ColumnExpr(source=self, method_name=name, method_args=(other,))
+        return method(self, other)
+
+    return wrapper
 
 
 class ColumnExpr:
@@ -1989,6 +2010,7 @@ class ColumnExpr:
     # - ds.filter(ds['col'] > 5)        # Works
     # - (ds['a'] > 0) & (ds['b'] < 10)  # Works
 
+    @_operand_without_expression_uses_method_mode
     def __eq__(self, other: Any):
         """
         Compare ColumnExpr with another value.
@@ -2059,6 +2081,7 @@ class ColumnExpr:
             condition = BinaryCondition("=", self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
+    @_operand_without_expression_uses_method_mode
     def __ne__(self, other: Any) -> "ColumnExpr":
         # For aggregation/method mode, use pandas comparison on executed result
         if self._exec_mode in ("agg", "method", "executor"):
@@ -2088,6 +2111,7 @@ class ColumnExpr:
             condition = BinaryCondition("!=", self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
+    @_operand_without_expression_uses_method_mode
     def __gt__(self, other: Any) -> "ColumnExpr":
         # For aggregation/method mode, use pandas comparison on executed result
         if self._exec_mode in ("agg", "method", "executor"):
@@ -2107,6 +2131,7 @@ class ColumnExpr:
         condition = BinaryCondition(">", self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
+    @_operand_without_expression_uses_method_mode
     def __ge__(self, other: Any) -> "ColumnExpr":
         # For aggregation/method mode, use pandas comparison on executed result
         if self._exec_mode in ("agg", "method", "executor"):
@@ -2126,6 +2151,7 @@ class ColumnExpr:
         condition = BinaryCondition(">=", self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
+    @_operand_without_expression_uses_method_mode
     def __lt__(self, other: Any) -> "ColumnExpr":
         # For aggregation/method mode, use pandas comparison on executed result
         if self._exec_mode in ("agg", "method", "executor"):
@@ -2145,6 +2171,7 @@ class ColumnExpr:
         condition = BinaryCondition("<", self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
+    @_operand_without_expression_uses_method_mode
     def __le__(self, other: Any) -> "ColumnExpr":
         # For aggregation/method mode, use pandas comparison on executed result
         if self._exec_mode in ("agg", "method", "executor"):
@@ -2280,6 +2307,7 @@ class ColumnExpr:
             # Non-condition expression, convert to truthy check: expr = 1
             return BinaryCondition("=", self._expr, Literal(1))
 
+    @_operand_without_expression_uses_method_mode
     def __and__(self, other: Any) -> "ColumnExpr":
         """
         Combine with AND operator.
@@ -2325,6 +2353,7 @@ class ColumnExpr:
 
         return self._derive_expr(CompoundCondition("AND", self_cond, other_cond))
 
+    @_operand_without_expression_uses_method_mode
     def __rand__(self, other: Any) -> "ColumnExpr":
         """Right AND operator."""
         from .conditions import CompoundCondition, Condition
@@ -2348,6 +2377,7 @@ class ColumnExpr:
         else:
             raise TypeError(f"Cannot AND {type(other).__name__} with ColumnExpr")
 
+    @_operand_without_expression_uses_method_mode
     def __or__(self, other: Any) -> "ColumnExpr":
         """
         Combine with OR operator.
@@ -2388,6 +2418,7 @@ class ColumnExpr:
 
         return self._derive_expr(CompoundCondition("OR", self_cond, other_cond))
 
+    @_operand_without_expression_uses_method_mode
     def __ror__(self, other: Any) -> "ColumnExpr":
         """Right OR operator."""
         from .conditions import CompoundCondition, Condition
@@ -2411,6 +2442,7 @@ class ColumnExpr:
         else:
             raise TypeError(f"Cannot OR {type(other).__name__} with ColumnExpr")
 
+    @_operand_without_expression_uses_method_mode
     def __xor__(self, other: Any) -> "ColumnExpr":
         """
         Combine with XOR operator.
@@ -2453,6 +2485,7 @@ class ColumnExpr:
 
     # ========== Arithmetic Operators (Return ColumnExpr) ==========
 
+    @_operand_without_expression_uses_method_mode
     def __add__(self, other: Any) -> "ColumnExpr":
         # For non-expression modes, use method call mode
         if self._exec_mode != "expr" or self._expr is None:
@@ -2477,6 +2510,7 @@ class ColumnExpr:
 
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __radd__(self, other: Any) -> "ColumnExpr":
         if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(source=self, method_name="__radd__", method_args=(other,))
@@ -2492,12 +2526,6 @@ class ColumnExpr:
             self._mark_string_expression(new_expr)
 
         return self._derive_expr(new_expr)
-
-    def _is_method_mode_columnexpr(self, value: Any) -> bool:
-        """Check if value is a ColumnExpr in method mode (with _expr=None)."""
-        return isinstance(value, ColumnExpr) and (
-            value._exec_mode != "expr" or value._expr is None
-        )
 
     def _is_cross_datastore(self, other: Any) -> bool:
         """
@@ -2670,13 +2698,10 @@ class ColumnExpr:
         expr._is_string_type = True
         return expr
 
+    @_operand_without_expression_uses_method_mode
     def __sub__(self, other: Any) -> "ColumnExpr":
         # If self or other is method mode, use pandas arithmetic
-        if (
-            self._exec_mode != "expr"
-            or self._expr is None
-            or self._is_method_mode_columnexpr(other)
-        ):
+        if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(source=self, method_name="__sub__", method_args=(other,))
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
@@ -2684,22 +2709,16 @@ class ColumnExpr:
         new_expr = ArithmeticExpression("-", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __rsub__(self, other: Any) -> "ColumnExpr":
-        if (
-            self._exec_mode != "expr"
-            or self._expr is None
-            or self._is_method_mode_columnexpr(other)
-        ):
+        if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(source=self, method_name="__rsub__", method_args=(other,))
         new_expr = ArithmeticExpression("-", Expression.wrap(other), self._expr)
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __mul__(self, other: Any) -> "ColumnExpr":
-        if (
-            self._exec_mode != "expr"
-            or self._expr is None
-            or self._is_method_mode_columnexpr(other)
-        ):
+        if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(source=self, method_name="__mul__", method_args=(other,))
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
@@ -2707,22 +2726,16 @@ class ColumnExpr:
         new_expr = ArithmeticExpression("*", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __rmul__(self, other: Any) -> "ColumnExpr":
-        if (
-            self._exec_mode != "expr"
-            or self._expr is None
-            or self._is_method_mode_columnexpr(other)
-        ):
+        if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(source=self, method_name="__rmul__", method_args=(other,))
         new_expr = ArithmeticExpression("*", Expression.wrap(other), self._expr)
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __truediv__(self, other: Any) -> "ColumnExpr":
-        if (
-            self._exec_mode != "expr"
-            or self._expr is None
-            or self._is_method_mode_columnexpr(other)
-        ):
+        if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(
                 source=self, method_name="__truediv__", method_args=(other,)
             )
@@ -2732,24 +2745,18 @@ class ColumnExpr:
         new_expr = ArithmeticExpression("/", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __rtruediv__(self, other: Any) -> "ColumnExpr":
-        if (
-            self._exec_mode != "expr"
-            or self._expr is None
-            or self._is_method_mode_columnexpr(other)
-        ):
+        if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(
                 source=self, method_name="__rtruediv__", method_args=(other,)
             )
         new_expr = ArithmeticExpression("/", Expression.wrap(other), self._expr)
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __floordiv__(self, other: Any) -> "ColumnExpr":
-        if (
-            self._exec_mode != "expr"
-            or self._expr is None
-            or self._is_method_mode_columnexpr(other)
-        ):
+        if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(
                 source=self, method_name="__floordiv__", method_args=(other,)
             )
@@ -2759,24 +2766,18 @@ class ColumnExpr:
         new_expr = ArithmeticExpression("//", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __rfloordiv__(self, other: Any) -> "ColumnExpr":
-        if (
-            self._exec_mode != "expr"
-            or self._expr is None
-            or self._is_method_mode_columnexpr(other)
-        ):
+        if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(
                 source=self, method_name="__rfloordiv__", method_args=(other,)
             )
         new_expr = ArithmeticExpression("//", Expression.wrap(other), self._expr)
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __mod__(self, other: Any) -> "ColumnExpr":
-        if (
-            self._exec_mode != "expr"
-            or self._expr is None
-            or self._is_method_mode_columnexpr(other)
-        ):
+        if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(source=self, method_name="__mod__", method_args=(other,))
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
@@ -2784,12 +2785,14 @@ class ColumnExpr:
         new_expr = ArithmeticExpression("%", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __rmod__(self, other: Any) -> "ColumnExpr":
         if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(source=self, method_name="__rmod__", method_args=(other,))
         new_expr = ArithmeticExpression("%", Expression.wrap(other), self._expr)
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __pow__(self, other: Any) -> "ColumnExpr":
         if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(source=self, method_name="__pow__", method_args=(other,))
@@ -2799,6 +2802,7 @@ class ColumnExpr:
         new_expr = ArithmeticExpression("**", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
+    @_operand_without_expression_uses_method_mode
     def __rpow__(self, other: Any) -> "ColumnExpr":
         if self._exec_mode != "expr" or self._expr is None:
             return ColumnExpr(source=self, method_name="__rpow__", method_args=(other,))

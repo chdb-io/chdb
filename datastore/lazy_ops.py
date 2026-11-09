@@ -5,7 +5,7 @@ This module implements a lazy evaluation system where operations are recorded
 and only executed when execution is triggered (e.g., print, to_df()).
 """
 
-from typing import Any, Dict, List, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 from abc import ABC, abstractmethod
 import pandas as pd
 import numpy as np
@@ -165,10 +165,26 @@ class LazyColumnAssignment(LazyOp):
         nat["n_nationkey"] = nat["n_nationkey"] - 1
     """
 
-    def __init__(self, column: str, expr: Union[Expression, Any]):
+    def __init__(
+        self,
+        column: str,
+        expr: Union[Expression, Any],
+        null_as_nan: Optional[bool] = None,
+    ):
+        """
+        Args:
+            column: Column to assign
+            expr: Value or expression to assign
+            null_as_nan: Whether every column a condition in ``expr`` reads
+                is either never NULL or NULL only where pandas has NaN/NaT
+                (so pandas compares it as False). ``None`` means unknown;
+                ``DataStore._add_lazy_op`` fills it from the pipeline's
+                source dtypes.
+        """
         super().__init__()
         self.column = column
         self.expr = expr
+        self.null_as_nan = null_as_nan
 
     def transform_columns(self, columns: List[str]) -> List[str]:
         """Add the assigned column if it doesn't exist."""
@@ -196,11 +212,18 @@ class LazyColumnAssignment(LazyOp):
         from .column_expr import ColumnExpr
         from .lazy_result import LazySeries
 
+        def sql_repr(expr):
+            try:
+                return expr.to_sql(quote_char='"')
+            except NotImplementedError:
+                # e.g. CASE WHEN over a PandasFallbackExpr, evaluated in pandas
+                return f"<{type(expr).__name__}>"
+
         if isinstance(self.expr, ColumnExpr):
             # Handle different ColumnExpr modes
             if self.expr._expr is not None:
                 # Expression mode - use SQL representation
-                expr_str = self.expr._expr.to_sql(quote_char='"')
+                expr_str = sql_repr(self.expr._expr)
             elif self.expr._method_name is not None:
                 # Method mode - show method name
                 expr_str = f"<ColumnExpr: {self.expr._method_name}()>"
@@ -213,7 +236,7 @@ class LazyColumnAssignment(LazyOp):
             else:
                 expr_str = "<ColumnExpr>"
         elif isinstance(self.expr, Expression):
-            expr_str = self.expr.to_sql(quote_char='"')
+            expr_str = sql_repr(self.expr)
         elif isinstance(self.expr, LazySeries):
             # Avoid triggering execution - use descriptive string
             expr_str = f"<LazySeries: {self.expr._method_name}>"
@@ -331,6 +354,12 @@ class LazyColumnAssignment(LazyOp):
         if self._has_pandas_only_kwargs(self.expr):
             return False
 
+        if not self._condition_matches_pandas_in_sql():
+            return False
+
+        if self._has_non_scalar_literal(self.expr):
+            return False
+
         # Check if expr is a ColumnExpr
         if isinstance(self.expr, ColumnExpr):
             # First check if expression contains pandas-only operations
@@ -413,6 +442,73 @@ class LazyColumnAssignment(LazyOp):
 
         return False
 
+    def _sql_tree(self):
+        from .column_expr import ColumnExpr
+
+        expr = self.expr._expr if isinstance(self.expr, ColumnExpr) else self.expr
+        return expr if isinstance(expr, Expression) else None
+
+    def _condition_matches_pandas_in_sql(self) -> bool:
+        """
+        Whether conditions (comparisons, AND/OR/NOT) in the value give the
+        pandas result when computed in SQL.
+
+        pandas compares NaN/NaT as False, but nullable extension dtypes (Int64,
+        boolean, ...) propagate NA, and its result dtype is bool. SQL is
+        rendered with per-comparison ifNull() and a Bool cast (see
+        ``get_sql_expression``), which matches pandas only when every input
+        column is never NULL or NULL only for NaN/NaT (``null_as_nan``).
+        Performance mode pushes conditions regardless and returns SQL's native
+        result (UInt8, NULL kept).
+        """
+        from .config import is_performance_mode
+        from .conditions import (
+            BinaryCondition,
+            CompoundCondition,
+            Condition,
+            NotCondition,
+            UnaryCondition,
+        )
+
+        expr = self._sql_tree()
+        if expr is None or not expr.find(Condition):
+            return True
+        if is_performance_mode():
+            return True
+        if not isinstance(expr, Condition):
+            return False
+        supported = (BinaryCondition, CompoundCondition, NotCondition, UnaryCondition)
+        if any(
+            isinstance(node, Condition) and not isinstance(node, supported)
+            for node in expr.nodes()
+        ):
+            return False
+        return bool(self.null_as_nan)
+
+    def _has_non_scalar_literal(self, expr) -> bool:
+        """
+        Check if expression tree contains a literal other than a number,
+        bool, string or None (e.g. datetime or timedelta): arithmetic with
+        those has pandas semantics (Timedelta results, units) that the SQL
+        rendering doesn't reproduce.
+        """
+        from .column_expr import ColumnExpr
+
+        if isinstance(expr, ColumnExpr):
+            expr = expr._expr
+        if not isinstance(expr, Expression):
+            return False
+        for node in expr.find(Literal):
+            value = node.value
+            if isinstance(value, (Expression, ColumnExpr)):
+                continue
+            if isinstance(value, np.timedelta64) or (
+                value is not None
+                and not isinstance(value, (bool, int, float, str, np.number, np.bool_))
+            ):
+                return True
+        return False
+
     def _has_pandas_only_kwargs(self, expr) -> bool:
         """
         Recursively check if expression tree contains pandas-only kwargs.
@@ -461,39 +557,82 @@ class LazyColumnAssignment(LazyOp):
         Returns an Expression with the column name as alias, suitable for
         use in SELECT clause: SELECT *, (expr) AS "column"
 
-        For comparison conditions (BinaryCondition, CompoundCondition), wraps with
-        NullSafeCondition to match pandas NULL semantics:
-        - NaN > NaN returns False (not NULL)
+        In pandas mode a condition is rendered with every comparison wrapped
+        in NullSafeCondition, so a NULL (NaN/NaT) input compares the way
+        pandas does before AND/OR/NOT combine the results, and cast to Bool:
+        - NaN > 1 returns False (not NULL)
         - 'str' != NULL returns True (not NULL)
+        In performance mode the condition is rendered as is.
 
         Raises:
             ValueError: If expression is not SQL-convertible
         """
         from copy import copy
         from .column_expr import ColumnExpr
-        from .conditions import BinaryCondition, CompoundCondition, NullSafeCondition
+        from .config import is_performance_mode
+        from .conditions import Condition, NullSafeCondition
 
-        if isinstance(self.expr, ColumnExpr):
-            if self.expr._expr is None:
-                raise ValueError(f"ColumnExpr has no SQL expression: {self.expr}")
+        if isinstance(self.expr, ColumnExpr) and self.expr._expr is None:
+            raise ValueError(f"ColumnExpr has no SQL expression: {self.expr}")
+        expr = self._sql_tree()
+        if expr is None:
+            raise ValueError(f"Expression is not SQL-convertible: {type(self.expr)}")
+
+        if isinstance(expr, Condition) and not is_performance_mode():
+            expr = _null_safe_comparisons(expr)
+            if not isinstance(expr, NullSafeCondition):
+                expr = NullSafeCondition(expr)
+        else:
             # Copy the expression to avoid modifying the original
-            expr_copy = copy(self.expr._expr)
-            # Wrap comparison conditions for pandas NULL semantics
-            if isinstance(expr_copy, (BinaryCondition, CompoundCondition)):
-                expr_copy = NullSafeCondition(expr_copy)
-            expr_copy.alias = self.column
-            return expr_copy
+            expr = copy(expr)
+        expr.alias = self.column
+        return expr
 
-        if isinstance(self.expr, Expression):
-            # Copy the expression to avoid modifying the original
-            expr_copy = copy(self.expr)
-            # Wrap comparison conditions for pandas NULL semantics
-            if isinstance(expr_copy, (BinaryCondition, CompoundCondition)):
-                expr_copy = NullSafeCondition(expr_copy)
-            expr_copy.alias = self.column
-            return expr_copy
 
-        raise ValueError(f"Expression is not SQL-convertible: {type(self.expr)}")
+def _null_safe_comparisons(cond):
+    """Copy of ``cond`` with each comparison wrapped in NullSafeCondition."""
+    from .conditions import BinaryCondition, CompoundCondition, NotCondition, NullSafeCondition
+
+    if isinstance(cond, BinaryCondition):
+        return NullSafeCondition(cond)
+    if isinstance(cond, CompoundCondition):
+        return CompoundCondition(
+            cond.operator,
+            _null_safe_comparisons(cond.left),
+            _null_safe_comparisons(cond.right),
+            cond.alias,
+        )
+    if isinstance(cond, NotCondition):
+        return NotCondition(_null_safe_comparisons(cond.condition), cond.alias)
+    return cond
+
+
+class LazyAssignCallable(LazyOp):
+    """
+    Lazy ``assign(column=func)`` evaluated with pandas semantics: ``func``
+    receives the materialized DataFrame.
+
+    Example:
+        ds.assign(flag=lambda df: df["a"] | df["b"])
+    """
+
+    def __init__(self, column: str, func):
+        super().__init__()
+        self.column = column
+        self.func = func
+
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        if self.column not in columns:
+            return columns + [self.column]
+        return columns
+
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
+        self._log_execute("AssignCallable", f"column='{self.column}'")
+        return df.assign(**{self.column: self.func})
+
+    def describe(self) -> str:
+        func_name = getattr(self.func, "__name__", "<callable>")
+        return f"Assign column '{self.column}' = {func_name}(df)"
 
 
 class LazyColumnSelection(LazyOp):
@@ -1196,15 +1335,57 @@ class LazyGroupByAgg(LazyOp):
             func_str = self.agg_func
         return f"GroupBy({self.groupby_cols}).{func_str}()"
 
+    def aggregate_outputs(
+        self, all_columns: Optional[List[str]] = None
+    ) -> List[Tuple[str, str, str]]:
+        """
+        ``(output_name, func, source_column)`` for every named aggregate output.
+
+        ``size()`` and the column-less ``count()`` fallback emit an unnamed
+        ``count(*)`` and are not listed. ``all_columns`` is only needed when
+        one function is applied to every non-key column.
+        """
+        if self.named_agg:
+            return [(alias, func, col) for alias, (col, func) in self.named_agg.items()]
+        if isinstance(self.agg_dict, dict):
+            # pandas: agg({col: func}) -> col; agg({col: [funcs]}) ->
+            # MultiIndex (col, func), flattened to col_func in SQL;
+            # ColumnExpr.agg([funcs]) -> func.
+            has_any_multi_func = any(
+                isinstance(f, (list, tuple)) for f in self.agg_dict.values()
+            )
+            outputs = []
+            for col, funcs in self.agg_dict.items():
+                for func in [funcs] if isinstance(funcs, str) else funcs:
+                    if self.single_column_agg:
+                        name = func
+                    elif has_any_multi_func:
+                        name = f"{col}_{func}"
+                    else:
+                        name = col
+                    outputs.append((name, func, col))
+            return outputs
+        if self.agg_func and self.agg_func != "size" and all_columns:
+            cols = self.selected_columns or all_columns
+            return [
+                (col, self.agg_func, col) for col in cols if col not in self.groupby_cols
+            ]
+        return []
+
     def can_push_to_sql(self) -> bool:
         """
         Check if this GroupByAgg can be pushed to SQL.
 
         Most aggregation modes can be pushed to SQL, except:
         - agg_dict is a list (e.g., ['sum', 'mean', 'count']) which needs pandas
+        - an aggregate output named like a group key: pandas keeps the key in
+          the index, but a SQL result cannot hold two columns with one name
         """
         # List format agg (e.g., agg(['sum', 'mean'])) needs pandas
         if self.agg_dict is not None and isinstance(self.agg_dict, list):
+            return False
+        output_names = {name for name, _, _ in self.aggregate_outputs()}
+        if output_names & set(self.groupby_cols):
             return False
         return True
 

@@ -35,6 +35,7 @@ import pytest
 import chdb
 from datastore import DataStore
 from datastore.expressions import col
+from tests.test_utils import assert_frame_equal
 from datastore.exceptions import (
     DataStoreError,
     ExecutionError,
@@ -1761,6 +1762,181 @@ class TestSaveDelegation:
                 f"('Hangzhou', 777.0, 'completed')"
             )
             assert _count(target) >= 1
+        finally:
+            _drop_view(mv)
+            _drop(target)
+
+
+# ============================================================================
+# groupby() aggregations — written column names match the pandas result
+# ============================================================================
+
+
+def _source_table_pdf():
+    """pandas mirror of the ``source_table`` fixture rows."""
+    return pd.DataFrame({
+        "city": ["Beijing", "Beijing", "Beijing", "Shanghai", "Shanghai",
+                 "Guangzhou", "Guangzhou"],
+        "amount": [100.0, 200.0, 50.0, 300.0, 150.0, 400.0, 100.0],
+        "status": ["completed", "completed", "pending", "completed",
+                   "pending", "completed", "completed"],
+    })
+
+
+def _assert_written_equals(written: pd.DataFrame, expected: pd.DataFrame):
+    # The pandas side keeps group keys in the index; a SQL table has no
+    # index, so the expected frame carries them as regular columns.
+    assert_frame_equal(written, expected)
+
+
+class TestGroupByAggWritebackColumnNames:
+    """Aggregations whose output alias shadows a source column are built
+    with temporary SQL aliases; the server-side SELECT must still expose the
+    user-visible names (regression for ``__agg_amount__`` columns)."""
+
+    def test_agg_dict_replace(self, source_table):
+        target = "wb_agg_dict_replace"
+        _drop(target)
+        try:
+            ds = _make_ds(source_table)
+            ds.groupby("city").agg({"amount": "sum"}).to_clickhouse(
+                f"{DATABASE}.{target}", if_exists="replace"
+            )
+            expected = (_source_table_pdf().groupby("city")
+                        .agg({"amount": "sum"}).reset_index())
+            _assert_written_equals(_select_all(target, order_by="city"), expected)
+        finally:
+            _drop(target)
+
+    def test_filter_then_multi_column_agg_dict(self, source_table):
+        target = "wb_agg_dict_multi"
+        _drop(target)
+        try:
+            ds = _make_ds(source_table)
+            (ds[ds["amount"] > 60]
+               .groupby("city")
+               .agg({"amount": "sum", "status": "count"})
+            ).to_clickhouse(f"{DATABASE}.{target}",
+                            engine="MergeTree()", order_by="city")
+            pdf = _source_table_pdf()
+            expected = (pdf[pdf["amount"] > 60]
+                        .groupby("city")
+                        .agg({"amount": "sum", "status": "count"})
+                        .reset_index())
+            _assert_written_equals(_select_all(target, order_by="city"), expected)
+            assert [name for name, _ in _columns(target)] == ["city", "amount", "status"]
+        finally:
+            _drop(target)
+
+    def test_as_index_false_append(self, source_table):
+        target = "wb_agg_as_index_false"
+        _drop(target)
+        try:
+            ds = _make_ds(source_table)
+            pipeline = ds.groupby("city", as_index=False).agg({"amount": "max"})
+            pipeline.to_clickhouse(f"{DATABASE}.{target}", if_exists="append",
+                                   engine="MergeTree()", order_by="city")
+            pipeline.to_clickhouse(f"{DATABASE}.{target}", if_exists="append")
+            once = _source_table_pdf().groupby("city", as_index=False).agg(
+                {"amount": "max"}
+            )
+            expected = pd.concat([once, once]).sort_values(
+                "city", kind="stable"
+            ).reset_index(drop=True)
+            _assert_written_equals(_select_all(target, order_by="city"), expected)
+        finally:
+            _drop(target)
+
+    def test_agg_then_filter_sort_head(self, source_table):
+        target = "wb_agg_having_sort_head"
+        _drop(target)
+        try:
+            ds = _make_ds(source_table)
+            totals = ds.groupby("city").agg({"amount": "sum"})
+            (totals[totals["amount"] > 340]
+               .sort_values("amount", ascending=False)
+               .head(2)
+            ).to_clickhouse(f"{DATABASE}.{target}",
+                            engine="MergeTree()", order_by="city")
+            pd_totals = _source_table_pdf().groupby("city").agg({"amount": "sum"})
+            expected = (pd_totals[pd_totals["amount"] > 340]
+                        .sort_values("amount", ascending=False)
+                        .head(2)
+                        .reset_index())
+            # A MergeTree table has no row order; read it back in the order
+            # the pandas pipeline sorted by.
+            _assert_written_equals(
+                _select_all(target, order_by="amount DESC"), expected
+            )
+        finally:
+            _drop(target)
+
+    def test_named_agg_reusing_source_column_name(self, source_table):
+        """Guard, not a regression test: this shape never used a temp alias
+        and already wrote the right columns before the fix."""
+        target = "wb_agg_named"
+        _drop(target)
+        try:
+            ds = _make_ds(source_table)
+            ds.groupby("city").agg(
+                amount=("amount", "sum"), n=("status", "count")
+            ).to_clickhouse(f"{DATABASE}.{target}",
+                            engine="MergeTree()", order_by="city")
+            expected = (_source_table_pdf().groupby("city")
+                        .agg(amount=("amount", "sum"), n=("status", "count"))
+                        .reset_index())
+            _assert_written_equals(_select_all(target, order_by="city"), expected)
+        finally:
+            _drop(target)
+
+    def test_filter_then_named_agg_reusing_source_column_name(self, source_table):
+        target = "wb_agg_filter_named"
+        _drop(target)
+        try:
+            ds = _make_ds(source_table)
+            (ds[ds["amount"] > 60]
+               .groupby("city")
+               .agg(amount=("amount", "sum"))
+            ).to_clickhouse(f"{DATABASE}.{target}",
+                            engine="MergeTree()", order_by="city")
+            pdf = _source_table_pdf()
+            expected = (pdf[pdf["amount"] > 60]
+                        .groupby("city")
+                        .agg(amount=("amount", "sum"))
+                        .reset_index())
+            _assert_written_equals(_select_all(target, order_by="city"), expected)
+        finally:
+            _drop(target)
+
+    def test_create_view(self, source_table):
+        view = "wb_agg_view"
+        _drop_view(view)
+        try:
+            ds = _make_ds(source_table)
+            ds.groupby("city").agg({"amount": "sum"}).create_view(
+                f"{DATABASE}.{view}"
+            )
+            expected = (_source_table_pdf().groupby("city")
+                        .agg({"amount": "sum"}).reset_index())
+            _assert_written_equals(_select_all(view, order_by="city"), expected)
+        finally:
+            _drop_view(view)
+
+    def test_materialized_view_populate(self, source_table):
+        mv, target = "wb_agg_mv", "wb_agg_mv_tgt"
+        _drop_view(mv)
+        _drop(target)
+        try:
+            ds = _make_ds(source_table)
+            ds.groupby("city").agg({"amount": "sum"}).create_materialized_view(
+                name=f"{DATABASE}.{mv}",
+                to=f"{DATABASE}.{target}",
+                engine="MergeTree()", order_by="city",
+                populate=True,
+            )
+            expected = (_source_table_pdf().groupby("city")
+                        .agg({"amount": "sum"}).reset_index())
+            _assert_written_equals(_select_all(target, order_by="city"), expected)
         finally:
             _drop_view(mv)
             _drop(target)

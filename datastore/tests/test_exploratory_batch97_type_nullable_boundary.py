@@ -59,7 +59,6 @@ class TestTypeCoercionArithmetic:
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
-    @pytest.mark.xfail(reason="chDB floor(a/b) returns Float64 instead of Int64, needs type-aware casting")
     def test_int_floor_divide_returns_int(self):
         """Floor division should preserve integer type."""
         pd_df = pd.DataFrame({"a": [10, 20, 30, 40, 50]})

@@ -17,7 +17,8 @@ Design Goals:
 
 from copy import copy
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any, Tuple, TYPE_CHECKING
+import re
+from typing import List, Optional, Dict, Any, Set, Tuple, TYPE_CHECKING
 import pandas as pd
 
 from .expressions import (
@@ -387,10 +388,9 @@ def rewrite_column_refs_in_expression(expr: Any, rename_map: Dict[str, str]) -> 
     """
     Recursively rewrite ``Field`` references in an Expression/Condition tree.
 
-    When an inner SQL layer renames a column (e.g. ``SUM(int_col) AS
-    __agg_int_col__`` because of an alias conflict), outer layers that
-    reference the original name (``int_col``) need their references rewritten
-    to the temp alias so the outer SQL is well-formed.
+    Used inside a single SELECT scope: when an aggregation emits ``SUM(int_col)
+    AS __agg_int_col__``, a HAVING condition on the visible name ``int_col``
+    must reference the temp alias instead.
 
     The rewrite is structural and immutable: a new tree is returned and the
     original is not mutated. Subqueries inside ``InCondition`` are not
@@ -517,10 +517,6 @@ def rewrite_column_refs_in_orderby(
     """
     Rewrite Field references in an ORDER BY field list.
 
-    Generalizes :func:`apply_alias_renames_to_orderby` to work with any
-    ``rename_map`` (e.g. cross-layer alias propagation), not only the
-    ``temp_alias -> original_alias`` map.
-
     Args:
         orderby_fields: List of ``(field, ascending)`` tuples
         rename_map: Dict mapping ``original_name -> new_name``
@@ -542,35 +538,6 @@ def rewrite_column_refs_in_orderby(
             new_orderby.append((field_obj, asc))
 
     return new_orderby
-
-
-def apply_alias_renames_to_orderby(
-    orderby_fields: List[Tuple[Any, bool]], alias_renames: Dict[str, str]
-) -> List[Tuple[Any, bool]]:
-    """
-    Handle ORDER BY with same-layer alias conflicts (e.g. GroupBy temp aliases).
-
-    If ORDER BY references a column that has a temp alias (due to GroupBy
-    conflict), we need to use the temp alias in ORDER BY.
-
-    For the same-layer case the rename direction is reversed compared to
-    cross-layer rewrites: ``alias_renames`` maps ``temp_alias ->
-    original_alias`` because the temp alias is what is emitted in SELECT but
-    the user-facing ORDER BY column name is the original. Hence we invert it
-    and reuse :func:`rewrite_column_refs_in_orderby`.
-
-    Args:
-        orderby_fields: List of (field, ascending) tuples
-        alias_renames: Dict mapping ``temp_alias -> original_alias``
-
-    Returns:
-        Updated orderby_fields with temp aliases applied
-    """
-    if not alias_renames or not orderby_fields:
-        return orderby_fields
-
-    reverse_renames = {orig: temp for temp, orig in alias_renames.items()}
-    return rewrite_column_refs_in_orderby(orderby_fields, reverse_renames)
 
 
 def layer_computed_columns(
@@ -604,28 +571,40 @@ def layer_computed_columns(
     }
 
 
+_QUOTED_IDENTIFIER = re.compile(r'"((?:[^"]|"")*)"')
+
+
+def _referenced_identifiers(expr: Any) -> Set[str]:
+    """Every double-quoted identifier in ``expr``'s SQL (column references)."""
+    try:
+        sql = expr.to_sql(quote_char='"')
+    except Exception:
+        return set()
+    return {m.replace('""', '"') for m in _QUOTED_IDENTIFIER.findall(sql)}
+
+
 def build_groupby_select_fields(
     groupby_agg: LazyGroupByAgg,
-    inherited_alias_renames: Dict[str, str] = None,
+    reserved_names: Optional[Set[str]] = None,
     all_columns: List[str] = None,
     computed_columns: Dict[str, Expression] = None,
 ) -> Tuple[List[Field], List[Expression], Dict[str, str]]:
     """
     Build GROUP BY and SELECT fields from a LazyGroupByAgg operation.
 
-    Pure function: does NOT mutate any argument. Returns a fresh
-    ``emitted_renames`` dict describing every temp alias this call's
-    SELECT clause emits (whether the alias was pre-reserved in
-    ``inherited_alias_renames`` or newly created here). Callers can merge
-    it into ``plan.alias_renames`` for post-execution rename-back and
-    propagate it to subsequent layers for cross-layer Field rewriting.
+    Every named aggregate output is emitted under a temp alias: ClickHouse
+    aliases are visible across the whole SELECT scope, so ``sum(v) AS v``
+    would capture ``v`` in the WHERE, in other aggregate arguments or in a
+    computed group key. The caller renames the temp aliases back with an
+    outer projection. A temp alias never equals a name in
+    ``reserved_names``, a column the aggregation references, or an output
+    name.
+
+    Pure function: does NOT mutate any argument.
 
     Args:
         groupby_agg: LazyGroupByAgg operation
-        inherited_alias_renames: Existing temp-alias map (read-only). Used
-            to detect when an alias is already reserved by an outer scope
-            (e.g. by the planner's source-col/agg-alias conflict
-            detection). The caller's dict is never mutated.
+        reserved_names: Column names the caller's WHERE / HAVING reference.
         all_columns: All column names (needed for count() to generate
             COUNT(col) per column)
         computed_columns: Dict mapping computed column names to their
@@ -634,21 +613,12 @@ def build_groupby_select_fields(
     Returns:
         Tuple of (groupby_fields, select_fields, emitted_renames).
         ``emitted_renames`` maps ``temp_alias -> original_alias`` for
-        every temp alias this layer's SELECT clause actually emits.
+        every temp alias this layer's SELECT clause emits.
     """
     from .functions import AggregateFunction, Function
 
-    inherited = inherited_alias_renames or {}
     emitted_renames: Dict[str, str] = {}
     computed_columns = computed_columns or {}
-
-    def reserve_temp(temp: str, original: str) -> None:
-        """Record that this SELECT emits ``temp`` as the alias for ``original``."""
-        emitted_renames[temp] = original
-
-    def has_alias(temp: str) -> bool:
-        """Check if a temp alias is reserved (in inherited or already created)."""
-        return temp in inherited or temp in emitted_renames
 
     def resolve_column(col_name: str) -> Expression:
         """Resolve column name - return expression if computed column, else Field."""
@@ -656,7 +626,7 @@ def build_groupby_select_fields(
             return computed_columns[col_name]
         return Field(col_name)
 
-    def create_agg_expr(func: str, col_expr: Expression, alias: str) -> AggregateFunction:
+    def create_agg_expr(func: str, col_expr: Expression) -> AggregateFunction:
         """
         Create aggregation expression, handling special cases for first/last.
 
@@ -673,19 +643,19 @@ def build_groupby_select_fields(
 
         if func == 'first':
             if is_performance_mode():
-                return AggregateFunction('any', col_expr, alias=alias)
+                return AggregateFunction('any', col_expr)
             # first() -> argMin(col, rowNumberInAllBlocks())
             row_num_func = Function('rowNumberInAllBlocks')
-            return AggregateFunction('argMin', col_expr, row_num_func, alias=alias)
+            return AggregateFunction('argMin', col_expr, row_num_func)
         elif func == 'last':
             if is_performance_mode():
-                return AggregateFunction('anyLast', col_expr, alias=alias)
+                return AggregateFunction('anyLast', col_expr)
             # last() -> argMax(col, rowNumberInAllBlocks())
             row_num_func = Function('rowNumberInAllBlocks')
-            return AggregateFunction('argMax', col_expr, row_num_func, alias=alias)
+            return AggregateFunction('argMax', col_expr, row_num_func)
         else:
             sql_func = map_agg_func(func)
-            return AggregateFunction(sql_func, col_expr, alias=alias)
+            return AggregateFunction(sql_func, col_expr)
 
     # Build GROUP BY fields
     # Use resolve_column to expand computed columns in groupby keys
@@ -700,129 +670,31 @@ def build_groupby_select_fields(
     # Build SELECT fields with aggregations
     select_fields = list(groupby_fields)  # Include group keys
 
-    if groupby_agg.named_agg:
-        # Pandas named aggregation: agg(alias=('col', 'func'))
-        # Convert to SQL: SELECT func(col) AS alias ...
-        for alias, (col, func) in groupby_agg.named_agg.items():
-            # Check if this alias conflicts with WHERE columns
-            temp_alias = f"__agg_{alias}__"
-            if has_alias(temp_alias):
-                final_alias = temp_alias
-                reserve_temp(temp_alias, alias)
-            else:
-                final_alias = alias
+    outputs = groupby_agg.aggregate_outputs(all_columns)
+    agg_exprs = [create_agg_expr(func, resolve_column(col)) for _, func, col in outputs]
+    taken = set(reserved_names or ()) | {name for name, _, _ in outputs}
+    for expr in groupby_fields + agg_exprs:
+        taken |= _referenced_identifiers(expr)
+    for (name, _, _), agg_expr in zip(outputs, agg_exprs):
+        temp_alias = f"__agg_{name}__"
+        suffix = 1
+        while temp_alias in taken:
+            temp_alias = f"__agg_{name}_{suffix}__"
+            suffix += 1
+        taken.add(temp_alias)
+        agg_expr.alias = temp_alias
+        emitted_renames[temp_alias] = name
+        select_fields.append(agg_expr)
 
-            # Resolve column - may be a computed column from assign()
-            col_expr = resolve_column(col)
-            agg_expr = create_agg_expr(func, col_expr, alias=final_alias)
-            select_fields.append(agg_expr)
-
-    elif groupby_agg.agg_dict is not None and isinstance(groupby_agg.agg_dict, dict):
-        # Pandas-style: agg({'col': 'func'}) or agg({'col': ['func1', 'func2']})
-        # Determine if we need compound aliases (col_func) to avoid duplicates
-        has_multi_col = len(groupby_agg.agg_dict) > 1
-        has_any_multi_func = any(
-            isinstance(f, (list, tuple)) for f in groupby_agg.agg_dict.values()
-        )
-        is_single_col_agg = getattr(groupby_agg, "single_column_agg", False)
-
-        # Check for function name conflicts across columns
-        # This only matters when a single column has multiple funcs and those func names conflict
-        # When each column has single func, alias = col name, so no conflicts
-        all_funcs = []
-        for col, funcs in groupby_agg.agg_dict.items():
-            if isinstance(funcs, str):
-                all_funcs.append(funcs)
-            else:
-                all_funcs.extend(funcs)
-        has_func_conflict = len(all_funcs) != len(set(all_funcs))
-
-        # Alias strategy:
-        # - single_column_agg (ColumnExpr.agg(['funcs'])): use function names only (pandas returns flat columns)
-        # - agg({col: [funcs]}): use compound alias col_func (pandas returns MultiIndex)
-        # - agg({col: func}): use column names only (pandas returns flat columns)
-        #   Note: Even if multiple columns use same func (e.g., 'sum'), no conflict
-        #   because each column uses its own name as alias
-        if is_single_col_agg:
-            # Single column agg: pandas returns flat column names with just function names
-            use_compound_alias = False
-            use_func_only_alias = True
-        elif has_any_multi_func:
-            # Multi-func: use compound alias col_func for MultiIndex (pandas behavior)
-            use_compound_alias = True
-            use_func_only_alias = False
-        else:
-            # Single func per column: use column names (no conflict because different cols)
-            use_compound_alias = False
-            use_func_only_alias = False
-
-        for col, funcs in groupby_agg.agg_dict.items():
-            if isinstance(funcs, str):
-                funcs = [funcs]
-
-            for func in funcs:
-                # Alias strategy based on context
-                if use_compound_alias:
-                    alias = f"{col}_{func}"
-                elif use_func_only_alias:
-                    alias = func
-                else:
-                    alias = col
-
-                # Check if this alias conflicts with WHERE columns or source columns
-                # When alias == source column name (e.g., sum(amount) AS amount),
-                # chDB interprets it as nested aggregation which is invalid
-                temp_alias = f"__agg_{alias}__"
-                if has_alias(temp_alias) or col == alias:
-                    # Use temp alias to avoid conflict, will rename back later
-                    reserve_temp(temp_alias, alias)
-                    alias = temp_alias
-
-                # Resolve column - may be a computed column from assign()
-                col_expr = resolve_column(col)
-                agg_expr = create_agg_expr(func, col_expr, alias=alias)
-                select_fields.append(agg_expr)
-
-    elif groupby_agg.agg_func:
-        # Single function for all numeric columns
-        func = groupby_agg.agg_func
-
-        if func == "size":
-            # size() counts ALL rows including NULL -> COUNT(*)
-            sql_func = map_agg_func(func)
-            select_fields.append(AggregateFunction(sql_func, Star()))
-        elif all_columns:
-            # Apply aggregation to non-groupby columns (or only selected columns)
-            # This handles sum, mean, count, min, max, std, var, first, last, etc.
-            # If selected_columns is set, only aggregate those columns (excluding groupby keys)
-            if groupby_agg.selected_columns:
-                # Filter out groupby columns from selected_columns
-                cols_to_agg = [
-                    c
-                    for c in groupby_agg.selected_columns
-                    if c not in groupby_agg.groupby_cols
-                ]
-            else:
-                cols_to_agg = [
-                    c for c in all_columns if c not in groupby_agg.groupby_cols
-                ]
-            for col in cols_to_agg:
-                # Check if this alias conflicts with WHERE columns
-                temp_alias = f"__agg_{col}__"
-                if has_alias(temp_alias):
-                    alias = temp_alias
-                    reserve_temp(temp_alias, col)
-                else:
-                    alias = col
-                # Resolve column - may be a computed column from assign()
-                col_expr = resolve_column(col)
-                agg_expr = create_agg_expr(func, col_expr, alias=alias)
-                select_fields.append(agg_expr)
-        else:
-            # Fallback: if we don't know columns, use COUNT(*) for count, otherwise skip
-            if func == "count":
-                sql_func = map_agg_func(func)
-                select_fields.append(AggregateFunction(sql_func, Star()))
+    func = groupby_agg.agg_func
+    if (
+        not groupby_agg.named_agg
+        and not isinstance(groupby_agg.agg_dict, dict)
+        and (func == "size" or (func == "count" and not all_columns))
+    ):
+        # size() counts ALL rows including NULL; without known columns
+        # count() falls back to the same COUNT(*)
+        select_fields.append(AggregateFunction(map_agg_func(func), Star()))
 
     return groupby_fields, select_fields, emitted_renames
 
@@ -833,11 +705,10 @@ class SQLBuildResult:
     Result of SQL building from a QueryPlan.
 
     Encapsulates both the SQL string and metadata needed for post-processing
-    (like column renames and index setting for GroupBy).
+    (like index setting for GroupBy).
     """
 
     sql: str
-    alias_renames: Dict[str, str] = field(default_factory=dict)
     groupby_agg: Optional[LazyGroupByAgg] = None
     # True when ``sql`` already carries the DataStore's format settings; a
     # second SETTINGS clause is only accepted at the top level, so callers
@@ -851,18 +722,13 @@ class LayerBuildResult:
     Result of building SQL for a single subquery layer.
 
     Returned by :meth:`SQLExecutionEngine._build_layer`. The ``renames_introduced``
-    map records temp aliases this layer's SELECT emitted that differ from
-    their user-visible names (``temp_alias -> original_name``). Callers
-    chain layers by feeding the next layer ``inner_renames=visible_to_temp``
-    so its WHERE/ORDER BY refs are rewritten before reaching SQL.
+    map records temp aliases used inside this layer (``temp_alias ->
+    original_name``). The layer's own outer projection renames them back, so
+    its output columns always carry the user-visible names.
     """
 
     sql: str
     renames_introduced: Dict[str, str] = field(default_factory=dict)
-
-    def visible_to_temp(self) -> Dict[str, str]:
-        """Invert ``renames_introduced`` to a ``visible_name -> temp_alias`` map."""
-        return {orig: temp for temp, orig in self.renames_introduced.items()}
 
 
 class SQLExecutionEngine:
@@ -981,8 +847,6 @@ class SQLExecutionEngine:
         *,
         from_source: Optional[str] = None,
         is_first_layer: bool,
-        inherited_renames: Optional[Dict[str, str]] = None,
-        previously_emitted_renames: Optional[Dict[str, str]] = None,
         schema: Optional[Dict[str, str]] = None,
         sql_select_fields: Optional[List[Expression]] = None,
         has_column_assignments: bool = False,
@@ -1007,6 +871,9 @@ class SQLExecutionEngine:
         - LazyColumnAssignment (pushable) -> additional SELECT expression
         - LazyGroupByAgg -> GROUP BY + aggregations; WHEREs in this layer
           are split by position (before -> WHERE clause, after -> HAVING).
+          Temp aggregate aliases are renamed back by an outer projection
+          (``_wrap_agg_temp_aliases``), so the layer's output always uses
+          the user-visible column names.
         - LazyWhere / LazyMask -> CASE WHEN over every column with temp
           aliases.
 
@@ -1017,17 +884,6 @@ class SQLExecutionEngine:
                 valid when ``is_first_layer`` is True).
             is_first_layer: True for the innermost layer (gets row-order
                 preservation, JOINs, DISTINCT). False for wrapper layers.
-            inherited_renames: ``temp_alias -> original_alias`` map for
-                alias-awareness only. Used by
-                ``build_groupby_select_fields`` to detect when an alias is
-                already reserved (e.g. by the planner's source-col vs
-                agg-alias conflict detection). NOT used to rewrite Field
-                references in WHERE/ORDER BY.
-            previously_emitted_renames: ``temp_alias -> original_alias``
-                map for renames that *previously-built layers* actually
-                emitted under temp aliases. Used to rewrite this layer's
-                WHERE/HAVING/ORDER BY Field references (inverted to
-                ``orig -> temp``). Empty for the first layer.
             schema: Column schema for type-aware CASE WHEN.
             sql_select_fields: Pre-computed SELECT exprs from the caller
                 (column assignments etc.). Only used for the first layer.
@@ -1039,69 +895,23 @@ class SQLExecutionEngine:
 
         Returns:
             LayerBuildResult containing the SQL text and every temp alias
-            this layer's SELECT actually emitted
-            (``temp_alias -> original_alias``).
+            this layer used internally (``temp_alias -> original_alias``).
         """
-        inherited_renames = inherited_renames or {}
-        previously_emitted_renames = previously_emitted_renames or {}
         schema = schema or {}
         sql_select_fields = sql_select_fields or []
-
-        # Inverted view of previously_emitted_renames for rewriting Field
-        # refs (visible_name -> emitted_temp_alias). This applies only to
-        # columns that an INNER subquery already emitted under a temp
-        # alias - NOT to planner reservations for this layer's own agg.
-        previously_visible_to_temp: Dict[str, str] = {
-            orig: temp for temp, orig in previously_emitted_renames.items()
-        }
 
         groupby_agg_op, where_ops = self._extract_special_ops_from_layer(layer_ops)
         clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
 
-        # 1) Cross-layer rewrite: rewrite Field refs in this layer's
-        # WHERE/ORDER BY/SELECT to point at the inner layer's emitted names.
-        # SELECT rewriting matters when a wrapper layer projects a column
-        # the inner layer renamed (e.g. ``ds_filter['int_col']`` against an
-        # aggregation that emits ``__agg_int_col__``); the projection must
-        # bind to the temp alias and rely on post-execution rename-back.
-        if previously_visible_to_temp:
-            clauses.where_conditions = [
-                rewrite_column_refs_in_expression(c, previously_visible_to_temp)
-                for c in clauses.where_conditions
-            ]
-            clauses.orderby_fields = rewrite_column_refs_in_orderby(
-                clauses.orderby_fields, previously_visible_to_temp
-            )
-            clauses.select_fields = [
-                rewrite_column_refs_in_expression(f, previously_visible_to_temp)
-                for f in clauses.select_fields
-            ]
-            # The caller-supplied SELECT fields (e.g. a column projection
-            # from ColumnExpr) reference user-visible names too; rewrite
-            # them to bind to the inner subquery's actual emitted columns.
-            sql_select_fields = [
-                rewrite_column_refs_in_expression(f, previously_visible_to_temp)
-                for f in sql_select_fields
-            ]
-
-        # 2) Split WHEREs by GroupByAgg position (pre-agg -> WHERE, post-agg
+        # 1) Split WHEREs by GroupByAgg position (pre-agg -> WHERE, post-agg
         # -> HAVING). ``_split_wheres_by_groupby_position`` re-reads from
-        # ``layer_ops`` to preserve position, so we need to rewrite both
-        # halves separately too.
+        # ``layer_ops`` to preserve position.
         having_conditions: List[Any] = []
+        agg_outer_clauses: Optional[ExtractedClauses] = None
         if groupby_agg_op is not None:
             pre_wheres, post_wheres = self._split_wheres_by_groupby_position(
                 layer_ops
             )
-            if previously_visible_to_temp:
-                pre_wheres = [
-                    rewrite_column_refs_in_expression(c, previously_visible_to_temp)
-                    for c in pre_wheres
-                ]
-                post_wheres = [
-                    rewrite_column_refs_in_expression(c, previously_visible_to_temp)
-                    for c in post_wheres
-                ]
             # pandas default ``dropna=True`` excludes NULL group keys; SQL
             # ``GROUP BY`` would group them. Emit ``col IS NOT NULL``
             # filters as pre-agg WHEREs unless the user opted out via
@@ -1120,7 +930,7 @@ class SQLExecutionEngine:
             clauses.where_conditions = pre_wheres
             having_conditions = post_wheres
 
-        # 3) Build SELECT / GROUP BY / WHERE CASE-WHEN tooling.
+        # 2) Build SELECT / GROUP BY / WHERE CASE-WHEN tooling.
         select_fields_for_sql: List[Expression] = sql_select_fields
         groupby_fields_for_sql: List[Expression] = (
             self.ds._groupby_fields if is_first_layer else []
@@ -1178,19 +988,25 @@ class SQLExecutionEngine:
                 ) or []
 
             computed_cols = layer_computed_columns(layer_ops, self.quote_char)
+            reserved_names = set(all_cols)
+            scope_conditions = clauses.where_conditions + having_conditions
+            if is_first_layer and self.ds._having_condition is not None:
+                scope_conditions = scope_conditions + [self.ds._having_condition]
+            for cond in scope_conditions:
+                reserved_names |= _referenced_identifiers(cond)
             (
                 groupby_fields_for_sql,
                 select_fields_for_sql,
                 emitted_renames,
             ) = build_groupby_select_fields(
                 groupby_agg_op,
-                inherited_alias_renames=inherited_renames,
+                reserved_names=reserved_names,
                 all_columns=all_cols,
                 computed_columns=computed_cols,
             )
 
-            # Rewrite this layer's HAVING / ORDER BY refs to use the temp
-            # aliases the agg just emitted (visible_name -> temp_alias).
+            # HAVING is evaluated inside the aggregation's SELECT scope, so
+            # it must reference the temp aliases (visible_name -> temp_alias).
             agg_visible_to_temp = {
                 orig: temp for temp, orig in emitted_renames.items()
             }
@@ -1199,9 +1015,6 @@ class SQLExecutionEngine:
                     rewrite_column_refs_in_expression(c, agg_visible_to_temp)
                     for c in having_conditions
                 ]
-                clauses.orderby_fields = rewrite_column_refs_in_orderby(
-                    clauses.orderby_fields, agg_visible_to_temp
-                )
 
             if groupby_agg_op.sort and not clauses.orderby_fields:
                 clauses.orderby_fields = [
@@ -1211,7 +1024,20 @@ class SQLExecutionEngine:
             preserved_orderby = None
             preserved_orderby_kind = None
 
-        # 4) Render SQL. Two render modes:
+            # ORDER BY / LIMIT / OFFSET bind to user-visible names, so they
+            # move to the outer projection that renames the temp aliases.
+            if emitted_renames:
+                agg_outer_clauses = ExtractedClauses(
+                    orderby_fields=clauses.orderby_fields,
+                    orderby_kind=clauses.orderby_kind,
+                    limit_value=clauses.limit_value,
+                    offset_value=clauses.offset_value,
+                )
+                clauses.orderby_fields = []
+                clauses.limit_value = None
+                clauses.offset_value = None
+
+        # 3) Render SQL. Two render modes:
         # - Source-bound first layer (``from_source is None`` and
         #   ``is_first_layer=True``): full source-bound complexity (JOINs,
         #   row-order subquery, CASE WHEN subquery, DISTINCT) via
@@ -1274,12 +1100,68 @@ class SQLExecutionEngine:
                 ),
             )
 
-        # Renames introduced by this layer: aliases its SELECT actually
-        # emitted. Empty when the layer has no LazyGroupByAgg / LazyWhere.
+        if agg_outer_clauses is not None:
+            sql = self._wrap_agg_temp_aliases(
+                sql, select_fields_for_sql, emitted_renames, agg_outer_clauses
+            )
+
+        # Temp aliases this layer used internally. Empty when the layer has
+        # no LazyGroupByAgg.
         introduced: Dict[str, str] = {}
         if groupby_agg_op is not None:
             introduced.update(emitted_renames)
         return LayerBuildResult(sql=sql, renames_introduced=introduced)
+
+    def _wrap_agg_temp_aliases(
+        self,
+        inner_sql: str,
+        select_fields: List[Expression],
+        temp_to_visible: Dict[str, str],
+        outer_clauses: ExtractedClauses,
+    ) -> str:
+        """
+        Project an aggregation layer's temp aliases back to their visible names.
+
+        ClickHouse aliases are visible across the whole SELECT scope, so
+        ``sum(price) AS price`` would capture ``price`` in the pre-aggregation
+        WHERE or in other aggregate arguments. The aggregation therefore emits
+        ``AS __agg_price__`` and this projection restores ``price`` in SQL,
+        so execution, ``to_sql()``, explain and server-side writeback all see
+        the same columns.
+        """
+        qc = self.quote_char
+        projection = []
+        for f in select_fields:
+            name = getattr(f, "alias", None) or getattr(f, "name", None)
+            if not name:
+                raise ValueError(
+                    f"Cannot project unnamed aggregation output: {f!r}"
+                )
+            name = name.strip(qc)
+            visible = temp_to_visible.get(name)
+            if visible is None:
+                projection.append(format_identifier(name, qc))
+            else:
+                projection.append(
+                    f"{format_identifier(name, qc)} AS {format_identifier(visible, qc)}"
+                )
+
+        parts = [
+            f"SELECT {', '.join(projection)}",
+            f"FROM ({inner_sql}) AS __rename_subq__",
+        ]
+        if outer_clauses.orderby_fields:
+            orderby_sql = build_orderby_clause(
+                outer_clauses.orderby_fields,
+                qc,
+                stable=is_stable_sort(outer_clauses.orderby_kind),
+            )
+            parts.append(f"ORDER BY {orderby_sql}")
+        if outer_clauses.limit_value is not None:
+            parts.append(f"LIMIT {outer_clauses.limit_value}")
+        if outer_clauses.offset_value is not None:
+            parts.append(f"OFFSET {outer_clauses.offset_value}")
+        return " ".join(parts)
 
     def _infer_column_names(
         self, fields: List[Expression]
@@ -1891,10 +1773,7 @@ class SQLExecutionEngine:
         ):
             sql = self._build_sql_with_builder(plan, schema)
             return SQLBuildResult(
-                sql=sql,
-                alias_renames=alias_renames,
-                groupby_agg=groupby_agg_op,
-                has_settings=True,
+                sql=sql, groupby_agg=groupby_agg_op, has_settings=True
             )
 
         # JOINs add columns the schema does not list.
@@ -1906,9 +1785,8 @@ class SQLExecutionEngine:
         )
 
         # Unified layer loop: layer 0 reads from the table source,
-        # subsequent layers wrap "(inner_sql) AS __subqN__". Any temp
-        # aliases a layer introduces are accumulated and forwarded so
-        # downstream layers rewrite their column references accordingly.
+        # subsequent layers wrap "(inner_sql) AS __subqN__". Each layer
+        # emits user-visible column names.
         sql = self._build_layered_sql(
             layers if layers else [[]],
             sql_select_fields,
@@ -1918,11 +1796,7 @@ class SQLExecutionEngine:
             source_columns=source_columns,
         )
 
-        return SQLBuildResult(
-            sql=sql,
-            alias_renames=alias_renames,
-            groupby_agg=groupby_agg_op,
-        )
+        return SQLBuildResult(sql=sql, groupby_agg=groupby_agg_op)
 
     def _needs_sql_builder(
         self,
@@ -2270,10 +2144,8 @@ class SQLExecutionEngine:
         Layer 0 reads from the table source (or ``first_layer_from_source``
         when supplied - used by the Python() DataFrame execution path with
         ``"__df__"``). Each subsequent layer reads ``(inner_sql) AS
-        __subqN__``. Temp aliases each layer introduces are accumulated
-        and fed to the next layer as ``inner_renames`` so its
-        WHERE/HAVING/ORDER BY ``Field`` references get rewritten to use
-        the actual emitted column names.
+        __subqN__``. Every layer emits user-visible column names, so outer
+        layers reference inner columns by those names directly.
 
         Args:
             layers: List of per-layer op lists (innermost first). At least
@@ -2282,8 +2154,7 @@ class SQLExecutionEngine:
                 (``plan.sql_ops`` when the plan has no layers); only used
                 for the first source-bound layer.
             alias_renames: ``plan.alias_renames`` - mutated to record any
-                temp aliases this build introduces (consumed by
-                post-execution rename-back).
+                temp aliases this build uses inside a layer.
             schema: Column schema for type-aware CASE WHEN.
             has_column_assignments: First-layer ``SELECT *, computed_col``
                 semantics flag.
@@ -2297,19 +2168,6 @@ class SQLExecutionEngine:
             The full nested SQL string.
         """
         sql = ""
-        # ``inherited_renames`` is the temp_alias -> original_alias map (same
-        # format as ``plan.alias_renames``). It carries planner-seeded
-        # reservations plus everything previously emitted; the per-layer
-        # builder reads it only for ``build_groupby_select_fields`` alias
-        # collision detection. Field references are NOT rewritten through
-        # it - that's what ``previously_emitted_renames`` is for.
-        inherited_renames: Dict[str, str] = dict(alias_renames)
-        # ``previously_emitted_renames`` is the temp_alias -> original_alias
-        # map of renames that *already-built* layers actually emitted under
-        # temp aliases. The next layer's WHERE/ORDER BY Field refs are
-        # rewritten through this (inverted) so they bind to the correct
-        # subquery output column. Empty for the first layer.
-        previously_emitted_renames: Dict[str, str] = {}
         preserved_orderby: Optional[List[Tuple[Any, bool]]] = None
         preserved_orderby_kind: Optional[str] = None
         input_columns = list(source_columns) if source_columns else None
@@ -2342,8 +2200,6 @@ class SQLExecutionEngine:
                 layer_ops,
                 from_source=from_source,
                 is_first_layer=is_first,
-                inherited_renames=inherited_renames,
-                previously_emitted_renames=previously_emitted_renames,
                 schema=schema,
                 sql_select_fields=effective_select_fields,
                 has_column_assignments=effective_has_assignments,
@@ -2354,32 +2210,13 @@ class SQLExecutionEngine:
             )
             sql = result.sql
             alias_renames.update(result.renames_introduced)
-            inherited_renames = dict(inherited_renames)
-            inherited_renames.update(result.renames_introduced)
 
-            # Decide what crosses into the next layer's WHERE/ORDER BY rewriter:
-            # - If this layer aggregated, only its own emitted aliases are
-            #   visible downstream (previous source-col renames are gone).
-            # - Otherwise propagate previously-emitted forward unchanged
-            #   (a non-agg wrapper doesn't introduce new emissions).
             layer_has_agg = any(isinstance(o, LazyGroupByAgg) for o in layer_ops)
             if layer_has_agg:
-                previously_emitted_renames = dict(result.renames_introduced)
                 preserved_orderby = None
                 preserved_orderby_kind = None
             else:
-                # WHERE/ORDER BY emissions are not introduced by non-agg
-                # layers; propagate previous map unchanged.
                 layer_clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
-                visible_to_temp = {
-                    orig: temp for temp, orig in previously_emitted_renames.items()
-                }
-                layer_clauses.orderby_fields = rewrite_column_refs_in_orderby(
-                    apply_alias_renames_to_orderby(
-                        layer_clauses.orderby_fields, alias_renames
-                    ),
-                    visible_to_temp,
-                )
                 if layer_clauses.orderby_fields:
                     preserved_orderby = layer_clauses.orderby_fields
                     preserved_orderby_kind = layer_clauses.orderby_kind
@@ -2727,17 +2564,6 @@ class SQLExecutionEngine:
                         "  Set groupby columns as index: %s", groupby_cols
                     )
 
-        # Handle alias renames
-        if plan.alias_renames:
-            rename_back = {
-                temp: orig
-                for temp, orig in plan.alias_renames.items()
-                if temp in result_df.columns
-            }
-            if rename_back:
-                result_df = result_df.rename(columns=rename_back)
-                self._logger.debug("  Renamed temp aliases: %s", rename_back)
-
         # Convert flat column names to MultiIndex for pandas compatibility
         # Only needed when ANY column has multiple aggregation functions (e.g., agg({'col': ['sum', 'mean']}))
         # When each column has single func, pandas returns flat column names, so we should too
@@ -2865,15 +2691,14 @@ class SQLExecutionEngine:
         # >1 layer) go through the unified ``_build_layered_sql`` pipeline
         # with ``__df__`` as the FROM source. ``_build_layer`` correctly
         # splits WHEREs by GROUP BY position (pre-agg -> WHERE, post-agg
-        # -> HAVING) and rewrites Field references to the agg's emitted
-        # temp aliases, both of which the legacy single-layer inline path
-        # below does not handle.
-        needs_layered_pipeline = bool(plan.layers) and (
-            len(plan.layers) > 1
-            or plan.groupby_agg is not None
-            or bool(plan.where_ops)
+        # -> HAVING) and renames aggregation temp aliases back in SQL,
+        # neither of which the legacy single-layer inline path below does.
+        needs_layered_pipeline = plan.groupby_agg is not None or (
+            bool(plan.layers)
+            and (len(plan.layers) > 1 or bool(plan.where_ops))
         )
         if needs_layered_pipeline:
+            assert plan.layers, "a GROUP BY plan must carry its op in plan.layers"
             sql_select_fields, has_column_assignments = (
                 self._collect_select_fields_from_sql_ops(plan.sql_ops)
             )
@@ -2890,39 +2715,8 @@ class SQLExecutionEngine:
         # Extract clauses for simple/single layer case
         clauses = extract_clauses_from_ops(plan.sql_ops, self.quote_char)
 
-        # Apply alias renames to ORDER BY
-        if plan.alias_renames and clauses.orderby_fields:
-            clauses.orderby_fields = apply_alias_renames_to_orderby(
-                clauses.orderby_fields, plan.alias_renames
-            )
-
-        # Handle GroupBy and CASE WHEN ops (these apply to final result)
-        groupby_fields = []
+        # Handle CASE WHEN ops (these apply to final result)
         select_fields = []
-
-        if plan.groupby_agg:
-            # Pass all_columns for count() to generate COUNT(col) per column
-            df_columns = list(df.columns)
-            # Get computed columns for expanding assign() columns in aggregations
-            computed_cols = layer_computed_columns(
-                plan.layers[0] if plan.layers else plan.sql_ops, self.quote_char
-            )
-            (
-                groupby_fields,
-                select_fields,
-                new_renames,
-            ) = build_groupby_select_fields(
-                plan.groupby_agg,
-                plan.alias_renames,
-                all_columns=df_columns,
-                computed_columns=computed_cols,
-            )
-            plan.alias_renames.update(new_renames)
-            # Re-apply alias renames to ORDER BY since build_groupby_select_fields may have added new renames
-            if plan.alias_renames and clauses.orderby_fields:
-                clauses.orderby_fields = apply_alias_renames_to_orderby(
-                    clauses.orderby_fields, plan.alias_renames
-                )
 
         # Track temp alias mapping for where_ops (CASE WHEN)
         # chDB has alias conflict quirks: if a CASE WHEN uses "col" as alias and
@@ -2993,7 +2787,7 @@ class SQLExecutionEngine:
         _where_references_overrides = bool(_where_conditions_before_assign)
 
         # Determine SELECT clause
-        # Priority: empty column select -> CASE WHEN/GroupBy fields -> explicit column selection -> *
+        # Priority: empty column select -> CASE WHEN fields -> explicit column selection -> *
         if clauses.empty_column_select:
             # Empty column selection: df[[]] - return DataFrame with 0 columns
             # We use _row_id for row tracking (built-in virtual column in chDB v4.0.0b5+)
@@ -3071,48 +2865,6 @@ class SQLExecutionEngine:
                 combined = combined & cond
             parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
-        # GROUP BY clause
-        if groupby_fields:
-            groupby_sql = ", ".join(
-                f.to_sql(quote_char=self.quote_char) for f in groupby_fields
-            )
-            parts.append(f"GROUP BY {groupby_sql}")
-
-            # Handle dropna for groupby: add WHERE ... IS NOT NULL for groupby columns
-            # when dropna=True (pandas default). This must be added BEFORE GROUP BY.
-            # In performance mode, skip dropna WHERE -- SQL naturally groups NULLs separately
-            from .config import is_performance_mode as _is_perf_mode
-
-            if (
-                not _is_perf_mode()
-                and plan.groupby_agg
-                and getattr(plan.groupby_agg, "dropna", True)
-            ):
-                # Build IS NOT NULL conditions for groupby columns
-                dropna_conditions = []
-                for col in plan.groupby_agg.groupby_cols:
-                    dropna_conditions.append(f'"{col}" IS NOT NULL')
-                if dropna_conditions:
-                    dropna_filter = " AND ".join(dropna_conditions)
-                    # Find WHERE clause index in parts and add to it, or insert new WHERE
-                    where_idx = None
-                    for i, part in enumerate(parts):
-                        if part.startswith("WHERE "):
-                            where_idx = i
-                            break
-                    if where_idx is not None:
-                        # Append to existing WHERE
-                        parts[where_idx] = parts[where_idx] + f" AND {dropna_filter}"
-                    else:
-                        # Find GROUP BY and insert WHERE before it
-                        groupby_idx = None
-                        for i, part in enumerate(parts):
-                            if part.startswith("GROUP BY"):
-                                groupby_idx = i
-                                break
-                        if groupby_idx is not None:
-                            parts.insert(groupby_idx, f"WHERE {dropna_filter}")
-
         # ORDER BY clause
         # Use chDB's built-in _row_id virtual column (available in v4.0.0b5+) to preserve row order
         # This is explicitly added here rather than relying solely on connection.query_df
@@ -3123,21 +2875,8 @@ class SQLExecutionEngine:
                 clauses.orderby_fields, self.quote_char, stable=False
             )
             parts.append(f"ORDER BY {orderby_sql}")
-        elif plan.groupby_agg and plan.groupby_agg.sort:
-            # GroupBy with sort=True (default): order by group keys
-            # In performance mode, skip auto ORDER BY for groupby
-            from .config import is_performance_mode
-
-            if not is_performance_mode():
-                orderby_cols = [
-                    (Field(col), True) for col in plan.groupby_agg.groupby_cols
-                ]
-                orderby_sql = build_orderby_clause(
-                    orderby_cols, self.quote_char, stable=False
-                )
-                parts.append(f"ORDER BY {orderby_sql}")
-        elif not plan.groupby_agg and clauses.where_conditions:
-            # No explicit ORDER BY, no GROUP BY, but has WHERE: preserve original row order
+        elif clauses.where_conditions:
+            # No explicit ORDER BY but has WHERE: preserve original row order
             # For LIMIT-only operations without WHERE, ORDER BY is not needed - source provides natural order
             # In performance mode, skip ORDER BY _row_id for throughput
             from .config import is_performance_mode as _is_perf_mode2

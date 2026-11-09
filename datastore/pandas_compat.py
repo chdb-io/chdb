@@ -234,6 +234,12 @@ class DataStoreLocIndexer:
         # Translate pd.col(...) so loc pushdown sees a chdb-ds Condition.
         key = _translate_pd_col_in_key(key)
 
+        # pandas calls callable keys (and callable tuple elements) with the frame.
+        if isinstance(key, tuple):
+            key = tuple(k(self._datastore) if callable(k) else k for k in key)
+        elif callable(key):
+            key = key(self._datastore)
+
         # Check for loc[condition, columns] pattern that can be pushed to SQL
         if isinstance(key, tuple) and len(key) == 2:
             row_key, col_key = key
@@ -262,7 +268,8 @@ class DataStoreLocIndexer:
                     )
 
                     # Add SELECT operation (column selection)
-                    if isinstance(col_key, str):
+                    single_column = isinstance(col_key, str)
+                    if single_column:
                         col_key = [col_key]
 
                     if col_key:
@@ -276,6 +283,9 @@ class DataStoreLocIndexer:
                             )
                         )
 
+                    # A single column label selects a Series, as in pandas
+                    if single_column:
+                        return result[col_key[0]]
                     return result
 
         # Check for loc[condition] pattern (single condition, no column selection)
@@ -1502,10 +1512,6 @@ class PandasCompatMixin:
     def nsmallest(self, n, columns, keep='first'):
         """Return first n rows ordered by columns in ascending order."""
         return self._wrap_result(self._get_df().nsmallest(n=n, columns=columns, keep=keep))
-
-    def assign(self, **kwargs):
-        """Assign new columns to DataFrame."""
-        return self._wrap_result(self._get_df().assign(**kwargs))
 
     # ========== Function Application ==========
 

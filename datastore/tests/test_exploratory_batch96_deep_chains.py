@@ -119,7 +119,6 @@ class TestDeepFilterChains:
 class TestDeepAssignChains:
     """Test multiple consecutive assign operations."""
 
-    @pytest.mark.xfail(reason="chDB pow() always returns Float64, need dtype correction layer")
     def test_multiple_new_columns(self):
         """Add multiple new columns in sequence."""
         pd_df = pd.DataFrame({"a": [1, 2, 3, 4, 5]})
@@ -636,7 +635,6 @@ class TestArithmeticChains:
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
-    @pytest.mark.xfail(reason="chDB intDiv() returns Float64 when result fits in float, need dtype correction")
     def test_division_and_modulo(self):
         """Division and modulo operations."""
         pd_df = pd.DataFrame({
