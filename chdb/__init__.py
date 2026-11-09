@@ -71,31 +71,15 @@ def _preload_chdb_with_deepbind():
 
 
 if sys.version_info[:2] >= (3, 7):
-    cwd = os.getcwd()
-    os.chdir(_this_dir)
     _preload_chdb_with_deepbind()
     try:
-        from . import _chdb  # noqa
-    except ImportError:
-        # _chdb not in local dir; search __path__ entries
-        _found = False
-        for _p in __path__:
-            if _p == _this_dir:
-                continue
-            os.chdir(_p)
-            try:
-                from . import _chdb  # noqa
-
-                _found = True
-                break
-            except ImportError:
-                continue
-        if not _found:
-            os.chdir(cwd)
-            raise ImportError(
-                "chdb-core engine not found. Install it with: pip install chdb-core"
-            )
-    os.chdir(cwd)
+        _chdb = importlib.import_module(__name__ + "._chdb")
+    except ModuleNotFoundError as e:
+        if e.name != __name__ + "._chdb":
+            raise
+        raise ImportError(
+            "chdb-core engine not found. Install it with: pip install chdb-core"
+        ) from e
     conn = _chdb.connect()
     engine_version = str(conn.query("SELECT version();", "CSV").bytes())[3:-4]
     conn.close()
