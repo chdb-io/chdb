@@ -3,6 +3,7 @@ Expression system for DataStore - inspired by pypika but independent implementat
 """
 
 import math
+import numpy as np
 from typing import Any, Optional, Iterator, List, Type, TYPE_CHECKING
 from copy import copy
 
@@ -658,41 +659,51 @@ class Literal(Expression):
         if isinstance(self.value, Expression):
             return self.value.to_sql(quote_char=quote_char, **kwargs)
 
+        value = self.value
+        if isinstance(value, (np.number, np.bool_)) and not isinstance(
+            value, np.timedelta64
+        ):
+            value = value.item()
+        elif isinstance(value, np.datetime64):
+            import pandas as pd
+
+            value = None if np.isnat(value) else pd.Timestamp(value).to_pydatetime()
+
         # Convert Python value to SQL literal
-        if self.value is None:
+        if value is None:
             sql = "NULL"
-        elif isinstance(self.value, bool):
-            sql = "TRUE" if self.value else "FALSE"
-        elif isinstance(self.value, float) and math.isnan(self.value):
+        elif isinstance(value, bool):
+            sql = "TRUE" if value else "FALSE"
+        elif isinstance(value, float) and math.isnan(value):
             sql = "NULL"
-        elif isinstance(self.value, (int, float)):
-            sql = str(self.value)
-        elif isinstance(self.value, str):
+        elif isinstance(value, (int, float)):
+            sql = str(value)
+        elif isinstance(value, str):
             # Escape single quotes
-            escaped = self.value.replace("'", "''")
+            escaped = value.replace("'", "''")
             sql = f"'{escaped}'"
         else:
             # Handle special types
             import datetime
             import uuid
 
-            if isinstance(self.value, datetime.datetime):
+            if isinstance(value, datetime.datetime):
                 # Format datetime as ISO string
-                sql = f"'{self.value.strftime('%Y-%m-%d %H:%M:%S')}'"
-                if self.value.microsecond:
-                    sql = f"'{self.value.strftime('%Y-%m-%d %H:%M:%S.%f')}'"
-            elif isinstance(self.value, datetime.date):
+                sql = f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'"
+                if value.microsecond:
+                    sql = f"'{value.strftime('%Y-%m-%d %H:%M:%S.%f')}'"
+            elif isinstance(value, datetime.date):
                 # Format date as ISO string
-                sql = f"'{self.value.strftime('%Y-%m-%d')}'"
-            elif isinstance(self.value, datetime.time):
+                sql = f"'{value.strftime('%Y-%m-%d')}'"
+            elif isinstance(value, datetime.time):
                 # Format time as ISO string
-                sql = f"'{self.value.strftime('%H:%M:%S')}'"
-            elif isinstance(self.value, uuid.UUID):
+                sql = f"'{value.strftime('%H:%M:%S')}'"
+            elif isinstance(value, uuid.UUID):
                 # Format UUID as string
-                sql = f"'{str(self.value)}'"
+                sql = f"'{str(value)}'"
             else:
                 # Fallback: convert to string (use repr to avoid triggering __str__ side effects)
-                sql = f"'{repr(self.value)}'"
+                sql = f"'{repr(value)}'"
 
         # Add alias if present and requested
         if kwargs.get("with_alias", False) and self.alias:

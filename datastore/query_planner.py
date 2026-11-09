@@ -261,6 +261,10 @@ class QueryPlanner:
           (WHERE, ORDER BY, computed expression) or computes. Within one
           SELECT, ClickHouse binds every reference to a name to that
           SELECT's alias, so the earlier op would see the new value.
+        - A column assignment (``LazyColumnAssignment`` or an
+          assignment-style ``SELECT *, expr``) follows a LazyGroupByAgg:
+          it computes on the aggregated rows, while in the GROUP BY layer
+          its fields would be taken as the aggregation targets.
 
         This preserves pandas-like execution order semantics in SQL.
 
@@ -276,6 +280,7 @@ class QueryPlanner:
         seen_offset = False  # Have we seen an OFFSET in current layer?
         pending_column_assignments = []  # Column assignments after LIMIT/OFFSET
         computed_columns_after_limit = set()  # Computed columns added after LIMIT
+        seen_groupby = False  # Has the current layer a LazyGroupByAgg?
 
         def _is_pure_projection_select(op):
             """Pure projection SELECT = ``SELECT col1, col2, ...`` with no
@@ -320,8 +325,10 @@ class QueryPlanner:
             return bool((read & computed) - op_set)
 
         def _append(op):
-            nonlocal seen_limit, seen_offset
+            nonlocal seen_limit, seen_offset, seen_groupby
             current_layer.append(op)
+            if isinstance(op, LazyGroupByAgg):
+                seen_groupby = True
             if isinstance(op, LazyRelationalOp):
                 if op.op_type == "LIMIT":
                     seen_limit = True
@@ -329,11 +336,11 @@ class QueryPlanner:
                     seen_offset = True
 
         def _open_layer_with(op):
-            nonlocal current_layer, seen_limit, seen_offset
+            nonlocal current_layer, seen_limit, seen_offset, seen_groupby
             nonlocal computed_columns_after_limit
             layers.append(current_layer)
             current_layer = []
-            seen_limit = seen_offset = False
+            seen_limit = seen_offset = seen_groupby = False
             computed_columns_after_limit = set()
             _append(op)
 
@@ -390,6 +397,13 @@ class QueryPlanner:
                     # Second LIMIT means chained limits like [:50][:20]
                     # The second limit operates on the result of the first
                     needs_new_layer = True
+                elif (
+                    seen_groupby
+                    and op.op_type == "SELECT"
+                    and not _is_pure_projection_select(op)
+                ):
+                    # Assignment after an aggregation computes on its result
+                    needs_new_layer = True
                 elif _is_pure_projection_select(op):
                     proj_fields = _projection_field_names(op)
                     if _drops_used_computed_column(proj_fields, current_layer):
@@ -408,7 +422,10 @@ class QueryPlanner:
 
             elif isinstance(op, LazyColumnAssignment):
                 # Column assignment after LIMIT/OFFSET needs special handling
-                if seen_limit or seen_offset:
+                if seen_groupby:
+                    # Assignment after an aggregation computes on its result
+                    _start_new_layer_with(op)
+                elif seen_limit or seen_offset:
                     # Track the column for dependency checking
                     computed_columns_after_limit.add(op.column)
                     # Queue the assignment to be added before any dependent WHERE/ORDER BY

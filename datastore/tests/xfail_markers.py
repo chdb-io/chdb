@@ -73,14 +73,11 @@ def chdb_timedelta_type(func):
     return func
 
 
-# DataStore limitation: timedelta arithmetic SQL generation
-# NOTE: This is different from chdb_timedelta_type which was about INPUT support.
-# This marker is for cases where DataStore tries to generate SQL for timedelta arithmetic
-# (e.g., date + timedelta) and fails because pd.Timedelta is rendered as string.
-datastore_timedelta_arithmetic = pytest.mark.xfail(
-    reason="DataStore limitation: timedelta arithmetic in SQL generation renders Timedelta as string instead of INTERVAL",
-    strict=True,
-)
+# FIXED: column assignments with timedelta/datetime literals are evaluated in pandas (2026-11-09)
+# datastore_timedelta_arithmetic = pytest.mark.xfail(
+#     reason="DataStore limitation: timedelta arithmetic in SQL generation renders Timedelta as string instead of INTERVAL",
+#     strict=True,
+# )
 
 # FIXED (2026-01-07): json_extract_array_raw now falls back to pandas
 # The fix detects Array-returning JSON functions and uses Python JSON parsing
@@ -225,15 +222,17 @@ chdb_mask_dtype_nullable = pytest.mark.xfail(
     strict=True,
 )
 
-chdb_floordiv_returns_float = pytest.mark.xfail(
-    reason="chDB floor division (//) returns float64, pandas returns int64 when both operands are int - VALUES ARE CORRECT",
-    strict=True,
-)
+# FIXED: assign() evaluates // and ** in pandas, like column assignment (2026-11-09)
+# chdb_floordiv_returns_float = pytest.mark.xfail(
+#     reason="chDB floor division (//) returns float64, pandas returns int64 when both operands are int - VALUES ARE CORRECT",
+#     strict=True,
+# )
 
-chdb_power_returns_float = pytest.mark.xfail(
-    reason="chDB power (**) returns float64, pandas returns int64 when both operands are int - VALUES ARE CORRECT",
-    strict=True,
-)
+# FIXED: assign() evaluates // and ** in pandas, like column assignment (2026-11-09)
+# chdb_power_returns_float = pytest.mark.xfail(
+#     reason="chDB power (**) returns float64, pandas returns int64 when both operands are int - VALUES ARE CORRECT",
+#     strict=True,
+# )
 
 
 # =============================================================================

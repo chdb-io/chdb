@@ -87,8 +87,9 @@ class TestLocLazyOpCreation:
         ds = DataStore(df_basic)
         result = ds.loc[ds['a'] > 2, 'b']
 
-        # Should be a DataStore (column selection returns DataStore with one column)
-        assert isinstance(result, DataStore)
+        # A single column label selects a Series, as in pandas
+        assert not isinstance(result, DataStore)
+        assert_datastore_equals_pandas(result, df_basic.loc[df_basic['a'] > 2, 'b'])
 
 
 # =======================
