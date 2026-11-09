@@ -5,7 +5,7 @@ This module implements a lazy evaluation system where operations are recorded
 and only executed when execution is triggered (e.g., print, to_df()).
 """
 
-from typing import Any, Dict, List, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 from abc import ABC, abstractmethod
 import pandas as pd
 import numpy as np
@@ -1196,15 +1196,57 @@ class LazyGroupByAgg(LazyOp):
             func_str = self.agg_func
         return f"GroupBy({self.groupby_cols}).{func_str}()"
 
+    def aggregate_outputs(
+        self, all_columns: Optional[List[str]] = None
+    ) -> List[Tuple[str, str, str]]:
+        """
+        ``(output_name, func, source_column)`` for every named aggregate output.
+
+        ``size()`` and the column-less ``count()`` fallback emit an unnamed
+        ``count(*)`` and are not listed. ``all_columns`` is only needed when
+        one function is applied to every non-key column.
+        """
+        if self.named_agg:
+            return [(alias, func, col) for alias, (col, func) in self.named_agg.items()]
+        if isinstance(self.agg_dict, dict):
+            # pandas: agg({col: func}) -> col; agg({col: [funcs]}) ->
+            # MultiIndex (col, func), flattened to col_func in SQL;
+            # ColumnExpr.agg([funcs]) -> func.
+            has_any_multi_func = any(
+                isinstance(f, (list, tuple)) for f in self.agg_dict.values()
+            )
+            outputs = []
+            for col, funcs in self.agg_dict.items():
+                for func in [funcs] if isinstance(funcs, str) else funcs:
+                    if self.single_column_agg:
+                        name = func
+                    elif has_any_multi_func:
+                        name = f"{col}_{func}"
+                    else:
+                        name = col
+                    outputs.append((name, func, col))
+            return outputs
+        if self.agg_func and self.agg_func != "size" and all_columns:
+            cols = self.selected_columns or all_columns
+            return [
+                (col, self.agg_func, col) for col in cols if col not in self.groupby_cols
+            ]
+        return []
+
     def can_push_to_sql(self) -> bool:
         """
         Check if this GroupByAgg can be pushed to SQL.
 
         Most aggregation modes can be pushed to SQL, except:
         - agg_dict is a list (e.g., ['sum', 'mean', 'count']) which needs pandas
+        - an aggregate output named like a group key: pandas keeps the key in
+          the index, but a SQL result cannot hold two columns with one name
         """
         # List format agg (e.g., agg(['sum', 'mean'])) needs pandas
         if self.agg_dict is not None and isinstance(self.agg_dict, list):
+            return False
+        output_names = {name for name, _, _ in self.aggregate_outputs()}
+        if output_names & set(self.groupby_cols):
             return False
         return True
 

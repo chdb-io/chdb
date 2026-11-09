@@ -96,12 +96,9 @@ class QueryPlan:
         has_sql_source: Whether the segment has a SQL-compatible source.
         first_df_op_idx: Vestigial - was set by the removed ``plan()``
             method. Always ``None`` from segmented planning.
-        where_columns: Source-column names referenced in pre-aggregation
-            WHEREs. Drives the planner's source-col / agg-alias conflict
-            detection (which pre-populates ``alias_renames``).
-        alias_renames: Map ``temp_alias -> original_alias``. Seeded by the
-            planner's conflict detection and extended during SQL building
-            with every temp alias used inside an aggregation layer.
+        alias_renames: Map ``temp_alias -> original_alias``. Filled during
+            SQL building with every temp alias used inside an aggregation
+            layer.
     """
 
     sql_ops: List[LazyOp] = field(default_factory=list)
@@ -111,7 +108,6 @@ class QueryPlan:
     layers: List[List[LazyOp]] = field(default_factory=list)
     has_sql_source: bool = False
     first_df_op_idx: Optional[int] = None
-    where_columns: Set[str] = field(default_factory=set)
     alias_renames: Dict[str, str] = field(default_factory=dict)
 
     def has_two_phases(self) -> bool:
@@ -242,101 +238,6 @@ class QueryPlanner:
     # ``_build_execution_sql`` in core.py, and the test suite) now use
     # ``plan_segments`` and take the plan from the first SQL segment when
     # they need a single-plan view.
-
-    def _collect_where_columns(self, ops: List[LazyOp]) -> Set[str]:
-        """
-        Extract source-column names referenced in pre-aggregation WHERE clauses.
-
-        Convenience wrapper around
-        :meth:`_collect_where_columns_per_segment` that returns the source-col
-        set for the chain *up to* (and used as input by) the first
-        ``LazyGroupByAgg``. The result is consumed by alias-conflict detection:
-        an aggregate output alias that collides with a source column referenced
-        in a pre-agg WHERE has to be renamed to a temp alias so chDB doesn't
-        mis-bind the aggregate inside the WHERE.
-
-        Post-aggregation WHEREs are intentionally excluded - they operate on
-        the *output* of the aggregation (e.g. ``count > 5000``), so treating
-        them as source-col conflicts would force a useless rename and break
-        the outer reference.
-
-        Args:
-            ops: List of lazy operations
-
-        Returns:
-            Set of column names referenced in pre-aggregation WHERE conditions.
-        """
-        # Plans currently carry at most one LazyGroupByAgg per QueryPlan, so
-        # the per-segment helper collapses to "ops before the (only) agg".
-        return self._collect_where_columns_per_segment(ops, segment_end=None)
-
-    def _collect_where_columns_per_segment(
-        self,
-        ops: List[LazyOp],
-        segment_end: Optional[int] = None,
-    ) -> Set[str]:
-        """
-        Position-aware collector: source columns referenced in WHEREs that
-        come strictly before the chain's first ``LazyGroupByAgg`` (or before
-        ``segment_end`` if supplied).
-
-        This makes the conflict-detection semantics explicit: WHEREs after
-        the boundary act on aggregation output, not source rows, and must not
-        contribute source-col aliases.
-
-        Args:
-            ops: List of lazy operations
-            segment_end: Optional explicit upper bound (exclusive); when None,
-                stops at the first encountered ``LazyGroupByAgg``.
-
-        Returns:
-            Set of column names from WHERE conditions within the segment.
-        """
-        where_columns: Set[str] = set()
-        for idx, op in enumerate(ops):
-            if segment_end is not None and idx >= segment_end:
-                break
-            if segment_end is None and isinstance(op, LazyGroupByAgg):
-                break
-            if (
-                isinstance(op, LazyRelationalOp)
-                and op.op_type == "WHERE"
-                and op.condition
-            ):
-                try:
-                    cond_sql = op.condition.to_sql(quote_char='"')
-                    where_columns.update(re.findall(r'"(\w+)"', cond_sql))
-                except Exception:
-                    pass
-        return where_columns
-
-    def _get_agg_aliases(
-        self, op: LazyGroupByAgg, schema: Dict[str, str] = None
-    ) -> Set[str]:
-        """
-        Get alias names that would be created by a GroupByAgg operation.
-
-        Args:
-            op: LazyGroupByAgg operation
-            schema: Column schema (used for count() to get non-groupby columns)
-
-        Returns:
-            Set of alias names
-        """
-        agg_aliases = set()
-
-        if op.agg_dict is not None and isinstance(op.agg_dict, dict):
-            for col, funcs in op.agg_dict.items():
-                if isinstance(funcs, (list, tuple)):
-                    agg_aliases.update(funcs)  # Function names as aliases
-                else:
-                    agg_aliases.add(col)  # Column name as alias for single func
-        elif op.agg_func == "count" and schema:
-            # count() creates aliases for all non-groupby columns
-            non_groupby_cols = [c for c in schema.keys() if c not in op.groupby_cols]
-            agg_aliases.update(non_groupby_cols)
-
-        return agg_aliases
 
     def _build_layers(self, ops: List[LazyOp]) -> List[List[LazyOp]]:
         """
@@ -999,24 +900,10 @@ class QueryPlanner:
                 plan = QueryPlan(has_sql_source=True)
                 plan.sql_ops = ops.copy()
 
-                # Collect WHERE columns first for alias conflict detection
-                plan.where_columns = self._collect_where_columns(ops)
-
                 # Handle special ops
                 for op in ops:
                     if isinstance(op, LazyGroupByAgg):
                         plan.groupby_agg = op
-                        # Check for alias conflicts with WHERE columns
-                        agg_aliases = self._get_agg_aliases(op, schema)
-                        conflict_aliases = agg_aliases & plan.where_columns
-                        if conflict_aliases:
-                            for alias in conflict_aliases:
-                                temp_alias = f"__agg_{alias}__"
-                                plan.alias_renames[temp_alias] = alias
-                            self._logger.debug(
-                                "  [GroupBy] Using temp aliases for conflict resolution: %s",
-                                plan.alias_renames,
-                            )
                     elif isinstance(op, LazyApply) and op.can_push_to_sql():
                         # Convert LazyApply with simple aggregation to LazyGroupByAgg
                         agg_func = op.get_detected_agg_func()

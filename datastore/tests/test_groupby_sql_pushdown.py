@@ -26,6 +26,7 @@ from datastore import DataStore
 from datastore.config import enable_profiling, disable_profiling, get_profiler, reset_profiler
 from datastore.query_planner import QueryPlanner
 from datastore.lazy_ops import LazyRelationalOp, LazyGroupByAgg
+from datastore.sql_executor import SQLExecutionEngine
 
 
 class TestGroupBySQLPushdown(unittest.TestCase):
@@ -202,7 +203,7 @@ class TestGroupBySQLPushdown(unittest.TestCase):
 
 
 class TestQueryPlannerAliasRenames(unittest.TestCase):
-    """Test QueryPlanner alias conflict detection and resolution."""
+    """Test alias conflict resolution recorded in the plan during SQL building."""
 
     def setUp(self):
         """Set up test data."""
@@ -240,10 +241,13 @@ class TestQueryPlannerAliasRenames(unittest.TestCase):
         planner = QueryPlanner()
         exec_plan = planner.plan_segments(new_ds._lazy_ops, has_sql_source=True)
         plan = exec_plan.segments[0].plan
+        sql = SQLExecutionEngine(new_ds).build_sql_from_plan(plan).sql
 
-        # Should detect conflict and create alias_renames
+        # Building the SQL records the temp alias and renames it back in SQL
         self.assertIn('__agg_int_col__', plan.alias_renames)
         self.assertEqual(plan.alias_renames['__agg_int_col__'], 'int_col')
+        self.assertIn('sum("int_col") AS "__agg_int_col__"', sql)
+        self.assertIn('"__agg_int_col__" AS "int_col"', sql)
 
         # GroupByAgg should still be pushed to SQL
         self.assertIsNotNone(plan.groupby_agg)
@@ -266,8 +270,9 @@ class TestQueryPlannerAliasRenames(unittest.TestCase):
         planner = QueryPlanner()
         exec_plan = planner.plan_segments(new_ds._lazy_ops, has_sql_source=True)
         plan = exec_plan.segments[0].plan
+        SQLExecutionEngine(new_ds).build_sql_from_plan(plan)
 
-        # Conflict should be detected (int_col is in both WHERE and agg alias)
+        # Conflict should be resolved (int_col is in both WHERE and agg alias)
         self.assertIn('__agg_int_col__', plan.alias_renames)
 
 
@@ -802,7 +807,6 @@ class TestDispatchByOpType(unittest.TestCase):
             [where, agg, order],
             from_source=None,
             is_first_layer=True,
-            inherited_renames={},
             schema={},
             sql_select_fields=[],
         )
@@ -835,7 +839,6 @@ class TestDispatchByOpType(unittest.TestCase):
             [where, limit],
             from_source=None,
             is_first_layer=True,
-            inherited_renames={},
             schema={},
             sql_select_fields=[],
         )
@@ -1205,6 +1208,80 @@ class TestAggTempAliasesRenamedInSQL(unittest.TestCase):
         )
         ds_result = ds_head[ds_head['int_col'] > 20]
         self._assert_sql_and_execution_match(ds_result, pd_result)
+
+
+
+class TestAggAliasCapture(unittest.TestCase):
+    """ClickHouse aliases are visible across the whole SELECT, so an aggregate
+    output that reuses a column name must not capture that column in the
+    WHERE, in another aggregate, or when the temp alias itself is a user
+    column name."""
+
+    CHAINS = {
+        'filter_then_named_agg_reusing_source': lambda df: (
+            df[df['price'] > 2].groupby('k').agg(price=('price', 'sum'))
+        ),
+        'filter_then_sum': lambda df: df[df['price'] > 2].groupby('k').sum(),
+        'filter_then_mean': lambda df: df[df['qty'] > 15].groupby('k').mean(),
+        'named_agg_same_source_twice': lambda df: (
+            df.groupby('k').agg(price=('price', 'max'), m=('price', 'mean'))
+        ),
+        'user_column_named_like_temp_alias': lambda df: (
+            df.groupby('k').agg({'price': 'sum', '__agg_price__': 'sum'})
+        ),
+        'group_key_also_aggregated': lambda df: (
+            df.groupby('k').agg({'k': 'count', 'price': 'sum'})
+        ),
+    }
+
+    def setUp(self):
+        self.df = pd.DataFrame(
+            {
+                'k': ['b', 'a', 'b', 'c', 'a', 'c', 'b'],
+                'price': [1.5, 2.5, 3.5, 4.5, 5.5, 1.0, 7.5],
+                'qty': [10, 20, 30, 40, 50, 60, 70],
+                '__agg_price__': [100, 200, 300, 400, 500, 600, 700],
+            }
+        )
+        self.temp_dir = tempfile.mkdtemp()
+        self.parquet_path = os.path.join(self.temp_dir, 'test.parquet')
+        self.df.to_parquet(self.parquet_path)
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.temp_dir)
+
+    def test_dataframe_source(self):
+        from tests.test_utils import assert_datastore_equals_pandas
+
+        for name, chain in self.CHAINS.items():
+            with self.subTest(name):
+                ds_result = chain(DataStore(self.df.copy()))
+                assert_datastore_equals_pandas(ds_result, chain(self.df))
+
+    def test_file_source(self):
+        from tests.test_utils import assert_datastore_equals_pandas
+
+        for name, chain in self.CHAINS.items():
+            with self.subTest(name):
+                ds_result = chain(DataStore.from_file(self.parquet_path))
+                assert_datastore_equals_pandas(ds_result, chain(self.df))
+
+    def test_file_source_sql(self):
+        import chdb
+        from tests.test_utils import assert_frame_equal
+
+        for name, chain in self.CHAINS.items():
+            if name == 'group_key_also_aggregated':
+                # pandas keeps the key in the index; a SQL result cannot
+                # hold two ``k`` columns, so this shape runs in pandas.
+                continue
+            with self.subTest(name):
+                ds_result = chain(DataStore.from_file(self.parquet_path))
+                sql_result = chdb.query(ds_result.to_sql(execution_format=True), 'DataFrame')
+                # SQL output has no index: pandas group keys come back as columns.
+                assert_frame_equal(sql_result, chain(self.df).reset_index())
 
 
 if __name__ == '__main__':

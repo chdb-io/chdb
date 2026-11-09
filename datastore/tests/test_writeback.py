@@ -1889,6 +1889,25 @@ class TestGroupByAggWritebackColumnNames:
         finally:
             _drop(target)
 
+    def test_filter_then_named_agg_reusing_source_column_name(self, source_table):
+        target = "wb_agg_filter_named"
+        _drop(target)
+        try:
+            ds = _make_ds(source_table)
+            (ds[ds["amount"] > 60]
+               .groupby("city")
+               .agg(amount=("amount", "sum"))
+            ).to_clickhouse(f"{DATABASE}.{target}",
+                            engine="MergeTree()", order_by="city")
+            pdf = _source_table_pdf()
+            expected = (pdf[pdf["amount"] > 60]
+                        .groupby("city")
+                        .agg(amount=("amount", "sum"))
+                        .reset_index())
+            _assert_written_equals(_select_all(target, order_by="city"), expected)
+        finally:
+            _drop(target)
+
     def test_create_view(self, source_table):
         view = "wb_agg_view"
         _drop_view(view)
