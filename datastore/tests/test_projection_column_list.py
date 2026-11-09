@@ -280,16 +280,7 @@ class TestAssignAfterSetitem:
 
         _assert_chain(make_ds, chain)
 
-    def test_assign_overwrites_assigned_column_twice(self, make_ds, request):
-        if make_ds[0] == "file":
-            request.applymarker(
-                pytest.mark.xfail(
-                    strict=True,
-                    reason="len() counts rows from DataStore._select_fields, "
-                    "which keeps every assign() SELECT",
-                )
-            )
-
+    def test_assign_overwrites_assigned_column_twice(self, make_ds):
         def chain(d):
             d = d.assign(a=d["price"] + 1)
             d = d.assign(a=d["a"] * 2)
@@ -518,3 +509,115 @@ class TestComputedColumnsReadByGroupBy:
         concat._is_string_type = True
         resolved = resolve_computed_references(concat, computed)
         assert resolved.to_sql() == 'concat("code","tag")'
+
+
+def _assign_twice(d):
+    d = d.assign(w=d["price"])
+    return d.assign(n=d["w"] * 2)
+
+
+def _setitem_then_assign(d):
+    d["w"] = d["price"] + 1
+    return d.assign(n=d["w"] * 2)
+
+
+def _assign_three_times(d):
+    d = d.assign(w=d["price"])
+    d = d.assign(n=d["w"] * 2)
+    return d.assign(m=d["n"] + d["w"])
+
+
+def _assign_twice_then_filter(d):
+    d = _assign_twice(d)
+    return d[d["n"] > 3]
+
+
+def _head_then_filter(d):
+    d = d.head(4)
+    return d[d["qty"] > 15]
+
+
+def _projection_then_filter(d):
+    d = d[["region", "price"]]
+    return d[d["price"] > 1]
+
+
+def _sort_head_then_filter(d):
+    d = d.sort_values("qty", ascending=False).head(3)
+    return d[d["price"] > 2]
+
+
+def _offset(d):
+    return d[2:]
+
+
+METADATA_CHAINS = [
+    _assign_twice,
+    _setitem_then_assign,
+    _assign_three_times,
+    _assign_twice_then_filter,
+    _head_then_filter,
+    _projection_then_filter,
+    _sort_head_then_filter,
+    _offset,
+]
+
+
+@pytest.mark.parametrize("chain", METADATA_CHAINS, ids=lambda c: c.__name__.strip("_"))
+class TestMetadataOfLazyPipeline:
+    """Row counts, schema probes and SQL aggregates that wrap the pipeline in
+    their own query must see every lazy op, like execution does."""
+
+    @staticmethod
+    def _pair(make_ds, chain):
+        source, make = make_ds
+        df = _sales()
+        return source, chain(make(df)), chain(df.copy())
+
+    def test_len_shape_size_empty(self, make_ds, chain):
+        _, ds, pdf = self._pair(make_ds, chain)
+        assert len(ds) == len(pdf)
+        assert ds.shape == pdf.shape
+        assert ds.size == pdf.size
+        assert ds.empty == pdf.empty
+
+    def test_columns_and_dtypes(self, make_ds, chain):
+        _, ds, pdf = self._pair(make_ds, chain)
+        assert list(ds.columns) == list(pdf.columns)
+        pd.testing.assert_series_equal(ds.dtypes, pdf.dtypes)
+
+    def test_count_and_nunique(self, make_ds, chain):
+        _, ds, pdf = self._pair(make_ds, chain)
+        pd.testing.assert_series_equal(ds.count(), pdf.count(), check_dtype=False)
+        pd.testing.assert_series_equal(
+            ds.nunique(), pdf.nunique(), check_dtype=False
+        )
+
+    def test_describe(self, make_ds, chain):
+        _, ds, pdf = self._pair(make_ds, chain)
+        assert_datastore_equals_pandas(ds.describe(), pdf.describe())
+
+    def test_sample_with_random_state(self, make_ds, chain):
+        source, ds, pdf = self._pair(make_ds, chain)
+        n = min(2, len(pdf))
+        assert_datastore_equals_pandas(
+            ds.sample(n=n, random_state=0),
+            pdf.sample(n=n, random_state=0),
+            check_index=source == "dataframe",
+        )
+
+    def test_sample_rows_come_from_result(self, make_ds, chain):
+        _, ds, pdf = self._pair(make_ds, chain)
+        n = min(2, len(pdf))
+        sampled = ds.sample(n=n)
+        assert list(sampled.columns) == list(pdf.columns)
+        rows = {tuple(r) for r in pdf.itertuples(index=False)}
+        picked = [tuple(r) for r in sampled.itertuples(index=False)]
+        assert len(picked) == n
+        assert set(picked) <= rows
+
+    def test_memory_usage_columns(self, make_ds, chain):
+        _, ds, pdf = self._pair(make_ds, chain)
+        assert list(ds.memory_usage(index=False).index) == list(
+            pdf.memory_usage(index=False).index
+        )

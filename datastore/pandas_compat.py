@@ -465,11 +465,11 @@ class PandasCompatMixin:
         # ``object``, while a single row lets chDB materialize the real pandas
         # dtype (e.g. StringDtype). Pushdownable ops never cast dtypes (astype and
         # other value casts are NOT pushdownable -- they fall through below), so
-        # the probe's per-column dtypes are authoritative. As with .columns, only
-        # trust the probe when the lazy ops don't change the column set
-        # (transform_columns is the identity -- filters / ORDER BY / LIMIT);
-        # column-altering ops (select / rename / drop / assign) are applied
-        # post-SQL, so fall through to execution.
+        # the probe's per-column dtypes are authoritative for source columns. The
+        # probe runs the pipeline's execution SQL, but a computed column's SQL
+        # type can differ from its dtype after execution's dtype corrections, so
+        # only trust the probe when the lazy ops don't change the column set
+        # (transform_columns is the identity -- filters / ORDER BY / LIMIT).
         #
         # Remote sources are excluded: _probe_schema() nests a subquery
         # (SELECT * FROM (...) LIMIT n) that chDB HANGS on for remote() sources,
@@ -481,12 +481,13 @@ class PandasCompatMixin:
         ):
             try:
                 probe = self._probe_schema(limit=1)
-                probe_cols = list(probe.columns)
-                cols = probe_cols
-                for op in (self._lazy_ops or []):
-                    cols = op.transform_columns(cols)
-                if cols == probe_cols and self._dtype_probe_is_reliable(probe):
-                    return probe.dtypes
+                if probe is not None:
+                    probe_cols = list(probe.columns)
+                    cols = probe_cols
+                    for op in (self._lazy_ops or []):
+                        cols = op.transform_columns(cols)
+                    if cols == probe_cols and self._dtype_probe_is_reliable(probe):
+                        return probe.dtypes
             except Exception:
                 pass
         return self._get_df().dtypes
@@ -518,6 +519,9 @@ class PandasCompatMixin:
         ]
         if not risky:
             return True
+        subquery_sql = self._pipeline_sql()
+        if subquery_sql is None:
+            return False
         if self._executor is None:
             self.connect()
         # countIf(col IS NULL) per risky column -- a single result row, no data
@@ -527,7 +531,7 @@ class PandasCompatMixin:
             f"countIf({format_identifier(c, self.quote_char)} IS NULL)"
             for c in risky
         )
-        result = self._executor.execute(f"SELECT {exprs} FROM ({self.to_sql()})")
+        result = self._executor.execute(f"SELECT {exprs} FROM ({subquery_sql})")
         if not result.rows:
             return False
         return all(int(v) == 0 for v in result.rows[0])
@@ -1004,7 +1008,9 @@ class PandasCompatMixin:
         try:
             from .utils import format_identifier
 
-            subquery_sql = self.to_sql()
+            subquery_sql = self._pipeline_sql()
+            if subquery_sql is None:
+                return self._get_df().nunique(axis=axis, dropna=dropna)
             column_names = list(self._probe_schema().columns)
 
             if not column_names:
@@ -1058,7 +1064,12 @@ class PandasCompatMixin:
 
         try:
             from .utils import format_identifier
-            subquery_sql = self.to_sql()
+            subquery_sql = self._pipeline_sql()
+            if subquery_sql is None:
+                return self._get_df().value_counts(
+                    subset=subset, normalize=normalize, sort=sort,
+                    ascending=ascending, dropna=dropna,
+                )
             all_columns = list(self._probe_schema().columns)
 
             if not all_columns:
@@ -2368,7 +2379,9 @@ class PandasCompatMixin:
             if self._executor is None:
                 self.connect()
 
-            subquery_sql = self.to_sql()
+            subquery_sql = self._pipeline_sql()
+            if subquery_sql is None:
+                return self._get_df().memory_usage(index=index, deep=deep)
 
             # Get row count
             count_sql = f"SELECT COUNT(*) FROM ({subquery_sql})"
