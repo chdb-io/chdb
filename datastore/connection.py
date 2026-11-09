@@ -24,6 +24,62 @@ from .exceptions import ConnectionError, ExecutionError, translate_remote_error
 from .config import get_logger, get_profiler, get_chdb_settings, _freeze_chdb_settings
 
 
+def _mask_quoted(sql: str) -> str:
+    """
+    Return ``sql`` with the contents of quoted strings and identifiers
+    ('...', "...", `...`) replaced by ``_``, at unchanged positions, so
+    keyword and parenthesis searches see only the query structure.
+    """
+    chars = list(sql)
+    i, n = 0, len(sql)
+    while i < n:
+        quote = sql[i]
+        if quote not in "'\"`":
+            i += 1
+            continue
+        j = i + 1
+        while j < n:
+            if sql[j] == "\\":
+                j += 2
+            elif sql[j] == quote and j + 1 < n and sql[j + 1] == quote:
+                j += 2
+            elif sql[j] == quote:
+                break
+            else:
+                j += 1
+        for k in range(i + 1, min(j, n)):
+            chars[k] = "_"
+        i = j + 1
+    return "".join(chars)
+
+
+def _order_by_clause_end(sql: str) -> int:
+    """
+    Position where the last ORDER BY clause of ``sql`` ends: its LIMIT,
+    OFFSET, SETTINGS or ``;`` at the same nesting level, or the end of
+    ``sql``. -1 if there is no ORDER BY.
+    """
+    masked = _mask_quoted(sql).upper()
+    start = masked.rfind("ORDER BY")
+    if start == -1:
+        return -1
+    depth = 0
+    for i in range(start, len(masked)):
+        char = masked[i]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif depth == 0 and (
+            char == ";"
+            or masked.startswith((" LIMIT ", " OFFSET ", " SETTINGS "), i)
+        ):
+            return i
+    return len(sql)
+
+
 def _convert_nullable_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     """
     Legacy function for Python 3.8 compatibility (no longer needed).
@@ -286,7 +342,7 @@ class Connection:
             df_for_sql
         )
 
-        sql_upper = sql.upper().strip()
+        sql_upper = _mask_quoted(sql).upper().strip()
 
         # Determine how to handle row order preservation
         # _row_id is used to preserve original row order in Python() table function
@@ -471,7 +527,7 @@ class Connection:
         Order preservation only makes sense for SELECT * queries from the table,
         where we want to maintain the original DataFrame row order.
         """
-        sql_upper = sql.upper().strip()
+        sql_upper = _mask_quoted(sql).upper().strip()
 
         # Skip if query already has ORDER BY at the outer level
         if self._has_outer_order_by(sql_upper):
@@ -501,6 +557,7 @@ class Connection:
         - SELECT col1, col2 FROM table
         - SELECT col AS alias FROM table
         """
+        sql_upper = _mask_quoted(sql_upper)
         # Find SELECT ... FROM pattern
         select_pos = sql_upper.find("SELECT")
         from_pos = sql_upper.find("FROM")
@@ -522,6 +579,7 @@ class Connection:
         """
         Check if SQL has ORDER BY at the outer query level (not in subquery).
         """
+        sql_upper = _mask_quoted(sql_upper)
         # Simple approach: find ORDER BY and check if it's balanced with parentheses
         order_pos = sql_upper.rfind("ORDER BY")
         if order_pos == -1:
@@ -649,6 +707,7 @@ class Connection:
 
         Returns -1 if the clause doesn't exist or is only inside subqueries.
         """
+        sql_upper = _mask_quoted(sql_upper)
         # Find all occurrences of the clause
         search_term = f" {clause} "
         pos = 0
@@ -686,7 +745,7 @@ class Connection:
         Returns:
             Position of FROM in the SQL string, or -1 if not found.
         """
-        sql_upper = sql.upper()
+        sql_upper = _mask_quoted(sql).upper()
         pos = 0
 
         while pos < len(sql_upper):
@@ -712,18 +771,8 @@ class Connection:
                     pos = from_pos + 4
                     continue
 
-            # Check if we're inside quotes by counting quotes before this position
-            prefix = sql[:from_pos]
-            # Count unescaped double quotes
-            double_quotes = prefix.count('"')
-            single_quotes = prefix.count("'")
-
-            # If odd number of quotes, we're inside a quoted string
-            if double_quotes % 2 == 1 or single_quotes % 2 == 1:
-                pos = from_pos + 4
-                continue
-
             # Check if we're inside a subquery by counting parentheses
+            prefix = sql_upper[:from_pos]
             open_parens = prefix.count("(")
             close_parens = prefix.count(")")
 
@@ -750,20 +799,10 @@ class Connection:
             Input:  SELECT * FROM t ORDER BY name DESC
             Output: SELECT * FROM t ORDER BY name DESC, __tiebreaker__ ASC
         """
-        sql_upper = sql.upper()
-
-        # Find the last ORDER BY position (to handle subqueries)
-        order_by_pos = sql_upper.rfind("ORDER BY")
-        if order_by_pos == -1:
+        order_by_end = _order_by_clause_end(sql)
+        if order_by_end == -1:
             # No ORDER BY found, shouldn't happen but handle gracefully
             return sql
-
-        # Find where ORDER BY clause ends (LIMIT, OFFSET, SETTINGS, or end of string)
-        order_by_end = len(sql)
-        for keyword in [" LIMIT ", " OFFSET ", " SETTINGS ", ";"]:
-            pos = sql_upper.find(keyword, order_by_pos)
-            if pos != -1 and pos < order_by_end:
-                order_by_end = pos
 
         # Insert tie-breaker before the end of ORDER BY clause
         return sql[:order_by_end] + f', "{tiebreaker_col}" ASC' + sql[order_by_end:]
@@ -816,20 +855,10 @@ class Connection:
             Input:  SELECT * FROM Python(df) ORDER BY name DESC
             Output: SELECT * FROM Python(df) ORDER BY name DESC, _row_id ASC
         """
-        sql_upper = sql.upper()
-
-        # Find the last ORDER BY position (to handle subqueries)
-        order_by_pos = sql_upper.rfind("ORDER BY")
-        if order_by_pos == -1:
+        order_by_end = _order_by_clause_end(sql)
+        if order_by_end == -1:
             # No ORDER BY found, shouldn't happen but handle gracefully
             return sql
-
-        # Find where ORDER BY clause ends (LIMIT, OFFSET, SETTINGS, or end of string)
-        order_by_end = len(sql)
-        for keyword in [" LIMIT ", " OFFSET ", " SETTINGS ", ";"]:
-            pos = sql_upper.find(keyword, order_by_pos)
-            if pos != -1 and pos < order_by_end:
-                order_by_end = pos
 
         # Insert _row_id tie-breaker before the end of ORDER BY clause
         return sql[:order_by_end] + ", _row_id ASC" + sql[order_by_end:]
