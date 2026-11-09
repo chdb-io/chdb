@@ -1277,7 +1277,11 @@ class LazySQLQuery(LazyOp):
     """
 
     def __init__(
-        self, query: str, df_alias: str = "__df__", is_raw_query: bool = False
+        self,
+        query: str,
+        df_alias: str = "__df__",
+        is_raw_query: bool = False,
+        mirrors_select_state: bool = False,
     ):
         """
         Args:
@@ -1288,11 +1292,17 @@ class LazySQLQuery(LazyOp):
                    - Raw SQL: "SELECT * FROM file('data.csv', 'CSVWithNames')" (when is_raw_query=True)
             df_alias: Alias for the DataFrame in the query (default: '__df__')
             is_raw_query: If True, execute the query directly without a DataFrame
+            mirrors_select_state: True when the query was built by
+                ``DataStore.agg()`` from the store's own ``_select_fields`` /
+                ``_groupby_fields``, which it also updated — so the store's
+                flat SELECT renders the same aggregation (relied on by
+                writeback, see ``DataStore._flat_sql_reproduces_pipeline``).
         """
         super().__init__()
         self.original_query = query.strip()
         self.df_alias = df_alias
         self.is_raw_query = is_raw_query
+        self.mirrors_select_state = mirrors_select_state
 
         # Process the query to determine if it needs boilerplate (only for non-raw queries)
         if is_raw_query:
