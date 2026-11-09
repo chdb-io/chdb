@@ -70,9 +70,8 @@ class QueryPlan:
        ``_build_layer`` per layer; each layer dispatches by op type.
     4. Any temp aliases the SQL builders introduce
        (``temp_alias -> original_alias``) are recorded in
-       ``alias_renames``. After execution the post-processing step in
-       ``core.py`` reads ``alias_renames`` and renames the result
-       DataFrame columns back to the user-visible names.
+       ``alias_renames``. Each aggregation layer renames its temp aliases
+       back in SQL, so the SQL result already has the user-visible names.
 
     Attributes:
         sql_ops: Relational + column-assignment ops in the segment, with
@@ -100,9 +99,9 @@ class QueryPlan:
         where_columns: Source-column names referenced in pre-aggregation
             WHEREs. Drives the planner's source-col / agg-alias conflict
             detection (which pre-populates ``alias_renames``).
-        alias_renames: Map ``temp_alias -> original_alias``. Written
-            during SQL building, consumed at post-execution to rename
-            result DataFrame columns back to user-visible names.
+        alias_renames: Map ``temp_alias -> original_alias``. Seeded by the
+            planner's conflict detection and extended during SQL building
+            with every temp alias used inside an aggregation layer.
     """
 
     sql_ops: List[LazyOp] = field(default_factory=list)

@@ -1872,6 +1872,8 @@ class TestGroupByAggWritebackColumnNames:
             _drop(target)
 
     def test_named_agg_reusing_source_column_name(self, source_table):
+        """Guard, not a regression test: this shape never used a temp alias
+        and already wrote the right columns before the fix."""
         target = "wb_agg_named"
         _drop(target)
         try:

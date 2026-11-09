@@ -1110,10 +1110,6 @@ class TestEdgeCases(unittest.TestCase):
         self.assertEqual(len(result), len(pd_result))
 
 
-if __name__ == '__main__':
-    unittest.main()
-
-
 class TestAggTempAliasesRenamedInSQL(unittest.TestCase):
     """``to_sql(execution_format=True)`` is also the body of server-side
     writeback (CREATE/INSERT ... SELECT, views). Running it directly must
@@ -1209,3 +1205,7 @@ class TestAggTempAliasesRenamedInSQL(unittest.TestCase):
         )
         ds_result = ds_head[ds_head['int_col'] > 20]
         self._assert_sql_and_execution_match(ds_result, pd_result)
+
+
+if __name__ == '__main__':
+    unittest.main()

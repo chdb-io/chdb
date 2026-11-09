@@ -119,10 +119,11 @@ SHAPES = [
         ['GROUP BY'],
     ),
     (
-        'post_limit_filter_on_groupby_result_uses_temp_alias',
+        'post_limit_filter_on_groupby_result_uses_visible_name',
         # post-LIMIT WHERE on the agg column ``v`` (which collides with
-        # source col ``v``) - SQL must use the ``__agg_v__`` temp alias
-        # in the outer WHERE.
+        # source col ``v``): the aggregation uses the ``__agg_v__`` temp
+        # alias, renames it back to ``v`` in SQL, and the outer WHERE
+        # filters the renamed ``v``.
         lambda ds: (
             ds[ds['v'] > 100]
             .groupby('cat')
@@ -130,8 +131,13 @@ SHAPES = [
             .sort_values('v', ascending=False)
             .head(5)[lambda r: r['v'] > 1000]
         ),
-        ['GROUP BY', '__agg_v__'],
-        [],
+        [
+            'GROUP BY',
+            'sum("v") AS "__agg_v__"',
+            '"__agg_v__" AS "v"',
+            'ORDER BY "v" DESC LIMIT 5) AS __subq1__ WHERE "v" > 1000',
+        ],
+        ['WHERE "__agg_v__"'],
     ),
     (
         'two_step_filter_keeps_both_where_clauses',
@@ -186,7 +192,9 @@ SHAPES = [
     ),
     (
         'filter_groupby_orderby_limit_no_post_filter',
-        # baseline: simple agg pipeline without nested wrapper layers
+        # baseline: simple agg pipeline without nested wrapper layers.
+        # The only subquery allowed is the aggregation's own rename
+        # projection (``__agg_v__ AS v``), which is not a planner layer.
         lambda ds: (
             ds[ds['v'] > 30]
             .groupby('cat')
@@ -194,8 +202,11 @@ SHAPES = [
             .sort_values('v', ascending=False)
             .head(3)
         ),
-        ['GROUP BY', 'ORDER BY', 'LIMIT 3'],
-        ['__subq'],
+        [
+            'GROUP BY',
+            ') AS __rename_subq__ ORDER BY "v" DESC LIMIT 3',
+        ],
+        ['__subq1__'],
     ),
     (
         'pure_select_columns',

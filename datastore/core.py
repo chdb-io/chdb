@@ -42,7 +42,6 @@ from .lazy_ops import LazyOp, LazyRelationalOp
 from .sql_executor import (
     ExtractedClauses,
     extract_clauses_from_ops,
-    apply_alias_renames_to_orderby,
     build_groupby_select_fields,
     SQLExecutionEngine,
     SQLBuildResult,
@@ -6826,31 +6825,26 @@ class DataStore(PandasCompatMixin):
 
         left_sql, left_cols = left
         right_sql, right_cols = right
-        names = [name for name, _, _ in left_cols]
+        names = [name for name, _ in left_cols]
         if len(set(names)) != len(names):
             return None
-        left_types = {name: col_type for name, _, col_type in left_cols}
-        right_types = {name: col_type for name, _, col_type in right_cols}
+        left_types = dict(left_cols)
+        right_types = dict(right_cols)
         if len(right_types) != len(right_cols) or left_types != right_types:
             return None
 
         q = self.quote_char
+        out_fields = ", ".join(format_identifier(name, q) for name in names)
 
-        def operand(sql, columns, side):
-            source = {name: source_name for name, source_name, _ in columns}
-            fields = ", ".join(
-                f"{format_identifier(source[name], q)} AS {format_identifier(name, q)}"
-                for name in names
-            )
+        def operand(sql, side):
             return (
-                f"SELECT {fields}, {side} AS __union_side__, "
+                f"SELECT {out_fields}, {side} AS __union_side__, "
                 f"rowNumberInAllBlocks() AS __union_row__ FROM ({sql})"
             )
 
-        out_fields = ", ".join(format_identifier(name, q) for name in names)
         return (
-            f"SELECT {out_fields} FROM ({operand(left_sql, left_cols, 0)} "
-            f"UNION ALL {operand(right_sql, right_cols, 1)}) "
+            f"SELECT {out_fields} FROM ({operand(left_sql, 0)} "
+            f"UNION ALL {operand(right_sql, 1)}) "
             f"ORDER BY __union_side__, __union_row__"
         )
 
@@ -6858,10 +6852,9 @@ class DataStore(PandasCompatMixin):
         """
         Return ``(sql, columns)`` for using this DataStore as a union operand,
         where ``sql`` yields its complete result and ``columns`` lists
-        ``(result column name, column name in sql, type)`` in order; the type
-        ignores ``Nullable``, which UNION ALL reconciles without a type change.
-        Return ``None`` when the result needs pandas execution or
-        post-processing beyond renaming.
+        ``(column name, type)`` in order; the type ignores ``Nullable``, which
+        UNION ALL reconciles without a type change. Return ``None`` when the
+        result needs pandas execution or post-processing.
         """
         if not (self._table_function or self.table_name):
             return None
@@ -6894,12 +6887,11 @@ class DataStore(PandasCompatMixin):
         except Exception as e:  # invalid side SQL -> LazyUnion raises at execution
             self._logger.debug("union SQL operand schema unavailable: %s", e)
             return None
-        renames = build_result.alias_renames or {}
         columns = []
         for name, col_type, *_ in rows:
             if col_type.startswith("Nullable(") and col_type.endswith(")"):
                 col_type = col_type[len("Nullable("):-1]
-            columns.append((renames.get(name, name), name, col_type))
+            columns.append((name, col_type))
         return build_result.sql, columns
 
     @immutable
