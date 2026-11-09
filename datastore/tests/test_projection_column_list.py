@@ -8,7 +8,9 @@ a file source or a DataFrame source, and the full results are compared.
 import pandas as pd
 import pytest
 
-from datastore import DataStore
+from datastore import DataStore, F
+from datastore.expressions import Field, resolve_computed_references
+from datastore.functions import CastFunction
 
 from tests.test_utils import assert_datastore_equals_pandas
 
@@ -441,3 +443,78 @@ class TestRepeatedProjection:
             return d[["region"]]
 
         _assert_chain(make_ds, chain)
+
+
+class TestComputedColumnsReadByGroupBy:
+    """A GROUP BY layer inlines the computed columns it reads; the inlined
+    expressions must keep their SQL meaning."""
+
+    @staticmethod
+    def _strings():
+        return pd.DataFrame(
+            {
+                "region": ["a", "b", "a", "c"],
+                "code": ["1", "2", "3", "4"],
+                "tag": ["p", "q", "r", "s"],
+            }
+        )
+
+    def test_string_concat_of_computed_column_then_groupby(self):
+        def chain(d):
+            d["label"] = d["tag"]
+            d["key"] = d["label"] + d["code"]
+            return d.groupby("region").agg({"key": "max"})
+
+        df = self._strings()
+        assert_datastore_equals_pandas(
+            chain(DataStore(df.copy())), chain(df.copy()), check_index=True
+        )
+
+    def test_string_concat_of_computed_column_in_assign(self):
+        def chain(d):
+            d = d.assign(label=d["tag"])
+            return d.assign(key=d["label"] + d["code"])
+
+        df = self._strings()
+        assert_datastore_equals_pandas(
+            chain(DataStore(df.copy())), chain(df.copy()), check_index=True
+        )
+
+    def test_cast_of_computed_column_then_groupby(self, make_ds):
+        source, make = make_ds
+        df = self._strings()
+        pd_result = df.copy()
+        pd_result["copy"] = pd_result["code"]
+        pd_result["n"] = pd_result["copy"].astype("int64")
+        pd_result = pd_result.groupby("region").agg({"n": "sum"})
+
+        ds = make(df)
+        ds["copy"] = ds["code"]
+        ds["n"] = F.cast(ds["copy"], "Int64")
+        ds_result = ds.groupby("region").agg({"n": "sum"})
+
+        assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
+
+    def test_cast_of_computed_column_in_assign(self):
+        df = self._strings()
+        pd_result = df.assign(copy=df["code"])
+        pd_result = pd_result.assign(n=pd_result["copy"].astype("int64"))
+
+        ds = DataStore(df.copy())
+        ds = ds.assign(copy=ds["code"])
+        ds_result = ds.assign(n=F.cast(ds["copy"], "Int64"))
+
+        assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
+
+    def test_expanded_expression_keeps_subtype_and_state(self):
+        computed = {"copy": Field("code")}
+        cast = resolve_computed_references(
+            F.cast(Field("copy"), "Int64", alias="n"), computed
+        )
+        assert isinstance(cast, CastFunction)
+        assert cast.to_sql(with_alias=True) == 'CAST("code" AS Int64) AS "n"'
+
+        concat = Field("copy") + Field("tag")
+        concat._is_string_type = True
+        resolved = resolve_computed_references(concat, computed)
+        assert resolved.to_sql() == 'concat("code","tag")'

@@ -425,7 +425,7 @@ def rewrite_column_refs_in_expression(expr: Any, rename_map: Dict[str, str]) -> 
     if isinstance(expr, Field):
         original = expr.name.strip("\"'")
         if original in rename_map:
-            return Field(rename_map[original], table=expr.table, alias=expr.alias)
+            return expr.with_attrs(name=rename_map[original])
         return expr
 
     if isinstance(expr, Literal):
@@ -436,33 +436,33 @@ def rewrite_column_refs_in_expression(expr: Any, rename_map: Dict[str, str]) -> 
         new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
         if new_left is expr.left and new_right is expr.right:
             return expr
-        return BinaryCondition(expr.operator, new_left, new_right, expr.alias)
+        return expr.with_attrs(left=new_left, right=new_right)
 
     if isinstance(expr, CompoundCondition):
         new_left = rewrite_column_refs_in_expression(expr.left, rename_map)
         new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
         if new_left is expr.left and new_right is expr.right:
             return expr
-        return CompoundCondition(expr.operator, new_left, new_right, expr.alias)
+        return expr.with_attrs(left=new_left, right=new_right)
 
     if isinstance(expr, NotCondition):
         new_inner = rewrite_column_refs_in_expression(expr.condition, rename_map)
         if new_inner is expr.condition:
             return expr
-        return NotCondition(new_inner, expr.alias)
+        return expr.with_attrs(condition=new_inner)
 
     if isinstance(expr, UnaryCondition):
         new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
         if new_expr is expr.expression:
             return expr
-        return UnaryCondition(expr.operator, new_expr, expr.alias)
+        return expr.with_attrs(expression=new_expr)
 
     if isinstance(expr, InCondition):
         # Don't descend into subqueries (different column scope)
         new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
         if new_expr is expr.expression:
             return expr
-        return InCondition(new_expr, expr.values, expr.negate, expr.alias)
+        return expr.with_attrs(expression=new_expr)
 
     if isinstance(expr, BetweenCondition):
         new_e = rewrite_column_refs_in_expression(expr.expression, rename_map)
@@ -474,39 +474,26 @@ def rewrite_column_refs_in_expression(expr: Any, rename_map: Dict[str, str]) -> 
             and new_u is expr.upper
         ):
             return expr
-        return BetweenCondition(
-            new_e, new_l, new_u, expr.inclusive, expr.alias
-        )
+        return expr.with_attrs(expression=new_e, lower=new_l, upper=new_u)
 
     if isinstance(expr, LikeCondition):
         new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
         if new_expr is expr.expression:
             return expr
-        return LikeCondition(
-            new_expr,
-            expr.pattern,
-            expr.negate,
-            expr.case_sensitive,
-            expr.alias,
-        )
+        return expr.with_attrs(expression=new_expr)
 
     if isinstance(expr, NullSafeCondition):
         new_inner = rewrite_column_refs_in_expression(expr.condition, rename_map)
         if new_inner is expr.condition:
             return expr
-        return NullSafeCondition(new_inner, expr.alias)
+        return expr.with_attrs(condition=new_inner)
 
     if isinstance(expr, ArithmeticExpression):
         new_left = rewrite_column_refs_in_expression(expr.left, rename_map)
         new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
         if new_left is expr.left and new_right is expr.right:
             return expr
-        rebuilt = ArithmeticExpression(
-            expr.operator, new_left, new_right, expr.alias
-        )
-        if getattr(expr, "_is_string_type", False):
-            rebuilt._is_string_type = True
-        return rebuilt
+        return expr.with_attrs(left=new_left, right=new_right)
 
     return expr
 

@@ -6861,6 +6861,22 @@ class DataStore(PandasCompatMixin):
             return None
 
         q = self.quote_char
+        # The helper aliases share each operand's SELECT scope with the
+        # columns it reads and the names it outputs, so they must not equal
+        # any of them.
+        taken = set(names)
+        taken.update(source_name for _, source_name, _ in left_cols + right_cols)
+
+        def helper_alias(base):
+            alias, suffix = f"__{base}__", 1
+            while alias in taken:
+                alias = f"__{base}_{suffix}__"
+                suffix += 1
+            taken.add(alias)
+            return format_identifier(alias, q)
+
+        side_alias = helper_alias("union_side")
+        row_alias = helper_alias("union_row")
 
         def operand(sql, columns, side):
             source = {name: source_name for name, source_name, _ in columns}
@@ -6869,15 +6885,15 @@ class DataStore(PandasCompatMixin):
                 for name in names
             )
             return (
-                f"SELECT {fields}, {side} AS __union_side__, "
-                f"rowNumberInAllBlocks() AS __union_row__ FROM ({sql})"
+                f"SELECT {fields}, {side} AS {side_alias}, "
+                f"rowNumberInAllBlocks() AS {row_alias} FROM ({sql})"
             )
 
         out_fields = ", ".join(format_identifier(name, q) for name in names)
         return (
             f"SELECT {out_fields} FROM ({operand(left_sql, left_cols, 0)} "
             f"UNION ALL {operand(right_sql, right_cols, 1)}) "
-            f"ORDER BY __union_side__, __union_row__"
+            f"ORDER BY {side_alias}, {row_alias}"
         )
 
     def _union_operand_sql(self):
