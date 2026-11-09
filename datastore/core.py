@@ -5181,12 +5181,13 @@ class DataStore(PandasCompatMixin):
 
         return sql
 
-    def _build_view_select_sql(self) -> str:
+    def _build_view_select_sql(self, kind: str = "VIEW") -> str:
         """Build the SELECT body for a (materialized) VIEW definition.
 
         A VIEW stores its SQL text on the target server, so the pipeline must
-        be entirely SQL-pushable — pandas-only ops (apply/UDF/local file/
-        Python(df)) cannot be persisted into a server-side definition.
+        run as one SQL query — pandas-only ops (apply/UDF/local file/
+        Python(df)) and plans the executor splits into several stages cannot
+        be persisted into a server-side definition.
 
         SELECT form mirrors the writeback path:
           - same_server (target == source server): fold ``remote(source,...)``
@@ -5198,45 +5199,89 @@ class DataStore(PandasCompatMixin):
         """
         if not self._is_fully_sql_pushable():
             raise QueryError(
-                "Cannot create VIEW: the pipeline contains pandas-only "
-                "operations (apply / UDF / local file / etc.) that cannot "
-                "be expressed as a server-side SQL definition. Materialize "
-                "the data first via to_clickhouse(), then create a view on "
-                "the resulting table."
+                f"Cannot create {kind}: the pipeline does not run as a single "
+                "SQL query (it contains pandas-only operations such as "
+                "apply / UDF / local file, or steps that execute in separate "
+                "stages, e.g. a column assignment that reads a column "
+                "assigned just before), so it cannot be expressed as a "
+                "server-side SQL definition. Materialize the data first via "
+                "to_clickhouse(), then create a view on the resulting table."
             )
         target_host = self._remote_params["host"]
         same_server = self._is_all_same_remote_server(target_host)
         return self._writeback_select_sql(same_server)
 
-    def _uses_execution_format_for_writeback(self) -> bool:
-        """Whether the writeback SELECT should be generated with
-        ``execution_format=True``.
+    def _flat_sql_reproduces_pipeline(self) -> bool:
+        """Whether the flat ``_generate_select_sql()`` renders this pipeline,
+        so writeback should emit it instead of the execution SQL.
 
-        ``execution_format`` is normally what we want — it reproduces
-        ``_execute()``'s exact semantics: lazy-op ordering (e.g. ``head()``
-        before ``filter()`` → LIMIT before WHERE), column projections, and
-        ``LazyGroupByAgg`` (``groupby().sum()``), none of which the flat
-        ``_generate_select_sql()`` renders (it emits a bare
-        ``SELECT * FROM source``).
+        The execution SQL (``_single_sql_query``) is normally what we want —
+        it reproduces ``_execute()``'s exact semantics: lazy-op ordering
+        (e.g. ``head()`` before ``filter()`` → LIMIT before WHERE), column
+        projections, and ``LazyGroupByAgg`` (``groupby().sum()``), none of
+        which the flat SQL renders (it emits a bare ``SELECT * FROM source``).
 
-        The one exception is a ``LazySQLQuery`` (produced by
-        ``groupby().agg(...)``): ``_build_execution_sql()`` cannot yet render it
-        and drops the aggregation, emitting a broken ``SELECT * ... GROUP BY``.
-        For those pipelines the aggregation is already materialized into
-        ``_select_fields`` / ``_groupby_fields``, so the flat SQL is correct —
-        fall back to it. (This is the limitation documented on
-        ``_is_fully_sql_pushable``.)
+        The one exception is a SQL-style ``groupby().agg(alias=col(...)...)``:
+        ``_execute()`` runs it as a ``LazySQLQuery`` over the first segment's
+        result, and that first segment wrongly picks up the store's
+        ``GROUP BY`` (``SELECT * ... GROUP BY``), so the pipeline cannot run
+        as one SQL query. ``agg()`` also writes the aggregation into
+        ``_select_fields`` / ``_groupby_fields``, so the flat SQL renders it,
+        but only under two conditions this checks:
+
+        - the aggregation is the last lazy op — the flat SQL has no place for
+          ops applied to the aggregated result;
+        - every earlier op is a filter folded into ``_where_condition`` — the
+          only earlier state the flat SQL renders in pipeline order (WHERE
+          runs before GROUP BY). Filters recorded without updating
+          ``_where_condition`` (e.g. ``loc[cond]``), assignments, sorts and
+          limits are not rendered, or not in pipeline order.
+
+        Any other ``LazySQLQuery`` (``ds.sql(...)``, ``run_sql``) carries its
+        query only in the op, which the flat SQL does not render at all.
         """
         from .lazy_ops import LazySQLQuery
-        return not any(isinstance(op, LazySQLQuery) for op in self._lazy_ops)
+
+        if not self._lazy_ops:
+            return False
+        *preceding, last = self._lazy_ops
+        if not (isinstance(last, LazySQLQuery) and last.mirrors_select_state):
+            return False
+
+        conditions = []
+        for op in preceding:
+            if not (isinstance(op, LazyRelationalOp) and op.op_type == "WHERE"):
+                return False
+            conditions.append(op.condition)
+        if not conditions:
+            return self._where_condition is None
+        if self._where_condition is None:
+            return False
+        folded = conditions[0]
+        for condition in conditions[1:]:
+            folded = folded & condition
+        q = self.quote_char
+        return folded.to_sql(quote_char=q) == self._where_condition.to_sql(quote_char=q)
 
     def _canonical_writeback_sql(self) -> str:
         """``remote(source, ...)``-form SELECT that reproduces ``_execute()``,
         used as the cross-server writeback body, the base for
         ``_get_remote_view_sql`` (same-server, before folding to ``db.tbl``),
         and the ``DESCRIBE`` target for schema inference — so all writeback SQL
-        derives from one place and can't drift on lazy-op handling."""
-        return self.to_sql(execution_format=self._uses_execution_format_for_writeback())
+        derives from one place and can't drift on lazy-op handling.
+
+        Only valid for pipelines ``_is_fully_sql_pushable`` accepts: the SQL is
+        the single query ``_execute()`` would run, from the same plan that
+        check inspected."""
+        if self._flat_sql_reproduces_pipeline():
+            return self.to_sql()
+        sql, _ = self._single_sql_query()
+        if sql is None:
+            raise ExecutionError(
+                "Internal error: server-side writeback SQL requested for a "
+                "pipeline that does not run as a single SQL query."
+            )
+        return sql
 
     def _writeback_select_sql(self, same_server: bool) -> str:
         """The SELECT body used for every server-side writeback path
@@ -5438,18 +5483,21 @@ class DataStore(PandasCompatMixin):
         Check if this DataStore's entire pipeline can be executed as a single
         server-side SQL statement via INSERT INTO ... SELECT ... FROM remote().
 
-        Reuses QueryPlanner._can_push_op_to_sql() for classification, with
-        one exception: LazySQLQuery (generated by groupby().agg() etc.) is
-        treated as SQL-compatible here. Although plan_segments() classifies it
-        as a "pandas" segment (because it can't merge into a surrounding SQL
-        context), the query it contains IS valid SQL that can run server-side.
+        Decided by the same segmented plan ``_execute()`` runs (via
+        ``_single_sql_query``): the pipeline is pushable only when it collapses
+        to ONE SQL segment against the original source. Every op being
+        SQL-compatible is not enough — the planner also splits all-SQL chains
+        into several segments (e.g. ``ds["d"] = ds["c"] + 1`` right after
+        assigning ``c``, or assigning ``c`` twice), and no single SELECT
+        reproduces those.
 
-        This exception exists because _execute()'s segment-based execution
-        currently cannot handle LazySQLQuery correctly when preceded by
-        SQL-state operations like WHERE + GROUP BY (it generates broken SQL
-        like SELECT * ... GROUP BY without aggregation). The server-side path
-        avoids this by using to_sql(execution_format=True) which delegates
-        to _build_execution_sql() for correct SQL generation.
+        The one exception is a SQL-style ``groupby().agg()`` whose flat SQL
+        renders the whole pipeline (see ``_flat_sql_reproduces_pipeline``):
+        ``_execute()`` splits it into a segment plus a ``LazySQLQuery``, yet
+        the flat SQL is a single equivalent query.
+
+        Local sources (``from_df`` / ``Python(df)`` table functions) are never
+        pushable: the target server cannot read this process's DataFrame.
 
         Returns:
             True if the pipeline can run as a single server-side SQL
@@ -5457,22 +5505,19 @@ class DataStore(PandasCompatMixin):
         if not (self._table_function or self.table_name):
             return False
 
+        if self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        ):
+            return False
+
         if not self._lazy_ops:
             return True
 
-        from .lazy_ops import LazySQLQuery
-        from .query_planner import QueryPlanner
+        if self._flat_sql_reproduces_pipeline():
+            return True
 
-        planner = QueryPlanner()
-        for i, op in enumerate(self._lazy_ops):
-            if isinstance(op, LazySQLQuery):
-                continue
-            preceding = self._lazy_ops[:i]
-            following = self._lazy_ops[i + 1:]
-            if not planner._can_push_op_to_sql(op, preceding_ops=preceding, following_ops=following):
-                return False
-
-        return True
+        sql, _ = self._single_sql_query()
+        return sql is not None
 
     def _materialize_for_writeback(
         self,
@@ -5617,8 +5662,9 @@ class DataStore(PandasCompatMixin):
            remote(source, ...) so the target pulls source rows over its own
            native connection (source → target, one hop). chDB only ships the
            statement; rows do not round-trip through it.
-        3. **DataFrame upload** — pipeline contains Pandas-only ops, OR the
-           DataStore wraps a pure in-memory DataFrame (``DataStore(df)`` or
+        3. **DataFrame upload** — pipeline contains Pandas-only ops or does
+           not run as a single SQL query, OR the DataStore wraps a pure
+           in-memory DataFrame (``DataStore(df)`` or
            ``DataStore.from_df`` / ``from_dataframe``) → _execute() locally,
            then upload via the Python() table function. For a pure-DataFrame
            source an explicit ``host`` is required (there is no source server
@@ -5779,8 +5825,8 @@ class DataStore(PandasCompatMixin):
                 )
                 self._execute_remote_ddl(ddl)
             else:
-                # Pandas-only pipeline (always cross-server here, since
-                # same_server implies fully_sql). Data must round-trip
+                # Pipeline that isn't one SQL query (always cross-server here,
+                # since same_server implies fully_sql). Data must round-trip
                 # through local chDB, so DROP + CREATE + INSERT cannot be
                 # made atomic. Refuse to overwrite an existing target.
                 if self._check_remote_table_exists(database, table_name):
@@ -6117,7 +6163,7 @@ class DataStore(PandasCompatMixin):
                 f"{format_identifier(target_table, q)}"
             )
 
-            select_sql = self._build_view_select_sql()
+            select_sql = self._build_view_select_sql("MATERIALIZED VIEW")
 
             # ---- mv trigger: must not already exist ----
             # We deliberately don't offer a `replace` mode — see method
@@ -7185,7 +7231,7 @@ class DataStore(PandasCompatMixin):
                 full_sql = f"SELECT {select_clause} FROM __df__"
 
             # Use LazySQLQuery for proper execution
-            self._add_lazy_op(LazySQLQuery(full_sql))
+            self._add_lazy_op(LazySQLQuery(full_sql, mirrors_select_state=True))
 
             return self
         else:
@@ -8592,8 +8638,11 @@ class DataStore(PandasCompatMixin):
         Args:
             quote_char: Quote character for identifiers
             as_subquery: Whether to format as subquery with parentheses
-            execution_format: If True, returns the exact SQL that _execute() runs
-                             (including row order preservation logic).
+            execution_format: If True, returns the SQL that _execute() runs
+                             first against the source (including row order
+                             preservation logic). When the plan has later
+                             stages (pandas ops, or SQL run on the
+                             intermediate DataFrame), those are not included.
                              If False (default), returns clean semantic SQL.
 
         Returns:
