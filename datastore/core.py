@@ -3428,10 +3428,8 @@ class DataStore(PandasCompatMixin):
         # Start with source DataFrame columns
         if self._source_df is not None:
             columns = list(self._source_df.columns)
-        elif self._schema:
-            columns = list(self._schema.keys())
         else:
-            columns = []
+            columns = list(self._get_all_column_names())
 
         # Apply column transformations from lazy ops
         for op in self._lazy_ops:
@@ -4210,11 +4208,8 @@ class DataStore(PandasCompatMixin):
             schema = self.schema()
             if schema:
                 return pd.Index(schema.keys())
-        # When we have computed columns from assign() on a SQL source with no
-        # column-reducing ops (selections/filters), derive column names from
-        # schema + computed columns without materialization.
-        # Skip when there are column-reducing lazy ops (e.g., df[['a','b']])
-        # since _get_all_column_names() returns source columns, not selected ones.
+        # When we have computed columns from assign() on a SQL source, derive
+        # column names from the schema and the lazy ops without materialization.
         if (
             self._computed_columns
             and (self._table_function is not None or self.table_name is not None)
@@ -4224,11 +4219,7 @@ class DataStore(PandasCompatMixin):
             and self._source_df is None
         ):
             try:
-                base_cols = list(self._get_all_column_names())
-                computed_cols = [
-                    c for c in self._computed_columns if c not in base_cols
-                ]
-                return pd.Index(base_cols + computed_cols)
+                return pd.Index(self._get_current_columns())
             except Exception:
                 pass
         # SQL-pushdownable pipeline: probe the output schema with LIMIT 0 instead
@@ -7465,35 +7456,14 @@ class DataStore(PandasCompatMixin):
             # Ensure we have a SQL source (create PythonTableFunction if needed)
             result._ensure_sql_source()
 
-            # Check if there's an existing column selection in lazy ops
-            # If the last SELECT op has specific columns (not just '*'), preserve them
-            existing_select_fields = None
-            for op in reversed(result._lazy_ops):
-                if hasattr(op, "op_type") and op.op_type == "SELECT":
-                    if hasattr(op, "fields") and op.fields:
-                        # Check if this SELECT has specific columns vs '*'
-                        # A SELECT with just '*' has no fields, or has '*' string in fields
-                        has_star = any(
-                            f == "*" or (isinstance(f, str) and f.strip() == "*")
-                            for f in op.fields
-                        )
-                        if not has_star:
-                            # We have specific columns selected, preserve them
-                            existing_select_fields = op.fields
-                    break
-
-            # Use existing column selection if available, otherwise use '*'
-            if existing_select_fields:
-                # Preserve the existing column selection and add new columns
-                select_items = list(existing_select_fields)
-            else:
-                select_items = ["*"]
+            select_items = ["*"]
 
             # Get list of aliases being assigned
             aliases_to_assign = set(sql_kwargs.keys())
 
-            # Get existing columns to check for overwrites
-            existing_columns = list(result._get_all_column_names())
+            # Columns after the pending lazy ops (selection, drop, rename,
+            # earlier assigns), not the source's columns
+            existing_columns = result._get_current_columns()
             existing_columns_set = set(existing_columns)
 
             # Check if any alias overwrites an existing column
@@ -7520,30 +7490,10 @@ class DataStore(PandasCompatMixin):
 
             if columns_to_overwrite:
                 # When overwriting, expand '*' and replace columns in-place to preserve order
-                if select_items == ["*"]:
-                    # Build select items preserving order, replacing overwrites in-place
-                    new_select_items = []
-                    for col in existing_columns:
-                        if col in columns_to_overwrite:
-                            # Replace with new expression in-place
-                            new_select_items.append(expr_map[col])
-                        else:
-                            new_select_items.append(col)
-                    select_items = new_select_items
-                else:
-                    # Replace overwritten columns in existing selection
-                    new_select_items = []
-                    for item in select_items:
-                        col_name = (
-                            item
-                            if isinstance(item, str)
-                            else getattr(item, "_alias", None)
-                        )
-                        if col_name in columns_to_overwrite:
-                            new_select_items.append(expr_map[col_name])
-                        else:
-                            new_select_items.append(item)
-                    select_items = new_select_items
+                select_items = [
+                    expr_map[col] if col in columns_to_overwrite else col
+                    for col in existing_columns
+                ]
 
                 # Add new (non-overwrite) columns at the end
                 for alias in sql_kwargs.keys():

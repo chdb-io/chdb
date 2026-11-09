@@ -837,6 +837,43 @@ def col(name: str) -> Field:
     return Field(name)
 
 
+def is_star_item(item: Any) -> bool:
+    """Whether ``item`` is the ``"*"`` marker of a SELECT field list.
+
+    ``Field.__eq__`` builds a condition, so ``field == "*"`` is truthy and
+    must never be used to detect the marker.
+    """
+    return isinstance(item, str) and item.strip() == "*"
+
+
+def projection_name(item: Any) -> Optional[str]:
+    """Output column name of a SELECT field list item, or None if unnamed."""
+    if isinstance(item, str):
+        return item.strip('"')
+    alias = getattr(item, "alias", None)
+    if alias:
+        return alias
+    if isinstance(item, Field):
+        return item.name.strip('"')
+    return None
+
+
+def bind_projection_item(items: List[Any], item: Any) -> None:
+    """Bind ``item`` into an ordered SELECT list.
+
+    An item whose output name is already in the list replaces that entry in
+    place (pandas ``df[col] = ...`` keeps the column position); otherwise it is
+    appended.
+    """
+    name = projection_name(item)
+    if name is not None:
+        for i, existing in enumerate(items):
+            if projection_name(existing) == name:
+                items[i] = item
+                return
+    items.append(item)
+
+
 class DateTimePropertyExpr(Expression):
     """
     Expression representing a datetime accessor property (.dt.year, .dt.month, etc.)

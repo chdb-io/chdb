@@ -398,12 +398,16 @@ class QueryPlanner:
             return names
 
         def _where_refs_columns_not_in(op_set, layer):
-            """Does any WHERE in ``layer`` reference a column outside
-            ``op_set`` (e.g. one created by an assignment-style
-            SELECT/LazyColumnAssignment in the same layer)? If yes, the
+            """Does any WHERE in ``layer`` reference a column created in
+            the same layer (by an assignment-style SELECT or a
+            LazyColumnAssignment) that is outside ``op_set``? If yes, the
             outer projection would drop that column before the WHERE
             could bind to it, so we must split into a new layer that
-            wraps the inner WHERE."""
+            wraps the inner WHERE. Source columns stay visible to a WHERE
+            in the projecting layer."""
+            computed = set()
+            for prev in layer:
+                computed.update(self._computed_columns_of(prev))
             wheres = [
                 prev
                 for prev in layer
@@ -415,7 +419,7 @@ class QueryPlanner:
                 return False
             for w in wheres:
                 refs = self._extract_referenced_columns(w.condition)
-                if refs - op_set:
+                if (refs & computed) - op_set:
                     return True
             return False
 
@@ -544,6 +548,7 @@ class QueryPlanner:
         """
         from .expressions import ArithmeticExpression
         from .column_expr import ColumnExpr
+        from .conditions import Condition
         from .functions import Function
 
         columns = set()
@@ -572,6 +577,11 @@ class QueryPlanner:
                 # Function call - extract from arguments
                 for arg in e.args:
                     _extract(arg)
+
+            elif isinstance(e, Condition):
+                # Comparison, AND/OR/NOT, IS NULL, IN, BETWEEN, LIKE operands
+                for operand in ("left", "right", "condition", "expression", "lower", "upper"):
+                    _extract(getattr(e, operand, None))
 
             elif hasattr(e, "expr") and e.expr is not None:
                 # Wrapper types with an 'expr' attribute
@@ -707,36 +717,47 @@ class QueryPlanner:
         current_type = None
         current_ops = []
         is_first = True
-        # Track columns assigned in current SQL segment for conflict detection
+        # Track columns assigned in current SQL segment for conflict detection:
+        # by ``ds[col] = ...`` and by the aliased expressions of SELECT ops
         assigned_columns_in_segment = set()
+        selected_columns_in_segment = set()
 
         for op_type, op in op_types:
-            # Check if this is a column assignment that conflicts with previous ones in segment
+            # Check if this op computes a column that conflicts with previous ones in segment
             needs_new_segment = False
-            if op_type == "sql" and isinstance(op, LazyColumnAssignment):
-                if op.column in assigned_columns_in_segment:
-                    # Same column being assigned again - need a new segment
+            computed = self._computed_columns_of(op) if op_type == "sql" else {}
+            # assign() already resolves its expressions through earlier
+            # assign() columns, so a SELECT only conflicts with ``ds[col] = ...``.
+            if isinstance(op, LazyColumnAssignment):
+                segment_columns = assigned_columns_in_segment | selected_columns_in_segment
+            else:
+                segment_columns = assigned_columns_in_segment
+            reassigned_cols = computed.keys() & segment_columns
+            if reassigned_cols:
+                # Same column being computed again - need a new segment
+                needs_new_segment = True
+                self._logger.debug(
+                    "  [Segment Split] Column(s) %s already assigned in current segment, splitting",
+                    sorted(reassigned_cols),
+                )
+            elif computed:
+                # Check if this op references any column that was assigned
+                # in the current segment (cross-column dependency)
+                # ClickHouse has a quirk where alias references in the same SELECT
+                # can cause unexpected results when columns reference each other
+                referenced_cols = set()
+                for expr in computed.values():
+                    referenced_cols |= self._extract_referenced_columns(expr)
+                dependency_cols = referenced_cols & segment_columns
+                if dependency_cols:
+                    # This op references a column that was just assigned
+                    # Split to ensure correct execution order
                     needs_new_segment = True
                     self._logger.debug(
-                        "  [Segment Split] Column '%s' already assigned in current segment, splitting",
-                        op.column,
+                        "  [Segment Split] Column(s) %s reference recently assigned columns %s, splitting",
+                        sorted(computed),
+                        dependency_cols,
                     )
-                else:
-                    # Check if this assignment references any column that was assigned
-                    # in the current segment (cross-column dependency)
-                    # ClickHouse has a quirk where alias references in the same SELECT
-                    # can cause unexpected results when columns reference each other
-                    referenced_cols = self._extract_referenced_columns(op.expr)
-                    dependency_cols = referenced_cols & assigned_columns_in_segment
-                    if dependency_cols:
-                        # This assignment references a column that was just assigned
-                        # Split to ensure correct execution order
-                        needs_new_segment = True
-                        self._logger.debug(
-                            "  [Segment Split] Column '%s' references recently assigned columns %s, splitting",
-                            op.column,
-                            dependency_cols,
-                        )
 
             if op_type != current_type or needs_new_segment:
                 # Save previous segment
@@ -751,12 +772,13 @@ class QueryPlanner:
                 current_ops = [op]
                 # Reset column tracking for new segment
                 assigned_columns_in_segment = set()
-                if isinstance(op, LazyColumnAssignment):
-                    assigned_columns_in_segment.add(op.column)
+                selected_columns_in_segment = set()
             else:
                 current_ops.append(op)
-                if isinstance(op, LazyColumnAssignment):
-                    assigned_columns_in_segment.add(op.column)
+            if isinstance(op, LazyColumnAssignment):
+                assigned_columns_in_segment.update(computed)
+            else:
+                selected_columns_in_segment.update(computed)
 
         # Save last segment
         if current_ops:
@@ -773,6 +795,23 @@ class QueryPlanner:
         )
 
         return exec_plan
+
+    @staticmethod
+    def _computed_columns_of(op: LazyOp) -> Dict[str, Any]:
+        """Columns an op computes in SQL, mapped to their expressions.
+
+        Covers ``ds[col] = expr`` (``LazyColumnAssignment``) and the aliased
+        expressions of a SELECT (``assign()`` and similar).
+        """
+        if isinstance(op, LazyColumnAssignment):
+            return {op.column: op.expr}
+        if isinstance(op, LazyRelationalOp) and op.op_type == "SELECT" and op.fields:
+            return {
+                f.alias: f
+                for f in op.fields
+                if not isinstance(f, str) and getattr(f, "alias", None)
+            }
+        return {}
 
     def _can_push_op_to_sql(
         self,

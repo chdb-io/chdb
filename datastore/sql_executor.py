@@ -15,11 +15,19 @@ Design Goals:
 3. Provide a clean interface for SQL building and execution
 """
 
+from copy import copy
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Tuple, TYPE_CHECKING
 import pandas as pd
 
-from .expressions import Field, Expression, Star
+from .expressions import (
+    Field,
+    Expression,
+    Star,
+    bind_projection_item,
+    is_star_item,
+    projection_name,
+)
 from .lazy_ops import (
     LazyOp,
     LazyRelationalOp,
@@ -296,11 +304,9 @@ def extract_clauses_from_ops(
     result = ExtractedClauses()
 
     for op in ops:
-        # Handle LazyColumnAssignment - add computed column to SELECT
         if isinstance(op, LazyColumnAssignment):
             if op.can_push_to_sql():
-                expr = op.get_sql_expression()
-                result.select_fields.append(expr)
+                bind_projection_item(result.select_fields, op.get_sql_expression())
             continue
 
         if not isinstance(op, LazyRelationalOp):
@@ -337,40 +343,31 @@ def extract_clauses_from_ops(
 
             if not op.fields:
                 continue
-            # Check if this SELECT includes '*' (add computed columns mode)
-            # or is explicit column selection (replace mode)
-            has_star = any(f == "*" for f in op.fields if isinstance(f, str))
-
-            if has_star:
-                # Add computed columns mode: append non-* fields to existing select
+            # SELECT with '*' (``assign()``) binds its other fields into the
+            # current projection; an explicit SELECT re-projects it.
+            if any(is_star_item(f) for f in op.fields):
                 for f in op.fields:
-                    if isinstance(f, str):
-                        if f != "*":
-                            result.select_fields.append(Field(f))
-                    else:
-                        result.select_fields.append(f)
+                    if not is_star_item(f):
+                        bind_projection_item(
+                            result.select_fields,
+                            Field(f) if isinstance(f, str) else f,
+                        )
             else:
-                # Explicit column selection: need to check if any selected column
-                # references a previously computed column (aliased expression)
-                # Build a lookup for computed columns by their alias
-                computed_by_alias = {}
-                for prev_field in result.select_fields:
-                    alias = getattr(prev_field, "alias", None)
-                    if alias:
-                        computed_by_alias[alias] = prev_field
+                # A selected name that is computed in this projection keeps
+                # its expression.
+                computed_by_alias = {
+                    prev.alias: prev
+                    for prev in result.select_fields
+                    if getattr(prev, "alias", None)
+                }
 
-                # Build final select in the order specified by the new SELECT
                 new_select_fields = []
                 for f in op.fields:
-                    if isinstance(f, str):
-                        col_name = f
-                    elif isinstance(f, Field):
-                        col_name = f.name
-                    else:
-                        col_name = None
-
-                    if col_name and col_name in computed_by_alias:
-                        # This column references a computed column - use the expression
+                    is_reference = isinstance(f, str) or (
+                        isinstance(f, Field) and not f.alias
+                    )
+                    col_name = projection_name(f) if is_reference else None
+                    if col_name in computed_by_alias:
                         new_select_fields.append(computed_by_alias[col_name])
                     elif isinstance(f, str):
                         new_select_fields.append(Field(f))
@@ -1337,9 +1334,7 @@ class SQLExecutionEngine:
         # When DISTINCT is active, don't use include_star because it would
         # expand * to all source columns (defeating column selection +
         # DISTINCT). Column assignments are already in select_fields.
-        use_include_star = has_column_assignments if has_column_assignments else None
-        if self.ds._distinct and use_include_star:
-            use_include_star = None
+        use_include_star = None if self.ds._distinct else has_column_assignments
 
         return self.assemble_sql(
             select_fields,
@@ -1743,6 +1738,7 @@ class SQLExecutionEngine:
         clauses: ExtractedClauses,
         select_fields: List[Expression] = None,
         distinct: bool = False,
+        include_star: bool = False,
     ) -> str:
         """
         Build SQL with subquery for stable sort when WHERE is present.
@@ -1780,7 +1776,7 @@ class SQLExecutionEngine:
                 f.to_sql(quote_char=self.quote_char, with_alias=True)
                 for f in select_fields
             )
-            if self.ds._select_star:
+            if include_star:
                 middle_parts.append(
                     f"SELECT {distinct_keyword}*, {fields_sql}, __orig_row_num__"
                 )
@@ -1870,7 +1866,9 @@ class SQLExecutionEngine:
             )
 
         sql_select_fields, has_column_assignments = (
-            self._collect_select_fields_from_sql_ops(plan.sql_ops)
+            self._collect_select_fields_from_sql_ops(
+                layers[0] if layers else plan.sql_ops
+            )
         )
 
         # Unified layer loop: layer 0 reads from the table source,
@@ -2088,16 +2086,23 @@ class SQLExecutionEngine:
                 elif op.op_type == "OFFSET" and hasattr(op, "offset_value"):
                     builder.add_offset(op.offset_value)
                 elif op.op_type == "SELECT" and op.fields:
-                    # Column selection
-                    columns = []
+                    # Aliased expressions are computed columns; a SELECT
+                    # without '*' then projects to its fields' names.
                     for f in op.fields:
-                        if isinstance(f, str):
-                            if f != "*":
-                                columns.append(f)
-                        elif isinstance(f, Field):
-                            columns.append(f.name.strip("\"'"))
-                    if columns:
-                        builder.select_columns(columns)
+                        if is_star_item(f) or isinstance(f, str):
+                            continue
+                        if getattr(f, "alias", None):
+                            expr = copy(f)
+                            expr.alias = None
+                            builder.add_computed_column(f.alias, expr)
+                    if not any(is_star_item(f) for f in op.fields):
+                        columns = [
+                            name
+                            for name in map(projection_name, op.fields)
+                            if name is not None
+                        ]
+                        if columns:
+                            builder.select_columns(columns)
 
         # Set row order preservation if no explicit ORDER BY and source doesn't preserve order
         if not has_explicit_orderby and not self.source_preserves_row_order():
@@ -2142,38 +2147,30 @@ class SQLExecutionEngine:
         self, sql_ops: List[LazyOp]
     ) -> Tuple[List[Expression], bool]:
         """
-        Extract SELECT field expressions from ``plan.sql_ops``.
+        Extract the SELECT field list of one SQL layer's ops.
 
-        Walks the plan's pushable relational + column-assignment ops and
-        returns ``(sql_select_fields, has_column_assignments)``. The flag
-        captures both "this plan contains column assignments" and "the
-        plan's SELECT had a literal '*' that should be expanded into
-        ``SELECT *, computed_col`` semantics by ``include_star``.
+        Returns ``(sql_select_fields, include_star)``: the layer's projection
+        as folded by :func:`extract_clauses_from_ops`, and whether it must be
+        rendered as ``SELECT *, <fields>`` (computed columns added to the
+        inherited columns, with no explicit column selection).
         """
-        sql_select_fields: List[Expression] = []
-        has_column_assignments = False
-        has_select_star = False
-
-        for op in sql_ops:
-            if isinstance(op, LazyRelationalOp):
-                if op.op_type == "SELECT" and op.fields:
-                    for f in op.fields:
-                        if isinstance(f, str):
-                            if f == "*":
-                                has_select_star = True
-                            else:
-                                sql_select_fields.append(Field(f))
-                        else:
-                            sql_select_fields.append(f)
-            elif isinstance(op, LazyColumnAssignment) and op.can_push_to_sql():
-                sql_select_fields.append(op.get_sql_expression())
-                has_column_assignments = True
-
-        # SELECT * with additional computed cols triggers include_star.
-        if has_select_star and sql_select_fields:
-            has_column_assignments = True
-
-        return sql_select_fields, has_column_assignments
+        clauses = extract_clauses_from_ops(sql_ops, self.quote_char)
+        adds_columns = any(
+            (isinstance(op, LazyColumnAssignment) and op.can_push_to_sql())
+            or (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "SELECT"
+                and op.fields
+                and any(is_star_item(f) for f in op.fields)
+            )
+            for op in sql_ops
+        )
+        include_star = (
+            adds_columns
+            and bool(clauses.select_fields)
+            and not clauses.explicit_column_selection
+        )
+        return clauses.select_fields, include_star
 
     def _build_layered_sql(
         self,
@@ -2200,9 +2197,9 @@ class SQLExecutionEngine:
         Args:
             layers: List of per-layer op lists (innermost first). At least
                 one (possibly empty) layer must be supplied.
-            sql_select_fields: SELECT fields collected from
-                ``LazyRelationalOp(SELECT)`` / ``LazyColumnAssignment`` in
-                ``plan.sql_ops``; only used for the first layer.
+            sql_select_fields: SELECT fields of the first layer's ops
+                (``plan.sql_ops`` when the plan has no layers); only used
+                for the first source-bound layer.
             alias_renames: ``plan.alias_renames`` - mutated to record any
                 temp aliases this build introduces (consumed by
                 post-execution rename-back).
@@ -2242,19 +2239,14 @@ class SQLExecutionEngine:
             )
 
             # Derive per-layer select fields so each layer only emits its
-            # own column assignments. The plan-wide ``sql_select_fields``
+            # own projection. The caller-supplied ``sql_select_fields``
             # (passed by ``build_sql_from_plan``) is only used for the
-            # first source-bound layer where we still want explicit column
-            # selections to reach ``assemble_sql``; the per-layer fields
-            # cover column assignments belonging to that specific layer.
+            # first source-bound layer.
             (
                 layer_sql_select_fields,
                 layer_has_column_assignments,
             ) = self._collect_select_fields_from_sql_ops(layer_ops)
             if is_first and first_layer_from_source is None:
-                # Source-bound first layer keeps the legacy contract: the
-                # caller may pass a globally-collected ``sql_select_fields``
-                # which already includes this layer's own assignments.
                 effective_select_fields = sql_select_fields
                 effective_has_assignments = has_column_assignments
             else:
@@ -2448,6 +2440,7 @@ class SQLExecutionEngine:
         needs_subquery_for_stable = (
             needs_stable_sort and where_conditions and not groupby_fields and not joins
         )
+        use_star = include_star if include_star is not None else self.ds._select_star
 
         if needs_subquery_for_stable:
             # Use stable sort subquery
@@ -2459,7 +2452,7 @@ class SQLExecutionEngine:
                 offset_value=offset_value,
             )
             return self.build_sql_with_stable_sort_subquery(
-                clauses, select_fields, distinct
+                clauses, select_fields, distinct, include_star=use_star
             )
 
         parts = []
@@ -2471,12 +2464,7 @@ class SQLExecutionEngine:
                 f.to_sql(quote_char=self.quote_char, with_alias=True)
                 for f in select_fields
             )
-            # Check if we need to prepend '*' (SELECT *, computed_col)
-            # IMPORTANT: Don't use SELECT * with GROUP BY - only groupby columns and aggregates are valid
-            # Use include_star if explicitly set, otherwise fall back to self.ds._select_star
-            use_star = (
-                include_star if include_star is not None else self.ds._select_star
-            )
+            # Don't use SELECT * with GROUP BY - only groupby columns and aggregates are valid
             if use_star and not groupby_fields:
                 parts.append(f"SELECT {distinct_keyword}*, {fields_sql}")
             else:

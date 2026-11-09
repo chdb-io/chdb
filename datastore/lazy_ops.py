@@ -10,7 +10,14 @@ from abc import ABC, abstractmethod
 import pandas as pd
 import numpy as np
 
-from .expressions import Expression, Field, Literal, ArithmeticExpression
+from .expressions import (
+    Expression,
+    Field,
+    Literal,
+    ArithmeticExpression,
+    is_star_item,
+    projection_name,
+)
 from .config import get_logger
 
 
@@ -787,20 +794,17 @@ class LazyRelationalOp(LazyOp):
     def transform_columns(self, columns: List[str]) -> List[str]:
         """Transform columns based on the operation type."""
         if self.op_type == "SELECT" and self.fields:
-            # SELECT operation: return only selected columns
-            selected = []
+            # SELECT with '*' keeps the current columns and adds the other
+            # fields (a field named like an existing column replaces it in
+            # place); an explicit SELECT returns only the selected columns.
+            has_star = any(is_star_item(f) for f in self.fields)
+            selected = list(columns) if has_star else []
             for f in self.fields:
-                if isinstance(f, str):
-                    if f != "*":
-                        selected.append(f)
-                elif hasattr(f, "alias") and f.alias:
-                    # Expression with alias takes priority (e.g., as_())
-                    selected.append(f.alias)
-                elif hasattr(f, "name"):
-                    # Field object - strip quotes from name
-                    name = f.name.strip('"') if isinstance(f.name, str) else str(f.name)
+                if is_star_item(f):
+                    continue
+                name = projection_name(f)
+                if name is not None and name not in selected:
                     selected.append(name)
-            # If we got specific columns, return them; otherwise return all
             return selected if selected else columns
         # Other operations (WHERE, ORDER BY, LIMIT, OFFSET) don't change columns
         return columns
@@ -822,13 +826,13 @@ class LazyRelationalOp(LazyOp):
 
         if self.op_type == "SELECT" and self.fields:
             # Select specific columns, handling '*' to mean all existing columns
-            has_star = "*" in self.fields
+            has_star = any(is_star_item(f) for f in self.fields)
             if has_star:
                 # Start with all existing columns
                 selected_cols = list(df.columns)
                 # Add any additional columns (expressions with aliases)
                 for f in self.fields:
-                    if f == "*":
+                    if is_star_item(f):
                         continue
                     if isinstance(f, str):
                         if f not in selected_cols and f in df.columns:
