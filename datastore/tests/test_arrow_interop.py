@@ -149,7 +149,9 @@ class TestArrowCStream:
     def test_polars_consumes_datastore(self, parquet_path):
         pl = pytest.importorskip("polars")
         ds = DataStore.from_file(parquet_path)
-        plf = pl.from_arrow(ds.filter(ds.id > 3))
+        # pl.DataFrame, not pl.from_arrow: polars 2.0 returns a Series from
+        # from_arrow() on an object that only exports __arrow_c_stream__.
+        plf = pl.DataFrame(ds.filter(ds.id > 3))
         assert plf.shape == (2, 4)
         assert str(plf.schema["id"]) == "UInt64"  # native type survives into Polars
 
