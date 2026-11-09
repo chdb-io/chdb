@@ -1474,7 +1474,7 @@ class DataStore(PandasCompatMixin):
             sql = build_result.sql
 
             # Append format settings if present (e.g., input_format_parquet_preserve_order)
-            if self._format_settings:
+            if self._format_settings and not build_result.has_settings:
                 settings_parts = []
                 for key, value in self._format_settings.items():
                     if isinstance(value, str):
@@ -3682,12 +3682,14 @@ class DataStore(PandasCompatMixin):
             return None
 
         try:
-            sql, alias_renames = self._single_sql_query()
+            build_result = self._single_sql_query()
         except Exception as e:  # planning / SQL-build issue -> fall back to pandas
             self._logger.debug("to_arrow native path unavailable, using pandas: %s", e)
             return None
-        if sql is None:
+        if build_result is None:
             return None
+        sql = build_result.sql
+        alias_renames = build_result.alias_renames
 
         if self._executor is None:
             self.connect()
@@ -3712,18 +3714,22 @@ class DataStore(PandasCompatMixin):
                 )
         return table
 
-    def _single_sql_query(self):
+    def _single_sql_query(self) -> Optional[SQLBuildResult]:
         """
-        Return ``(sql, alias_renames)`` iff the entire pipeline collapses to ONE
+        Return the ``SQLBuildResult`` iff the entire pipeline collapses to ONE
         first-segment SQL query against the original source (so the query result
-        is the *final* result); return ``(None, None)`` otherwise. Mirrors the
-        segment planning done in :meth:`_execute`.
+        is the *final* result); return ``None`` otherwise. Mirrors the segment
+        planning done in :meth:`_execute`. The SQL is a single SELECT with at
+        most one SETTINGS clause, so it can also be embedded as a subquery.
         """
         from .query_planner import QueryPlanner
 
         if not self._lazy_ops:
-            # Plain ``SELECT * FROM source`` — fully pushable, no aliases.
-            return self._append_format_settings(self.to_sql(execution_format=True)), {}
+            # Plain ``SELECT * FROM source`` — fully pushable, no aliases. The
+            # flat SQL already carries the format settings.
+            return SQLBuildResult(
+                sql=self.to_sql(execution_format=True), has_settings=True
+            )
 
         schema = self.schema()
         planner = QueryPlanner()
@@ -3734,16 +3740,16 @@ class DataStore(PandasCompatMixin):
             local_source=False,  # non-Python source (excluded in _try_native_arrow)
         )
         if len(exec_plan.segments) != 1:
-            return None, None
+            return None
         seg = exec_plan.segments[0]
         if not (seg.is_sql() and seg.is_first_segment and seg.plan is not None):
-            return None, None
+            return None
 
         build_result = SQLExecutionEngine(self).build_sql_from_plan(seg.plan, schema)
-        return (
-            self._append_format_settings(build_result.sql),
-            build_result.alias_renames or {},
-        )
+        if not build_result.has_settings:
+            build_result.sql = self._append_format_settings(build_result.sql)
+            build_result.has_settings = True
+        return build_result
 
     def _append_format_settings(self, sql: Optional[str]) -> Optional[str]:
         """Append ``SETTINGS ...`` from ``self._format_settings`` (parity with
@@ -5275,13 +5281,13 @@ class DataStore(PandasCompatMixin):
         check inspected."""
         if self._flat_sql_reproduces_pipeline():
             return self.to_sql()
-        sql, _ = self._single_sql_query()
-        if sql is None:
+        build_result = self._single_sql_query()
+        if build_result is None:
             raise ExecutionError(
                 "Internal error: server-side writeback SQL requested for a "
                 "pipeline that does not run as a single SQL query."
             )
-        return sql
+        return build_result.sql
 
     def _writeback_select_sql(self, same_server: bool) -> str:
         """The SELECT body used for every server-side writeback path
@@ -5516,8 +5522,7 @@ class DataStore(PandasCompatMixin):
         if self._flat_sql_reproduces_pipeline():
             return True
 
-        sql, _ = self._single_sql_query()
-        return sql is not None
+        return self._single_sql_query() is not None
 
     def _materialize_for_writeback(
         self,
@@ -6888,7 +6893,12 @@ class DataStore(PandasCompatMixin):
         """
         Union with another DataStore (vertical concatenation).
 
-        This is equivalent to SQL UNION (or UNION ALL if all=True).
+        This is equivalent to SQL UNION (or UNION ALL if all=True), with the
+        result of ``pd.concat([self, other], ignore_index=True)``: rows of
+        ``self`` come first, then rows of ``other``, each in their own order.
+        Without ``all``, ``drop_duplicates()`` is applied to that result, so
+        the first occurrence of each duplicate row is kept along with its
+        position in the concatenated index.
 
         Args:
             other: Another DataStore to union with
@@ -6900,42 +6910,134 @@ class DataStore(PandasCompatMixin):
         """
         from .lazy_ops import LazyUnion
 
-        # When both sides have SQL sources, use SQL UNION ALL directly
-        # This avoids materializing both sides into Python DataFrames
-        has_sql_source = bool(self._table_function or self.table_name)
-        other_has_sql_source = bool(
-            hasattr(other, '_table_function') and (other._table_function or getattr(other, 'table_name', None))
-        )
-        if has_sql_source and other_has_sql_source:
+        # UNION ALL of two sides whose complete pipelines are single SQL queries
+        # runs in SQL. This avoids materializing both sides into Python DataFrames.
+        # Without ``all`` the result keeps concat index positions, which only
+        # the pandas path reproduces.
+        union_sql = self._build_union_all_sql(other) if all else None
+        if union_sql is not None:
             from .table_functions import SubqueryTableFunction
-            left_cols = list(self._get_all_column_names())
-            right_cols = list(other._get_all_column_names())
-            if set(left_cols) == set(right_cols):
-                if left_cols != right_cols:
-                    other = other.select(*left_cols)
-                left_sql = self._generate_select_sql(self.quote_char)
-                other_sql = other._generate_select_sql(other.quote_char)
-                union_keyword = "UNION ALL" if all else "UNION"
-                union_sql = f"({left_sql}) {union_keyword} ({other_sql})"
-                self._table_function = SubqueryTableFunction(union_sql)
-                self._cached_result = None
-                self._cached_at_version = -1
-                self._select_fields = []
-                self._where_condition = None
-                self._joins = []
-                self._groupby_fields = []
-                self._having_condition = None
-                self._orderby_fields = []
-                self._limit_value = None
-                self._offset_value = None
-                self._distinct = False
-                self._select_star = False
-                return  # @immutable returns the copy
+
+            # Both pipelines are inside union_sql; the copy starts over from it.
+            self._table_function = SubqueryTableFunction(union_sql)
+            self._lazy_ops = []
+            self._computed_columns = {}
+            self._schema = None
+            self._index_info = None
+            self._metadata_memo = {}
+            self._cached_result = None
+            self._cached_at_version = -1
+            self._select_fields = []
+            self._where_condition = None
+            self._joins = []
+            self._groupby_fields = []
+            self._having_condition = None
+            self._orderby_fields = []
+            self._limit_value = None
+            self._offset_value = None
+            self._distinct = False
+            self._distinct_subset = None
+            self._select_star = False
+            return  # @immutable returns the copy
 
         # Add LazyUnion operation - pass the DataStore/DataFrame directly
         # Execution is deferred until needed
         self._add_lazy_op(LazyUnion(other=other, all=all))
         # Note: Don't return self - @immutable decorator will return the copy
+
+    def _build_union_all_sql(self, other) -> Optional[str]:
+        """
+        Build SQL for ``self.union(other, all=True)``, or return ``None`` when
+        either side cannot be expressed as a single SQL query, or when the
+        column names or types differ (pandas then decides the result columns
+        and dtypes). Rows come out in ``pd.concat([self, other])`` order.
+        """
+        if not isinstance(other, DataStore):
+            return None
+        left = self._union_operand_sql()
+        if left is None:
+            return None
+        right = other._union_operand_sql()
+        if right is None:
+            return None
+
+        left_sql, left_cols = left
+        right_sql, right_cols = right
+        names = [name for name, _, _ in left_cols]
+        if len(set(names)) != len(names):
+            return None
+        left_types = {name: col_type for name, _, col_type in left_cols}
+        right_types = {name: col_type for name, _, col_type in right_cols}
+        if len(right_types) != len(right_cols) or left_types != right_types:
+            return None
+
+        q = self.quote_char
+
+        def operand(sql, columns, side):
+            source = {name: source_name for name, source_name, _ in columns}
+            fields = ", ".join(
+                f"{format_identifier(source[name], q)} AS {format_identifier(name, q)}"
+                for name in names
+            )
+            return (
+                f"SELECT {fields}, {side} AS __union_side__, "
+                f"rowNumberInAllBlocks() AS __union_row__ FROM ({sql})"
+            )
+
+        out_fields = ", ".join(format_identifier(name, q) for name in names)
+        return (
+            f"SELECT {out_fields} FROM ({operand(left_sql, left_cols, 0)} "
+            f"UNION ALL {operand(right_sql, right_cols, 1)}) "
+            f"ORDER BY __union_side__, __union_row__"
+        )
+
+    def _union_operand_sql(self):
+        """
+        Return ``(sql, columns)`` for using this DataStore as a union operand,
+        where ``sql`` yields its complete result and ``columns`` lists
+        ``(result column name, column name in sql, type)`` in order; the type
+        ignores ``Nullable``, which UNION ALL reconciles without a type change.
+        Return ``None`` when the result needs pandas execution or
+        post-processing beyond renaming.
+        """
+        if not (self._table_function or self.table_name):
+            return None
+        # DataFrame sources rely on query_df's row-order handling in _execute.
+        if self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        ):
+            return None
+        if (
+            self._is_subquery
+            or self._delete_flag
+            or self._update_fields
+            or self._insert_columns
+        ):
+            return None
+
+        try:
+            build_result = self._single_sql_query()
+        except Exception as e:  # planning / SQL-build issue -> LazyUnion
+            self._logger.debug("union SQL operand unavailable: %s", e)
+            return None
+        # GroupBy results carry their keys in the index after post-processing.
+        if build_result is None or build_result.groupby_agg is not None:
+            return None
+
+        try:
+            if self._executor is None:
+                self.connect()
+            rows = self._executor.execute(f"DESCRIBE ({build_result.sql})").rows
+        except Exception as e:  # invalid side SQL -> LazyUnion raises at execution
+            self._logger.debug("union SQL operand schema unavailable: %s", e)
+            return None
+        renames = build_result.alias_renames or {}
+        columns = []
+        for name, col_type, *_ in rows:
+            if col_type.startswith("Nullable(") and col_type.endswith(")"):
+                col_type = col_type[len("Nullable("):-1]
+            columns.append((renames.get(name, name), name, col_type))
+        return build_result.sql, columns
 
     @immutable
     def with_column(self, name: str, expr: Union[Expression, Any]) -> "DataStore":

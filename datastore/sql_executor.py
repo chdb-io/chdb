@@ -810,6 +810,10 @@ class SQLBuildResult:
     sql: str
     alias_renames: Dict[str, str] = field(default_factory=dict)
     groupby_agg: Optional[LazyGroupByAgg] = None
+    # True when ``sql`` already carries the DataStore's format settings; a
+    # second SETTINGS clause is only accepted at the top level, so callers
+    # must not append another one.
+    has_settings: bool = False
 
 
 @dataclass
@@ -1862,6 +1866,7 @@ class SQLExecutionEngine:
                 sql=sql,
                 alias_renames=alias_renames,
                 groupby_agg=groupby_agg_op,
+                has_settings=True,
             )
 
         sql_select_fields, has_column_assignments = (
@@ -2100,17 +2105,19 @@ class SQLExecutionEngine:
 
         sql = builder.build(self.quote_char)
 
-        # Add timezone settings
+        # SQLBuilder never emits a top-level SETTINGS clause itself.
         sql = self._append_settings(sql)
 
         return sql
 
     def _append_settings(self, sql: str) -> str:
-        """Append timezone settings to SQL if needed."""
-        # Check if SETTINGS already present
-        if "SETTINGS" not in sql:
-            sql = f"{sql} SETTINGS session_timezone='UTC'"
-        return sql
+        """Append the timezone and the DataStore's format settings as SETTINGS."""
+        settings = {"session_timezone": "UTC", **self.ds._format_settings}
+        settings_sql = ", ".join(
+            f"{key}='{value}'" if isinstance(value, str) else f"{key}={value}"
+            for key, value in settings.items()
+        )
+        return f"{sql} SETTINGS {settings_sql}"
 
     def _extract_special_ops_from_layer(
         self, layer_ops: List[LazyOp]
