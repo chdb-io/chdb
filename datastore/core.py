@@ -6342,8 +6342,13 @@ class DataStore(PandasCompatMixin):
         self._track_operation("sql", f"SELECT {field_names}", {"lazy": True})
 
         # Record in lazy ops for correct execution order in explain()
-        # Store fields for DataFrame execution
-        self._add_lazy_op(LazyRelationalOp("SELECT", field_names, fields=list(fields)))
+        # Store fields for DataFrame execution; SQL consumers read the
+        # expression of a ColumnExpr field
+        op_fields = [
+            f._expr if isinstance(f, ColumnExpr) and f._expr is not None else f
+            for f in fields
+        ]
+        self._add_lazy_op(LazyRelationalOp("SELECT", field_names, fields=op_fields))
 
         for field in fields:
             if isinstance(field, str):

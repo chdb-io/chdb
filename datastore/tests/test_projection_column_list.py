@@ -699,3 +699,34 @@ class TestLongDependencyChains:
             len(seg.plan.layers) <= MAX_SQL_LAYERS for seg in exec_plan.segments
         )
 
+
+class TestSelectAliasedColumnExpr:
+    """``select(ds[col].as_(alias))`` followed by column assignment."""
+
+    def test_assignment_reads_alias(self, make_ds):
+        source, make = make_ds
+        df = _sales()
+        pd_result = df[["price"]].rename(columns={"price": "p"})
+        pd_result["double"] = pd_result["p"] * 2
+
+        ds = make(df)
+        ds = ds.select(ds["price"].as_("p"))
+        ds["double"] = ds["p"] * 2
+
+        assert_datastore_equals_pandas(
+            ds, pd_result, check_index=source == "dataframe"
+        )
+
+    def test_constant_assignment(self, make_ds):
+        source, make = make_ds
+        df = _sales()
+        pd_result = df[["price"]].rename(columns={"price": "p"})
+        pd_result["one"] = 1
+
+        ds = make(df)
+        ds = ds.select(ds["price"].as_("p"))
+        ds["one"] = 1
+
+        assert_datastore_equals_pandas(
+            ds, pd_result, check_index=source == "dataframe"
+        )
