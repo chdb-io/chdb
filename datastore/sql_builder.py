@@ -447,6 +447,11 @@ class SQLBuilder:
         self.current_layer.explicit_columns = columns
         return self
 
+    def wrap_layer(self) -> "SQLBuilder":
+        """Start a new outer layer that reads the current one as a subquery."""
+        self._wrap_current_layer()
+        return self
+
     def _wrap_current_layer(self) -> None:
         """
         Wrap the current layer as a subquery, creating a new outer layer.

@@ -3170,116 +3170,15 @@ class DataStore(PandasCompatMixin):
         Recursively resolve computed column references in an expression.
 
         When a computed column (created via assign()) is referenced in another
-        expression, this method expands it to the original expression.
-
-        This enables chained assigns like:
-            ds = ds.assign(years_since_signup=2024 - ds['signup_year'])
-            ds = ds.assign(purchase_per_year=ds['amount'] / ds['years_since_signup'])
-
-        Without this resolution, the second assign would reference 'years_since_signup'
-        as a simple Field, which doesn't exist in the source data.
-
-        Args:
-            expr: Expression to resolve
-            _visited: Internal set to track visited column names and prevent infinite recursion
-                     when a computed column references itself (e.g., a = a + 1, then a = a * 2)
-
-        Returns:
-            Expression with all computed column references expanded
+        expression, this method expands it to the original expression, so
+        consumers that need source-relative expressions (``_computed_columns``)
+        can use it. See :func:`resolve_computed_references`.
         """
-        from .expressions import Field, ArithmeticExpression, Literal
-        from .functions import Function
-        from copy import copy
+        from .expressions import resolve_computed_references
 
-        if expr is None:
-            return None
-
-        # Initialize visited set on first call
-        if _visited is None:
-            _visited = set()
-
-        # If it's a Field that references a computed column, expand it
-        if isinstance(expr, Field):
-            col_name = expr.name.strip("\"'")  # Remove quotes if present
-            if (
-                hasattr(self, "_computed_columns")
-                and col_name in self._computed_columns
-            ):
-                # Check for circular reference to prevent infinite recursion
-                # This happens when overwriting a column: a = a + 1, then a = a * 2
-                # In this case, we should NOT expand the reference - just use the Field as-is
-                if col_name in _visited:
-                    return expr
-                # Mark this column as being visited
-                _visited.add(col_name)
-                try:
-                    # Recursively resolve the computed column's expression
-                    resolved = self._resolve_expr_dependencies(
-                        self._computed_columns[col_name], _visited
-                    )
-                    # Preserve any alias from the original Field
-                    if expr.alias:
-                        resolved = copy(resolved)
-                        resolved.alias = expr.alias
-                    return resolved
-                finally:
-                    # Remove from visited after processing (allow re-visiting in different branches)
-                    _visited.discard(col_name)
-            return expr
-
-        # For ArithmeticExpression, recursively resolve left and right
-        if isinstance(expr, ArithmeticExpression):
-            resolved_left = self._resolve_expr_dependencies(expr.left, _visited)
-            resolved_right = self._resolve_expr_dependencies(expr.right, _visited)
-            # Only create new expression if something changed
-            if resolved_left is expr.left and resolved_right is expr.right:
-                return expr
-            result = ArithmeticExpression(
-                expr.operator, resolved_left, resolved_right, expr.alias
-            )
-            return result
-
-        # For Function, recursively resolve all arguments
-        if isinstance(expr, Function):
-            resolved_args = [
-                self._resolve_expr_dependencies(arg, _visited) for arg in expr.args
-            ]
-            # Only create new function if something changed
-            if all(r is o for r, o in zip(resolved_args, expr.args)):
-                return expr
-            result = Function(
-                expr.name,
-                *resolved_args,
-                alias=expr.alias,
-                pandas_name=getattr(expr, "pandas_name", None),
-                pandas_kwargs=getattr(expr, "pandas_kwargs", {}),
-            )
-            return result
-
-        # For BinaryCondition (e.g., x > 5, a = b), resolve both sides
-        from .conditions import BinaryCondition, CompoundCondition
-
-        if isinstance(expr, BinaryCondition):
-            resolved_left = self._resolve_expr_dependencies(expr.left, _visited)
-            resolved_right = self._resolve_expr_dependencies(expr.right, _visited)
-            if resolved_left is expr.left and resolved_right is expr.right:
-                return expr
-            result = BinaryCondition(
-                expr.operator, resolved_left, resolved_right, expr.alias
-            )
-            return result
-
-        # For CompoundCondition (AND, OR), resolve both sides
-        if isinstance(expr, CompoundCondition):
-            resolved_left = self._resolve_expr_dependencies(expr.left, _visited)
-            resolved_right = self._resolve_expr_dependencies(expr.right, _visited)
-            if resolved_left is expr.left and resolved_right is expr.right:
-                return expr
-            result = CompoundCondition(expr.operator, resolved_left, resolved_right)
-            return result
-
-        # For Literal and other types, return as-is
-        return expr
+        return resolve_computed_references(
+            expr, getattr(self, "_computed_columns", None) or {}, _visited
+        )
 
     def _ensure_sql_source(self) -> bool:
         """
@@ -5199,9 +5098,9 @@ class DataStore(PandasCompatMixin):
                 f"Cannot create {kind}: the pipeline does not run as a single "
                 "SQL query (it contains pandas-only operations such as "
                 "apply / UDF / local file, or steps that execute in separate "
-                "stages, e.g. a column assignment that reads a column "
-                "assigned just before), so it cannot be expressed as a "
-                "server-side SQL definition. Materialize the data first via "
+                "stages, e.g. operations applied after ds.sql(...)), so it "
+                "cannot be expressed as a server-side SQL definition. "
+                "Materialize the data first via "
                 "to_clickhouse(), then create a view on the resulting table."
             )
         target_host = self._remote_params["host"]
@@ -5482,11 +5381,10 @@ class DataStore(PandasCompatMixin):
 
         Decided by the same segmented plan ``_execute()`` runs (via
         ``_single_sql_query``): the pipeline is pushable only when it collapses
-        to ONE SQL segment against the original source. Every op being
-        SQL-compatible is not enough — the planner also splits all-SQL chains
-        into several segments (e.g. ``ds["d"] = ds["c"] + 1`` right after
-        assigning ``c``, or assigning ``c`` twice), and no single SELECT
-        reproduces those.
+        to ONE SQL segment against the original source. Accepting each op on
+        its own is not enough — ops after a ``ds.sql(...)`` run in a later
+        segment on the intermediate result, and no single SELECT reproduces
+        such a plan.
 
         The one exception is a SQL-style ``groupby().agg()`` whose flat SQL
         renders the whole pipeline (see ``_flat_sql_reproduces_pipeline``):
@@ -7456,8 +7354,6 @@ class DataStore(PandasCompatMixin):
             # Ensure we have a SQL source (create PythonTableFunction if needed)
             result._ensure_sql_source()
 
-            select_items = ["*"]
-
             # Get list of aliases being assigned
             aliases_to_assign = set(sql_kwargs.keys())
 
@@ -7472,39 +7368,34 @@ class DataStore(PandasCompatMixin):
             # New columns that don't exist yet
             new_columns = aliases_to_assign - existing_columns_set
 
-            # Build expression map for all assigned columns first
+            # Build expression map for all assigned columns first. The SELECT
+            # reads the current columns, like any later lazy op; the planner
+            # keeps it from sharing a SQL layer with an op whose column it
+            # overwrites. _computed_columns keeps the fully resolved form for
+            # consumers that expand computed columns in place (GROUP BY).
             expr_map = {}
             for alias, expr in sql_kwargs.items():
-                original_expr = expr
                 if isinstance(expr, ColumnExpr):
                     expr = expr._expr
                 if isinstance(expr, Expression):
-                    # Resolve any computed column dependencies in the expression
-                    # This enables chained assigns where later assigns reference earlier ones
-                    # e.g., ds.assign(a=...).assign(b=ds['a'] * 2) - 'a' needs to be expanded
-                    resolved_expr = result._resolve_expr_dependencies(expr)
-                    # Record the resolved expression (alias -> expression without alias)
-                    result._computed_columns[alias] = resolved_expr
-                    # Set alias on the expression
-                    expr_map[alias] = resolved_expr.as_(alias)
+                    result._computed_columns[alias] = result._resolve_expr_dependencies(
+                        expr
+                    )
+                    expr_map[alias] = expr.as_(alias)
 
+            # All values are evaluated against the frame before this call,
+            # so new columns are selected before any column is overwritten.
+            added = [alias for alias in sql_kwargs if alias in new_columns]
+            if added:
+                result = result.select("*", *[expr_map[alias] for alias in added])
             if columns_to_overwrite:
-                # When overwriting, expand '*' and replace columns in-place to preserve order
-                select_items = [
-                    expr_map[col] if col in columns_to_overwrite else col
-                    for col in existing_columns
-                ]
-
-                # Add new (non-overwrite) columns at the end
-                for alias in sql_kwargs.keys():
-                    if alias in new_columns:
-                        select_items.append(expr_map[alias])
-            else:
-                # No overwrites - keep '*' and just append new columns
-                for alias, expr_with_alias in expr_map.items():
-                    select_items.append(expr_with_alias)
-
-            result = result.select(*select_items)
+                # Expand '*' and replace columns in-place to preserve order
+                result = result.select(
+                    *[
+                        expr_map[col] if col in columns_to_overwrite else col
+                        for col in existing_columns + added
+                    ]
+                )
 
         # Process pd.col fallback expressions: each as its own
         # LazyColumnAssignment so the planner segments it correctly.

@@ -205,11 +205,148 @@ class TestAssignAfterProjection:
 
         _assert_chain(make_ds, chain)
 
+    def test_sort_by_assigned_column_then_projection(self, make_ds):
+        def chain(d):
+            d = d.assign(x=d["price"] * -2)
+            return d.sort_values("x")[["region"]]
+
+        _assert_chain(make_ds, chain)
+
     def test_overwrite_assigned_column_after_projection(self, make_ds):
         def chain(d):
             d = d.assign(z=d["price"] + 100)
             d = d[["z", "region"]]
             d["z"] = d["z"] * 10
+            return d
+
+        _assert_chain(make_ds, chain)
+
+
+class TestAssignAfterSetitem:
+    """``assign()`` reads the columns as left by earlier ``ds[col] = ...``."""
+
+    def test_assign_overwrites_column_set_by_setitem(self, make_ds):
+        def chain(d):
+            d["price"] = d["price"] * 2
+            return d.assign(price=d["price"] + 1)
+
+        _assert_chain(make_ds, chain)
+
+    def test_assign_reads_column_overwritten_by_setitem(self, make_ds):
+        def chain(d):
+            d["price"] = d["price"] * 2
+            return d.assign(t=d["price"] + 1)
+
+        _assert_chain(make_ds, chain)
+
+    def test_assign_reads_column_overwritten_after_projection(self, make_ds):
+        def chain(d):
+            d = d[["price", "qty"]]
+            d["price"] = d["price"] * 10
+            return d.assign(t=d["price"] + d["qty"])
+
+        _assert_chain(make_ds, chain)
+
+    def test_assign_reads_column_set_twice_by_setitem(self, make_ds):
+        def chain(d):
+            d["x"] = d["price"] * 2
+            d["x"] = d["x"] + 1
+            return d.assign(t=d["x"] * 10)
+
+        _assert_chain(make_ds, chain)
+
+    def test_setitem_reads_column_before_it_is_overwritten(self, make_ds):
+        def chain(d):
+            d["x"] = d["price"] * 2
+            d["price"] = d["price"] + 100
+            d["t"] = d["x"] + d["price"]
+            return d
+
+        _assert_chain(make_ds, chain)
+
+    def test_setitem_flag_from_setitem_column_then_filter(self, make_ds):
+        def chain(d):
+            d["x"] = d["price"] * 2
+            d["f"] = d["x"] > 5
+            return d[d["qty"] > 15]
+
+        _assert_chain(make_ds, chain)
+
+    def test_assign_overwrite_read_by_same_call(self, make_ds):
+        def chain(d):
+            return d.assign(price=d["price"] * 2, z=d["price"] + 0)
+
+        _assert_chain(make_ds, chain)
+
+    def test_assign_overwrites_assigned_column_twice(self, make_ds, request):
+        if make_ds[0] == "file":
+            request.applymarker(
+                pytest.mark.xfail(
+                    strict=True,
+                    reason="len() counts rows from DataStore._select_fields, "
+                    "which keeps every assign() SELECT",
+                )
+            )
+
+        def chain(d):
+            d = d.assign(a=d["price"] + 1)
+            d = d.assign(a=d["a"] * 2)
+            return d.assign(a=d["a"] - 1)
+
+        _assert_chain(make_ds, chain)
+
+    def test_assign_overwrites_then_groupby(self, make_ds):
+        def chain(d):
+            d = d.assign(price=d["price"] * 2)
+            d = d.assign(price=d["price"] + 1)
+            return d.groupby("region").agg({"price": "sum"})
+
+        _, make = make_ds
+        df = _sales()
+        assert_datastore_equals_pandas(
+            chain(make(df)), chain(df.copy()), check_index=True
+        )
+
+
+class TestOverwriteAfterFilter:
+    """An overwrite must not change what an earlier filter or sort saw."""
+
+    def test_filter_overwrite_filter(self, make_ds):
+        def chain(d):
+            d = d[d["price"] > 1]
+            d["price"] = d["price"] * 3
+            return d[d["price"] > 9]
+
+        _assert_chain(make_ds, chain)
+
+    def test_filter_projection_overwrite_filter(self, make_ds):
+        def chain(d):
+            d = d[d["price"] > 1][["region", "price"]]
+            d["price"] = d["price"] * 3
+            return d[d["price"] > 9]
+
+        _assert_chain(make_ds, chain)
+
+    def test_filter_head_overwrite_filter(self, make_ds):
+        def chain(d):
+            d = d[d["price"] > 1].head(4)
+            d["price"] = d["price"] * 3
+            return d[d["price"] > 9]
+
+        _assert_chain(make_ds, chain)
+
+    def test_filter_head_projection_overwrite_filter(self, make_ds):
+        def chain(d):
+            d = d[d["price"] > 1].head(4)[["region", "price"]]
+            d["price"] = d["price"] * 3
+            return d[d["price"] > 9]
+
+        _assert_chain(make_ds, chain)
+
+    def test_sort_then_overwrite_sort_column(self, make_ds):
+        def chain(d):
+            d = d.sort_values("qty", ascending=False)
+            d["qty"] = d["qty"] * -1
             return d
 
         _assert_chain(make_ds, chain)
