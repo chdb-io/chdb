@@ -1727,7 +1727,7 @@ class DataStore(PandasCompatMixin):
         self, df: pd.DataFrame, plan: "QueryPlan"
     ) -> pd.DataFrame:
         """
-        Post-process SQL result: handle alias renames, groupby index, etc.
+        Post-process SQL result: groupby index, MultiIndex columns, etc.
 
         Args:
             df: Result DataFrame from SQL execution
@@ -1736,17 +1736,6 @@ class DataStore(PandasCompatMixin):
         Returns:
             Post-processed DataFrame
         """
-        # Rename temp aliases back to original names
-        if plan.alias_renames:
-            rename_back = {
-                temp: orig
-                for temp, orig in plan.alias_renames.items()
-                if temp in df.columns
-            }
-            if rename_back:
-                df = df.rename(columns=rename_back)
-                self._logger.debug("  Renamed temp aliases: %s", rename_back)
-
         # For GroupBy SQL pushdown: set group keys as index
         from .config import is_performance_mode
 
@@ -3586,30 +3575,15 @@ class DataStore(PandasCompatMixin):
         if build_result is None:
             return None
         sql = build_result.sql
-        alias_renames = build_result.alias_renames
 
         if self._executor is None:
             self.connect()
         self._logger.debug(
             "to_arrow native SQL: %s", sql[:2000] + "..." if len(sql) > 2000 else sql
         )
-        table = self._executor.query_arrow(sql)
-
-        # Rename temp SQL aliases (e.g. ``__agg_score__`` -> ``score``) back to
-        # their user-facing names — the same rename _execute() applies to the
-        # pandas result via _postprocess_sql_result(). Arrow has no row index, so
-        # (unlike to_df) group keys stay as regular columns.
-        if alias_renames:
-            rename_back = {
-                temp: orig
-                for temp, orig in alias_renames.items()
-                if temp in table.column_names
-            }
-            if rename_back:
-                table = table.rename_columns(
-                    [rename_back.get(c, c) for c in table.column_names]
-                )
-        return table
+        # Arrow has no row index, so (unlike to_df) group keys stay as
+        # regular columns.
+        return self._executor.query_arrow(sql)
 
     def _single_sql_query(self) -> Optional[SQLBuildResult]:
         """

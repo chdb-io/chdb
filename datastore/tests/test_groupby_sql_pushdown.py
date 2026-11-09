@@ -10,7 +10,8 @@ These tests verify:
 The key optimization tested here is the handling of ClickHouse's alias conflict:
 When SELECT has `agg(col) AS col` and WHERE references `col`, ClickHouse would
 incorrectly try to use the aggregate function in WHERE. We solve this by using
-temporary aliases (`__agg_col__`) in SQL, then renaming back after execution.
+temporary aliases (`__agg_col__`) inside the aggregation and renaming them back
+with an outer projection in the same SQL.
 """
 
 import os
@@ -628,16 +629,13 @@ class TestGroupByInNonZeroLayer(unittest.TestCase):
 
 
 class TestCrossLayerAliasRewriting(unittest.TestCase):
-    """Regression tests for cross-layer alias rewriting.
+    """Regression tests for wrapper layers over a temp-aliased aggregation.
 
-    When an inner subquery layer is forced to emit a column under a temp
-    alias due to a source-col/agg-alias conflict (e.g. ``SUM(int_col) AS
-    __agg_int_col__``), an outer wrapper layer that references the original
-    name (``int_col``) used to fail because the inner subquery no longer
-    exposed that name. The :func:`rewrite_column_refs_in_expression` /
-    :func:`rewrite_column_refs_in_orderby` helpers plus the
-    ``inner_visible_to_temp`` plumbing now rewrite the outer Field references
-    onto the temp alias.
+    When an aggregation layer is forced to use a temp alias due to a
+    source-col/agg-alias conflict (e.g. ``SUM(int_col) AS __agg_int_col__``),
+    an outer wrapper layer that references the original name (``int_col``)
+    must still bind to that column. The aggregation layer renames its temp
+    aliases back in SQL, so wrapper layers see the user-visible names.
     """
 
     def setUp(self):
@@ -1114,3 +1112,100 @@ class TestEdgeCases(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestAggTempAliasesRenamedInSQL(unittest.TestCase):
+    """``to_sql(execution_format=True)`` is also the body of server-side
+    writeback (CREATE/INSERT ... SELECT, views). Running it directly must
+    yield the same columns as the pandas result, not ``__agg_*__`` temp
+    aliases."""
+
+    def setUp(self):
+        self.df = pd.DataFrame(
+            {
+                'category': ['B', 'A', 'C', 'A', 'B', 'D', 'C', 'A'],
+                'int_col': [5, 1, 30, 7, 11, 2, 40, 100],
+                'float_col': [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5],
+            }
+        )
+        self.temp_dir = tempfile.mkdtemp()
+        self.parquet_path = os.path.join(self.temp_dir, 'test.parquet')
+        self.df.to_parquet(self.parquet_path)
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.temp_dir)
+
+    def _ds(self):
+        return DataStore.from_file(self.parquet_path)
+
+    def _assert_sql_and_execution_match(self, ds_result, pd_result, as_index=True):
+        import chdb
+        from tests.test_utils import assert_datastore_equals_pandas, assert_frame_equal
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+        sql = ds_result.to_sql(execution_format=True)
+        sql_result = chdb.query(sql, 'DataFrame')
+        # SQL output has no index: pandas group keys come back as columns.
+        expected = pd_result.reset_index() if as_index else pd_result
+        assert_frame_equal(sql_result, expected)
+
+    def test_agg_dict_same_name_as_source(self):
+        pd_result = self.df.groupby('category').agg({'int_col': 'sum'})
+        ds_result = self._ds().groupby('category').agg({'int_col': 'sum'})
+        self._assert_sql_and_execution_match(ds_result, pd_result)
+
+    def test_filter_then_multi_column_agg_dict(self):
+        pd_result = (
+            self.df[self.df['int_col'] > 1]
+            .groupby('category')
+            .agg({'int_col': 'sum', 'float_col': 'max'})
+        )
+        ds = self._ds()
+        ds_result = (
+            ds[ds['int_col'] > 1]
+            .groupby('category')
+            .agg({'int_col': 'sum', 'float_col': 'max'})
+        )
+        self._assert_sql_and_execution_match(ds_result, pd_result)
+
+    def test_as_index_false(self):
+        pd_result = self.df.groupby('category', as_index=False).agg({'int_col': 'sum'})
+        ds_result = self._ds().groupby('category', as_index=False).agg({'int_col': 'sum'})
+        self._assert_sql_and_execution_match(ds_result, pd_result, as_index=False)
+
+    def test_agg_then_filter_sort_head(self):
+        pd_agg = self.df.groupby('category').agg({'int_col': 'sum'})
+        pd_result = (
+            pd_agg[pd_agg['int_col'] > 3]
+            .sort_values('int_col', ascending=False)
+            .head(2)
+        )
+        ds_agg = self._ds().groupby('category').agg({'int_col': 'sum'})
+        ds_result = (
+            ds_agg[ds_agg['int_col'] > 3]
+            .sort_values('int_col', ascending=False)
+            .head(2)
+        )
+        self._assert_sql_and_execution_match(ds_result, pd_result)
+
+    def test_wrapper_layer_filters_agg_output_after_head(self):
+        pd_head = (
+            self.df[self.df['int_col'] > 1]
+            .groupby('category')
+            .agg({'int_col': 'sum'})
+            .sort_values('int_col', ascending=False)
+            .head(3)
+        )
+        pd_result = pd_head[pd_head['int_col'] > 20]
+        ds = self._ds()
+        ds_head = (
+            ds[ds['int_col'] > 1]
+            .groupby('category')
+            .agg({'int_col': 'sum'})
+            .sort_values('int_col', ascending=False)
+            .head(3)
+        )
+        ds_result = ds_head[ds_head['int_col'] > 20]
+        self._assert_sql_and_execution_match(ds_result, pd_result)
