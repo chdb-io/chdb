@@ -8,6 +8,8 @@ column like pandas. Conditions over nullable inputs run in pandas.
 Performance mode always pushes them and returns SQL's native result.
 """
 
+import time
+
 import chdb
 import numpy as np
 import pandas as pd
@@ -200,3 +202,103 @@ class TestPerformanceMode:
         assert result["c"].dtype == "UInt8"
         assert result["c"].isna().tolist() == [False, True, False, False]
         assert result["c"].fillna(0).astype(int).tolist() == [0, 0, 1, 1]
+
+
+class TestNullabilityFollowsColumns:
+    """A condition's inputs are followed through the ops that produce them."""
+
+    @pytest.mark.parametrize("how", ENTRY_POINTS)
+    def test_select_alias_of_nullable_column(self, how):
+        data = {"n": pd.array([1, None, 3, 7], dtype="Int64"), "i": [1, 5, 3, 7]}
+        ds = DataStore(data)
+        ds = ds.select(ds["n"].as_("i"))
+        pdf = pd.DataFrame(data)[["n"]].rename(columns={"n": "i"})
+
+        def cond(d):
+            return d["i"] > 2
+
+        assert_frame_equal(get_dataframe(_assign(ds, how, cond)), _assign(pdf, how, cond))
+
+    @pytest.mark.parametrize("how", ENTRY_POINTS)
+    def test_select_alias_of_non_nullable_column_is_pushed(self, tmp_path, how):
+        path = str(tmp_path / "mixed.parquet")
+        schema = pa.schema(
+            [pa.field("n", pa.int64()), pa.field("i", pa.int64(), nullable=False)]
+        )
+        pq.write_table(
+            pa.Table.from_arrays(
+                [pa.array([1, None, 3, 7]), pa.array([1, 5, 3, 7])], schema=schema
+            ),
+            path,
+        )
+        ds = DataStore.from_file(path)
+        ds = ds.select(ds["i"].as_("n"))
+        pdf = pd.read_parquet(path)[["i"]].rename(columns={"i": "n"})
+
+        def cond(d):
+            return d["n"] > 2
+
+        ds_result = _assign(ds, how, cond)
+        assert "toBool(" in ds_result.to_sql(execution_format=True)
+        assert_frame_equal(get_dataframe(ds_result), _assign(pdf, how, cond))
+
+    @pytest.mark.parametrize("overwrite", ["setitem", "assign"])
+    @pytest.mark.parametrize("how", ENTRY_POINTS)
+    def test_computed_column_overwritten_with_nullable_series(self, overwrite, how):
+        def chain(df):
+            if overwrite == "setitem":
+                df = df.copy()
+                df["c"] = df["i"] + 1
+                df["c"] = pd.Series([1, None, 3, 7], dtype="Int64")
+            else:
+                df = df.assign(c=df["i"] + 1)
+                df = df.assign(c=pd.Series([1, None, 3, 7], dtype="Int64"))
+            return _assign(df, how, lambda d: d["c"] > 2)
+
+        assert_frame_equal(get_dataframe(chain(DataStore(_frame()))), chain(_frame()))
+
+    def test_filter_on_condition_column_overwritten_with_series(self):
+        def chain(df):
+            df = df.copy()
+            df["c"] = df["i"] > 2
+            df["c"] = pd.Series([True, False, False, True])
+            return df[df["c"]]
+
+        assert_frame_equal(get_dataframe(chain(DataStore(_frame()))), chain(_frame()))
+
+
+class TestChainOfComputedColumns:
+    """Each step reads the previous column twice; nothing is expanded per reference."""
+
+    @staticmethod
+    def _chain(df, n, how):
+        df = df.copy()
+        for k in range(1, n + 1):
+            name, prev = f"c{k}", f"c{k - 1}"
+            if how == "setitem":
+                df[name] = df[prev] + df[prev]
+            elif how == "assign":
+                df = df.assign(**{name: df[prev] + df[prev]})
+            else:
+                df = df.assign(**{name: lambda d, prev=prev: d[prev] + d[prev]})
+        last = f"c{n}"
+        if how == "setitem":
+            df["p"] = df[last] > 300
+            return df
+        if how == "assign":
+            return df.assign(p=df[last] > 300)
+        return df.assign(p=lambda d: d[last] > 300)
+
+    @pytest.mark.parametrize("how", ENTRY_POINTS)
+    def test_condition_matches_pandas(self, how):
+        data = {"c0": [1.0, 2.0, np.nan]}
+        assert_frame_equal(
+            get_dataframe(self._chain(DataStore(data), 8, how)),
+            self._chain(pd.DataFrame(data), 8, how),
+        )
+
+    @pytest.mark.parametrize("how", ENTRY_POINTS)
+    def test_planning_is_linear(self, how):
+        start = time.perf_counter()
+        self._chain(DataStore({"c0": [1.0, 2.0]}), 26, how)
+        assert time.perf_counter() - start < 5

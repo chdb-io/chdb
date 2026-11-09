@@ -84,6 +84,68 @@ def _clickhouse_type_null_is_nan(ch_type: str) -> bool:
     inner = ch_type[len("Nullable(") : -1]
     return inner.startswith(("Float", "String", "FixedString", "Date"))
 
+
+def _is_lazy_value(value) -> bool:
+    """Whether ``value`` is an unevaluated expression or lazy result."""
+    return isinstance(value, Expression) or hasattr(value, "_execute")
+
+
+def _reads_null_as_nan(expr: Expression, kinds: Dict[str, bool]) -> bool:
+    """Whether every column ``expr`` reads is True in ``kinds``."""
+    return all(kinds.get(f.name.strip("\"'")) for f in expr.find(Field))
+
+
+def _assigned_null_as_nan(op, kinds: Dict[str, bool]) -> bool:
+    """
+    Whether the column a LazyColumnAssignment produces is never NA or NA only
+    as NaN/NaT, given ``kinds`` of the columns it reads; False if unknown.
+    """
+    from .column_expr import ColumnExpr
+
+    value = op.expr
+    if op.evaluate_on_source:
+        return False
+    if isinstance(value, ColumnExpr):
+        if value._exec_mode != "expr" or value._expr is None:
+            return False
+        value = value._expr
+    if isinstance(value, Expression):
+        return _reads_null_as_nan(value, kinds)
+    if isinstance(value, (pd.Series, pd.Index, np.ndarray)):
+        return _dtype_null_is_nan(value.dtype)
+    if pd.api.types.is_scalar(value):
+        return _dtype_null_is_nan(pd.Series([value]).dtype)
+    return False
+
+
+def _projected_null_kinds(fields, kinds: Dict[str, bool]) -> Dict[str, bool]:
+    """Null kinds (see ``_column_null_kinds``) of a SELECT field list's output."""
+    from .column_expr import ColumnExpr
+    from .conditions import NullSafeCondition
+    from .expressions import is_star_item, projection_name
+
+    projected = dict(kinds) if any(is_star_item(f) for f in fields) else {}
+    for item in fields:
+        if is_star_item(item):
+            continue
+        if isinstance(item, str):
+            name = item.strip('"')
+            projected[name] = kinds.get(name, False)
+            continue
+        expr = item._expr if isinstance(item, ColumnExpr) else item
+        name = projection_name(expr) if isinstance(expr, Expression) else None
+        if name is None:
+            continue
+        if isinstance(expr, NullSafeCondition):
+            # Rendered as toBool(ifNull(...)): never NULL
+            projected[name] = True
+        elif expr.find(Condition):
+            # A plain SQL comparison is NULL for a NULL input
+            projected[name] = False
+        else:
+            projected[name] = _reads_null_as_nan(expr, kinds)
+    return projected
+
 # Source types that map to a ClickHouse connection (see ADAPTER_MAP in
 # adapters.py, where 'remote'/'remotesecure' both resolve to ClickHouseAdapter).
 # Compare against source_type.lower() since it is stored as given.
@@ -1188,15 +1250,37 @@ class DataStore(PandasCompatMixin):
         self._lazy_ops.append(op)
         self._invalidate_cache()
 
+    def _is_column_of_other_rows(self, value, base_ops, ancestors=False) -> bool:
+        """
+        Whether ``value`` is a ColumnExpr whose DataStore doesn't hold the rows
+        of the frame ``base_ops`` builds on this source: another DataStore, a
+        derived one, or (unless ``ancestors``) an ancestor such as the frame
+        before a filter. pandas assigns such a Series aligned by index.
+        """
+        from .column_expr import ColumnExpr
+        from .lazy_ops import LazyDataFrameSource
+
+        source = value._datastore if isinstance(value, ColumnExpr) else None
+        if not isinstance(source, DataStore) or source is self:
+            return False
+        ops = source._lazy_ops
+        if len(ops) > len(base_ops) or (not ancestors and len(ops) < len(base_ops)):
+            return True
+        if any(a is not b for a, b in zip(ops, base_ops)):
+            return True
+        if ops and isinstance(ops[0], LazyDataFrameSource):
+            return False
+        return (
+            source._table_function is not self._table_function
+            or source.table_name != self.table_name
+        )
+
     def _null_as_nan_inputs(self, expr) -> bool:
         """
         Whether every column ``expr`` reads, at the current end of the
         pipeline, is never NULL or NULL only where pandas has NaN/NaT.
 
-        Decided from source dtypes without executing: the DataFrame's pandas
-        dtypes for DataFrame sources, the DESCRIBE types for SQL sources.
-        Columns produced by ops other than relational ops and SQL column
-        assignments (resolved through ``_computed_columns``) are unknown and
+        Decided without executing, see ``_column_null_kinds``. Unknown columns
         make the result False.
         """
         from .column_expr import ColumnExpr
@@ -1206,17 +1290,19 @@ class DataStore(PandasCompatMixin):
             expr = expr._expr
         if not isinstance(expr, Expression) or not expr.find(Condition):
             return True
-        kinds = self._column_null_kinds()
-        names = {
-            f.name.strip("\"'")
-            for f in self._resolve_expr_dependencies(expr).find(Field)
-        }
-        return all(kinds.get(name) for name in names)
+        return _reads_null_as_nan(expr, self._column_null_kinds())
 
     def _column_null_kinds(self) -> Dict[str, bool]:
         """
-        Map columns to True when they are never NULL or NULL only for NaN/NaT;
-        columns missing from the map are unknown or carry pandas NA.
+        Map columns at the end of the pipeline to True when they are never
+        NULL or NULL only for NaN/NaT; columns missing from the map are
+        unknown or carry pandas NA.
+
+        Each column is followed from the source dtypes (the DataFrame's pandas
+        dtypes, or the DESCRIBE types of a SQL source) through the ops: row
+        operations keep it, a SELECT projects or computes it, and a column
+        assignment derives it from the columns its expression reads or from
+        the dtype of its value. Any other op makes every column unknown.
         """
         from .lazy_ops import LazyColumnAssignment, LazyDataFrameSource
 
@@ -1230,14 +1316,7 @@ class DataStore(PandasCompatMixin):
         elif isinstance(self._table_function, PythonTableFunction):
             source_df = self._table_function._df
 
-        replaced = set()
-        for op in ops:
-            if isinstance(op, LazyRelationalOp):
-                continue
-            if isinstance(op, LazyColumnAssignment):
-                if op.column not in self._computed_columns:
-                    replaced.add(op.column)
-                continue
+        if not all(isinstance(op, (LazyRelationalOp, LazyColumnAssignment)) for op in ops):
             return {}
 
         if source_df is not None:
@@ -1254,9 +1333,13 @@ class DataStore(PandasCompatMixin):
                 name: _clickhouse_type_null_is_nan(ch_type)
                 for name, ch_type in schema.items()
             }
-        return {
-            name: kind for name, kind in kinds.items() if kind and name not in replaced
-        }
+
+        for op in ops:
+            if isinstance(op, LazyColumnAssignment):
+                kinds[op.column] = _assigned_null_as_nan(op, kinds)
+            elif op.op_type == "SELECT" and op.fields:
+                kinds = _projected_null_kinds(op.fields, kinds)
+        return {name: kind for name, kind in kinds.items() if kind}
 
     def _get_source_df_if_pristine(self) -> "Optional[pd.DataFrame]":
         """
@@ -6345,8 +6428,13 @@ class DataStore(PandasCompatMixin):
         self._track_operation("sql", f"SELECT {field_names}", {"lazy": True})
 
         # Record in lazy ops for correct execution order in explain()
-        # Store fields for DataFrame execution
-        self._add_lazy_op(LazyRelationalOp("SELECT", field_names, fields=list(fields)))
+        # Store fields for DataFrame execution; SQL consumers read the
+        # expression of a ColumnExpr field
+        op_fields = [
+            f._expr if isinstance(f, ColumnExpr) and f._expr is not None else f
+            for f in fields
+        ]
+        self._add_lazy_op(LazyRelationalOp("SELECT", field_names, fields=op_fields))
 
         for field in fields:
             if isinstance(field, str):
@@ -7014,7 +7102,13 @@ class DataStore(PandasCompatMixin):
         if is_pandas_col_expression(expr):
             expr = translate_pandas_expression(expr)
 
-        self._add_lazy_op(LazyColumnAssignment(name, expr))
+        self._add_lazy_op(
+            LazyColumnAssignment(
+                name,
+                expr,
+                evaluate_on_source=self._is_column_of_other_rows(expr, self._lazy_ops),
+            )
+        )
         # Note: Don't return self - @immutable decorator will return the copy
 
     def groupby(
@@ -7361,7 +7455,7 @@ class DataStore(PandasCompatMixin):
         from .case_when import CaseWhenExpr
         from .lazy_ops import LazyAssignCallable, LazyColumnAssignment
 
-        def is_sql_value(alias, value, base_ops):
+        def is_sql_value(alias, value, base_ops, frame):
             if isinstance(value, ColumnExpr):
                 if value.is_pandas_only():
                     return False
@@ -7369,17 +7463,12 @@ class DataStore(PandasCompatMixin):
                 # ``d.assign(z=...)['z']`` or ``d[d.a > 1]['a']``) doesn't
                 # exist on these rows; only the same pipeline or an ancestor
                 # of it can be referenced in SQL.
-                source = value._datastore
-                if source is not None:
-                    ops = source._lazy_ops
-                    if len(ops) > len(base_ops) or any(
-                        a is not b for a, b in zip(ops, base_ops)
-                    ):
-                        return False
+                if frame._is_column_of_other_rows(value, base_ops, ancestors=True):
+                    return False
             elif not isinstance(value, Expression):
                 return False
             return LazyColumnAssignment(
-                alias, value, null_as_nan=frame_for_types._null_as_nan_inputs(value)
+                alias, value, null_as_nan=frame._null_as_nan_inputs(value)
             ).can_push_to_sql()
 
         result = self
@@ -7395,15 +7484,19 @@ class DataStore(PandasCompatMixin):
         # evaluated on the DataFrame at execution time.
         sql_kwargs = {}
         for alias, value in kwargs.items():
-            func = None
-            joins_select = True
+            func = deferred_func = None
             base_ops = entry_ops
-            frame_for_types = result
+            frame = result
             if callable(value):
-                # pandas calls each callable on the frame with all earlier
-                # assignments applied. Calling it on the lazy DataStore yields
-                # an expression when the result can be computed in SQL.
-                frame = result
+                # pandas calls each callable once, on the frame with all
+                # earlier assignments applied. Calling it on the lazy
+                # DataStore yields an expression when the result can be
+                # computed in SQL. A concrete result (array, Series, scalar)
+                # or a column of another DataStore is assigned like a value
+                # passed directly; a lazy result over this frame that SQL
+                # can't compute is evaluated by calling the function with
+                # the DataFrame at execution time, so pandas operators decide
+                # its semantics.
                 if sql_kwargs:
                     # Preview: the pending expressions still become one SELECT.
                     frame = copy(result)
@@ -7412,38 +7505,56 @@ class DataStore(PandasCompatMixin):
                     # In one SELECT, ClickHouse resolves an overwritten
                     # column's name to its new alias, so the callable can't
                     # share a SELECT with a pending overwrite.
-                    joins_select = not (
-                        set(sql_kwargs) & set(result._get_current_columns())
-                    )
+                    if set(sql_kwargs) & set(result._get_current_columns()):
+                        result, sql_kwargs = frame, {}
                 func = value
-                base_ops = frame._lazy_ops
-                frame_for_types = frame
                 try:
                     value = func(frame)
                 except Exception:
                     # The callable needs a real DataFrame; it is called with
                     # one at execution time.
-                    joins_select = False
+                    deferred_func = func
                 else:
                     if is_pandas_col_expression(value):
                         value = translate_pandas_expression(value)
+                # Read after the call: a callable that needs the data
+                # executes the frame, which replaces its ops.
+                base_ops = frame._lazy_ops
 
-            if joins_select and is_sql_value(alias, value, base_ops):
+            if deferred_func is None and is_sql_value(alias, value, base_ops, frame):
                 sql_kwargs[alias] = value
                 continue
+            if (
+                func is not None
+                and deferred_func is None
+                and _is_lazy_value(value)
+                and not frame._is_column_of_other_rows(value, base_ops)
+            ):
+                deferred_func = func
 
             if sql_kwargs:
-                result = result._assign_sql_columns(sql_kwargs)
+                # A callable's result reads the previewed frame.
+                result = (
+                    frame
+                    if frame is not result
+                    else result._assign_sql_columns(sql_kwargs)
+                )
                 sql_kwargs = {}
-            if func is not None:
-                op = LazyAssignCallable(alias, func)
+            if deferred_func is not None:
+                op = LazyAssignCallable(alias, deferred_func)
             else:
                 if isinstance(value, CaseWhenExpr):
                     # The planner segments a ColumnExpr through
                     # ExpressionEvaluator; a bare CaseWhenExpr would be
                     # serialized to SQL.
                     value = ColumnExpr(expr=value, datastore=result)
-                op = LazyColumnAssignment(alias, value)
+                op = LazyColumnAssignment(
+                    alias,
+                    value,
+                    evaluate_on_source=result._is_column_of_other_rows(
+                        value, base_ops
+                    ),
+                )
             # Later SQL runs on the materialized DataFrame, where computed
             # columns are real columns and must not be expanded again.
             result._computed_columns = {}

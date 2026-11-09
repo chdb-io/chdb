@@ -667,7 +667,7 @@ class Literal(Expression):
         elif isinstance(value, np.datetime64):
             import pandas as pd
 
-            value = None if np.isnat(value) else pd.Timestamp(value).to_pydatetime()
+            value = None if np.isnat(value) else pd.Timestamp(value)
 
         # Convert Python value to SQL literal
         if value is None:
@@ -688,10 +688,15 @@ class Literal(Expression):
             import uuid
 
             if isinstance(value, datetime.datetime):
-                # Format datetime as ISO string
-                sql = f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'"
-                if value.microsecond:
-                    sql = f"'{value.strftime('%Y-%m-%d %H:%M:%S.%f')}'"
+                # Format datetime as ISO string; pd.Timestamp also carries
+                # nanoseconds
+                text = value.strftime("%Y-%m-%d %H:%M:%S")
+                nanosecond = getattr(value, "nanosecond", 0)
+                if nanosecond:
+                    text += f".{value.microsecond:06d}{nanosecond:03d}"
+                elif value.microsecond:
+                    text += f".{value.microsecond:06d}"
+                sql = f"'{text}'"
             elif isinstance(value, datetime.date):
                 # Format date as ISO string
                 sql = f"'{value.strftime('%Y-%m-%d')}'"
@@ -900,15 +905,32 @@ def resolve_computed_references(
     Returns:
         Expression with computed column references expanded
     """
-    from .functions import Function
-    from copy import copy
+    return _resolve_computed(
+        expr, computed, set() if _visited is None else _visited, {}
+    )
 
+
+def _resolve_computed(expr, computed: dict, _visited: set, memo: dict):
+    """
+    Memoized step of :func:`resolve_computed_references`: a subexpression
+    shared by several references (e.g. ``c2 = c1 + c1``) is resolved once
+    per set of names being expanded, so a chain of computed columns is
+    resolved in linear rather than exponential time.
+    """
     if expr is None:
         return None
+    key = (id(expr), frozenset(_visited))
+    hit = memo.get(key)
+    if hit is not None and hit[0] is expr:
+        return hit[1]
+    resolved = _resolve_computed_node(expr, computed, _visited, memo)
+    memo[key] = (expr, resolved)
+    return resolved
 
-    # Initialize visited set on first call
-    if _visited is None:
-        _visited = set()
+
+def _resolve_computed_node(expr, computed: dict, _visited: set, memo: dict):
+    from .functions import Function
+    from copy import copy
 
     # If it's a Field that references a computed column, expand it
     if isinstance(expr, Field):
@@ -923,8 +945,8 @@ def resolve_computed_references(
             _visited.add(col_name)
             try:
                 # Recursively resolve the computed column's expression
-                resolved = resolve_computed_references(
-                    computed[col_name], computed, _visited
+                resolved = _resolve_computed(
+                    computed[col_name], computed, _visited, memo
                 )
                 # Preserve any alias from the original Field
                 if expr.alias:
@@ -938,8 +960,8 @@ def resolve_computed_references(
 
     # For ArithmeticExpression, recursively resolve left and right
     if isinstance(expr, ArithmeticExpression):
-        resolved_left = resolve_computed_references(expr.left, computed, _visited)
-        resolved_right = resolve_computed_references(expr.right, computed, _visited)
+        resolved_left = _resolve_computed(expr.left, computed, _visited, memo)
+        resolved_right = _resolve_computed(expr.right, computed, _visited, memo)
         # Only create new expression if something changed
         if resolved_left is expr.left and resolved_right is expr.right:
             return expr
@@ -951,7 +973,7 @@ def resolve_computed_references(
     # For Function, recursively resolve all arguments
     if isinstance(expr, Function):
         resolved_args = [
-            resolve_computed_references(arg, computed, _visited) for arg in expr.args
+            _resolve_computed(arg, computed, _visited, memo) for arg in expr.args
         ]
         # Only create new function if something changed
         if all(r is o for r, o in zip(resolved_args, expr.args)):
@@ -969,8 +991,8 @@ def resolve_computed_references(
     from .conditions import BinaryCondition, CompoundCondition, NullSafeCondition
 
     if isinstance(expr, BinaryCondition):
-        resolved_left = resolve_computed_references(expr.left, computed, _visited)
-        resolved_right = resolve_computed_references(expr.right, computed, _visited)
+        resolved_left = _resolve_computed(expr.left, computed, _visited, memo)
+        resolved_right = _resolve_computed(expr.right, computed, _visited, memo)
         if resolved_left is expr.left and resolved_right is expr.right:
             return expr
         result = BinaryCondition(
@@ -980,15 +1002,15 @@ def resolve_computed_references(
 
     # For CompoundCondition (AND, OR), resolve both sides
     if isinstance(expr, CompoundCondition):
-        resolved_left = resolve_computed_references(expr.left, computed, _visited)
-        resolved_right = resolve_computed_references(expr.right, computed, _visited)
+        resolved_left = _resolve_computed(expr.left, computed, _visited, memo)
+        resolved_right = _resolve_computed(expr.right, computed, _visited, memo)
         if resolved_left is expr.left and resolved_right is expr.right:
             return expr
         result = CompoundCondition(expr.operator, resolved_left, resolved_right)
         return result
 
     if isinstance(expr, NullSafeCondition):
-        resolved = resolve_computed_references(expr.condition, computed, _visited)
+        resolved = _resolve_computed(expr.condition, computed, _visited, memo)
         if resolved is expr.condition:
             return expr
         return NullSafeCondition(resolved, expr.alias)

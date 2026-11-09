@@ -397,3 +397,95 @@ class TestColumnAssignmentSQL:
             return df.assign(y=df["qty"] + 1)
 
         assert_datastore_equals_pandas(chain(DataStore(_frame())), chain(_frame()))
+
+
+class TestAssignCallableCalledOnce:
+    """pandas calls an assign() callable once; a concrete result is kept."""
+
+    @pytest.mark.parametrize(
+        "make_values",
+        [
+            pytest.param(lambda: [[7, 9, 8, 6]], id="list"),
+            pytest.param(lambda: [np.array([7, 9, 8, 6])], id="ndarray"),
+            pytest.param(
+                lambda: [pd.Series([7, 9, 8, 6], index=[3, 2, 1, 0])],
+                id="series_aligned_by_index",
+            ),
+            pytest.param(lambda: [5], id="scalar"),
+        ],
+    )
+    def test_stateful_callable(self, make_values, execute_calls):
+        def chain(df):
+            values = iter(make_values())
+            return df.assign(new=lambda _: next(values))
+
+        ds_result = chain(DataStore(_frame()))
+        assert len(execute_calls) == 0
+        assert_datastore_equals_pandas(ds_result, chain(_frame()))
+
+    def test_after_pending_sql_assignment(self, execute_calls):
+        def chain(df):
+            values = iter([pd.Series([1, 2, 3, 4])])
+            return df.assign(
+                double=df["price"] * 2,
+                new=lambda d: next(values) + 1,
+                total=lambda d: d["double"] + d["new"],
+            )
+
+        ds_result = chain(DataStore(_frame()))
+        assert len(execute_calls) == 0
+        assert_datastore_equals_pandas(ds_result, chain(_frame()))
+
+    def test_call_count(self):
+        def chain(df, calls):
+            def tagged(d):
+                calls.append(1)
+                return np.arange(len(d))
+
+            return df.assign(new=tagged)
+
+        ds_calls, pd_calls = [], []
+        ds_result = chain(DataStore(_frame()), ds_calls)
+        pd_result = chain(_frame(), pd_calls)
+        assert_datastore_equals_pandas(ds_result, pd_result)
+        assert len(ds_calls) == len(pd_calls) == 1
+
+
+class TestAssignColumnOfAnotherDataStore:
+    """A column of another DataStore is computed there and aligned by index."""
+
+    VALUES = [
+        pytest.param(lambda r: r["a"] ** 2, id="pow"),
+        pytest.param(lambda r: r["a"].cumsum(), id="cumsum"),
+        pytest.param(lambda r: r["a"] + 1, id="sql_expression"),
+        pytest.param(lambda r: r[r["a"] > 10]["a"].cumsum(), id="filtered_cumsum"),
+    ]
+
+    @staticmethod
+    def _frames():
+        left = pd.DataFrame({"a": [1, 2, 3]})
+        right = pd.DataFrame({"a": [10, 20, 30]}, index=[2, 0, 1])
+        return left, right
+
+    @pytest.mark.parametrize("make_value", VALUES)
+    @pytest.mark.parametrize("how", ["assign", "assign_callable", "setitem"])
+    def test_other_datastore(self, make_value, how, execute_calls):
+        def chain(left, right):
+            value = make_value(right)
+            if how == "assign":
+                return left.assign(z=value)
+            if how == "assign_callable":
+                return left.assign(z=lambda _: value)
+            left["z"] = value
+            return left
+
+        left, right = self._frames()
+        ds_result = chain(DataStore(left.copy()), DataStore(right.copy()))
+        assert len(execute_calls) == 0
+        assert_datastore_equals_pandas(ds_result, chain(left, right))
+
+    def test_ancestor_before_filter(self):
+        def chain(df):
+            return df[df["qty"] > 15].assign(running=df["qty"].cumsum())
+
+        assert_datastore_equals_pandas(chain(DataStore(_frame())), chain(_frame()))
