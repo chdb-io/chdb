@@ -5,6 +5,8 @@ Each chain runs unchanged on a pandas DataFrame and on a DataStore built from
 a file source or a DataFrame source, and the full results are compared.
 """
 
+import time
+
 import pandas as pd
 import pytest
 
@@ -621,3 +623,79 @@ class TestMetadataOfLazyPipeline:
         assert list(ds.memory_usage(index=False).index) == list(
             pdf.memory_usage(index=False).index
         )
+
+
+def _dependency_chain(d, length, shape):
+    d["c0"] = d["price"] * 2
+    for i in range(1, length):
+        prev = d[f"c{i - 1}"]
+        d[f"c{i}"] = prev * 2 if shape == "linear" else prev + prev
+    return d
+
+
+class TestLongDependencyChains:
+    """Each assignment reads the column assigned just before it. Inlining
+    aliases that reference aliases in one SELECT grows the query tree
+    quadratically (linear chain) or exponentially (doubling chain)."""
+
+    @pytest.mark.parametrize("length", [30, 40])
+    @pytest.mark.parametrize("shape", ["linear", "doubling"])
+    def test_chain_matches_pandas(self, make_ds, shape, length):
+        _assert_chain(make_ds, lambda d: _dependency_chain(d, length, shape))
+
+    @pytest.mark.parametrize("shape", ["linear", "doubling"])
+    def test_chain_then_filter(self, make_ds, shape):
+        def chain(d):
+            d = _dependency_chain(d, 30, shape)
+            return d[d["c29"] > 2**30]
+
+        _assert_chain(make_ds, chain)
+
+    @pytest.mark.parametrize("shape", ["linear", "doubling"])
+    def test_chain_then_groupby(self, make_ds, shape):
+        def chain(d):
+            d = _dependency_chain(d, 30, shape)
+            return d.groupby("region").agg({"c29": "sum", "qty": "max"})
+
+        _, make = make_ds
+        df = _sales()
+        assert_datastore_equals_pandas(
+            chain(make(df)), chain(df.copy()), check_index=True
+        )
+
+    @pytest.mark.parametrize("shape", ["linear", "doubling"])
+    def test_layer_computes_only_from_inner_columns(self, tmp_path, shape):
+        from datastore.query_planner import QueryPlanner
+
+        path = tmp_path / "data.parquet"
+        _sales().to_parquet(path)
+        ds = _dependency_chain(DataStore.from_file(str(path)), 40, shape)
+
+        planner = QueryPlanner()
+        exec_plan = planner.plan_segments(
+            ds._lazy_ops, has_sql_source=True, schema=ds.schema()
+        )
+        for segment in exec_plan.segments:
+            for layer in segment.plan.layers:
+                computed = set()
+                for op in layer:
+                    assert not planner._columns_read_by(op) & computed
+                    computed |= set(planner._computed_columns_of(op))
+
+    def test_planning_is_bounded(self, tmp_path):
+        from datastore.query_planner import MAX_SQL_LAYERS, QueryPlanner
+
+        path = tmp_path / "data.parquet"
+        _sales().to_parquet(path)
+        ds = _dependency_chain(DataStore.from_file(str(path)), 300, "doubling")
+
+        start = time.perf_counter()
+        exec_plan = QueryPlanner().plan_segments(
+            ds._lazy_ops, has_sql_source=True, schema=ds.schema()
+        )
+        assert time.perf_counter() - start < 5
+        assert all(seg.is_sql() for seg in exec_plan.segments)
+        assert all(
+            len(seg.plan.layers) <= MAX_SQL_LAYERS for seg in exec_plan.segments
+        )
+

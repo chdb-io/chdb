@@ -911,8 +911,8 @@ class Connection:
                     select_pos = preceding.upper().rfind("SELECT")
                     if select_pos != -1:
                         # Check if _row_id is already in this SELECT clause
-                        select_clause = preceding[select_pos:]
-                        if "_row_id" not in select_clause.lower():
+                        select_clause = preceding[select_pos + len("SELECT"):]
+                        if not self._selects_row_id(select_clause):
                             # Add _row_id before FROM
                             # Remove trailing whitespace and add _row_id
                             while result and result[-1].isspace():
@@ -927,6 +927,29 @@ class Connection:
             i += 1
 
         return "".join(result)
+
+    @staticmethod
+    def _selects_row_id(select_list: str) -> bool:
+        """Whether a SELECT list outputs ``_row_id`` as one of its items.
+
+        A ``_row_id`` read inside an item (e.g. ``OVER (ORDER BY _row_id)``)
+        does not make it a column of the result.
+        """
+        items, depth, start = [], 0, 0
+        for i, ch in enumerate(select_list):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                items.append(select_list[start:i])
+                start = i + 1
+        items.append(select_list[start:])
+        for item in items:
+            name = item.strip().split()[-1] if item.strip() else ""
+            if name.strip('"`').lower() == "_row_id":
+                return True
+        return False
 
     def _query_df_streaming(self, sql: str) -> pd.DataFrame:
         """
