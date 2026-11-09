@@ -242,6 +242,39 @@ class TestUnionCarriesLazyOps:
         assert_datastore_equals_pandas(ds_result, pd_result)
 
 
+class TestUnionHelperColumnNames:
+    """The SQL union orders rows with helper columns; user columns may share
+    their names."""
+
+    @pytest.mark.parametrize(
+        "columns",
+        [
+            ["__union_side__"],
+            ["__union_row__"],
+            ["__union_side__", "__union_side_1__", "__union_row__"],
+        ],
+    )
+    def test_column_named_like_helper(self, tmp_path, columns):
+        df = SALES.copy()
+        for i, name in enumerate(columns):
+            df[name] = df["qty"] * (10 + i)
+        path = str(tmp_path / "helper_names.parquet")
+        df.to_parquet(path)
+        pa = df[df["qty"] > 1]
+        pb = df.copy()
+        pb[columns[0]] = pb[columns[0]] + 1
+        pd_result = pd.concat([pa, pb], ignore_index=True)
+
+        a = DataStore.from_file(path)
+        a = a[a["qty"] > 1]
+        b = DataStore.from_file(path)
+        b[columns[0]] = b[columns[0]] + 1
+        ds_result = a.union(b, all=True)
+
+        assert "UNION ALL" in ds_result.to_sql()
+        assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
+
+
 # ---------------------------------------------------------------------------
 # Remote ClickHouse tables (same env-driven server setup as test_writeback.py)
 # ---------------------------------------------------------------------------

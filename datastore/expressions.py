@@ -62,6 +62,18 @@ class Expression(Node):
     def __init__(self, alias: Optional[str] = None):
         self.alias = alias
 
+    def with_attrs(self, **attrs: Any) -> "Expression":
+        """Return a shallow copy of this node with ``attrs`` replaced.
+
+        The copy keeps the node's class and every other attribute (a cast's
+        target type, a string-concatenation marker, a window's OVER clause),
+        which rebuilding the node from base constructor arguments loses.
+        """
+        clone = object.__new__(type(self))
+        clone.__dict__.update(self.__dict__)
+        clone.__dict__.update(attrs)
+        return clone
+
     @immutable
     def as_(self, alias: str) -> "Expression":
         """Set an alias for this expression."""
@@ -930,7 +942,6 @@ def _resolve_computed(expr, computed: dict, _visited: set, memo: dict):
 
 def _resolve_computed_node(expr, computed: dict, _visited: set, memo: dict):
     from .functions import Function
-    from copy import copy
 
     # If it's a Field that references a computed column, expand it
     if isinstance(expr, Field):
@@ -950,8 +961,7 @@ def _resolve_computed_node(expr, computed: dict, _visited: set, memo: dict):
                 )
                 # Preserve any alias from the original Field
                 if expr.alias:
-                    resolved = copy(resolved)
-                    resolved.alias = expr.alias
+                    resolved = resolved.with_attrs(alias=expr.alias)
                 return resolved
             finally:
                 # Remove from visited after processing (allow re-visiting in different branches)
@@ -965,10 +975,7 @@ def _resolve_computed_node(expr, computed: dict, _visited: set, memo: dict):
         # Only create new expression if something changed
         if resolved_left is expr.left and resolved_right is expr.right:
             return expr
-        result = ArithmeticExpression(
-            expr.operator, resolved_left, resolved_right, expr.alias
-        )
-        return result
+        return expr.with_attrs(left=resolved_left, right=resolved_right)
 
     # For Function, recursively resolve all arguments
     if isinstance(expr, Function):
@@ -978,14 +985,7 @@ def _resolve_computed_node(expr, computed: dict, _visited: set, memo: dict):
         # Only create new function if something changed
         if all(r is o for r, o in zip(resolved_args, expr.args)):
             return expr
-        result = Function(
-            expr.name,
-            *resolved_args,
-            alias=expr.alias,
-            pandas_name=getattr(expr, "pandas_name", None),
-            pandas_kwargs=getattr(expr, "pandas_kwargs", {}),
-        )
-        return result
+        return expr.with_attrs(args=resolved_args)
 
     # For BinaryCondition (e.g., x > 5, a = b), resolve both sides
     from .conditions import BinaryCondition, CompoundCondition, NullSafeCondition
@@ -995,10 +995,7 @@ def _resolve_computed_node(expr, computed: dict, _visited: set, memo: dict):
         resolved_right = _resolve_computed(expr.right, computed, _visited, memo)
         if resolved_left is expr.left and resolved_right is expr.right:
             return expr
-        result = BinaryCondition(
-            expr.operator, resolved_left, resolved_right, expr.alias
-        )
-        return result
+        return expr.with_attrs(left=resolved_left, right=resolved_right)
 
     # For CompoundCondition (AND, OR), resolve both sides
     if isinstance(expr, CompoundCondition):
@@ -1006,14 +1003,13 @@ def _resolve_computed_node(expr, computed: dict, _visited: set, memo: dict):
         resolved_right = _resolve_computed(expr.right, computed, _visited, memo)
         if resolved_left is expr.left and resolved_right is expr.right:
             return expr
-        result = CompoundCondition(expr.operator, resolved_left, resolved_right)
-        return result
+        return expr.with_attrs(left=resolved_left, right=resolved_right)
 
     if isinstance(expr, NullSafeCondition):
         resolved = _resolve_computed(expr.condition, computed, _visited, memo)
         if resolved is expr.condition:
             return expr
-        return NullSafeCondition(resolved, expr.alias)
+        return expr.with_attrs(condition=resolved)
 
     # For Literal and other types, return as-is
     return expr

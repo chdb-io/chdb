@@ -213,6 +213,13 @@ class ExecutionPlan:
         return sum(1 for seg in self.segments if seg.is_pandas())
 
 
+# Most subquery layers one SQL query nests. ClickHouse parses about ten
+# levels per layer against max_parser_depth (1000 by default), and analysis
+# time grows faster than linearly with depth, so longer pipelines continue
+# in a new SQL segment that runs on the previous segment's result.
+MAX_SQL_LAYERS = 16
+
+
 class QueryPlanner:
     """
     Query planner that analyzes LazyOp chains and produces execution plans.
@@ -265,6 +272,11 @@ class QueryPlanner:
           assignment-style ``SELECT *, expr``) follows a LazyGroupByAgg:
           it computes on the aggregated rows, while in the GROUP BY layer
           its fields would be taken as the aggregation targets.
+        - An op computes an expression that reads a column computed in the
+          same layer. ClickHouse inlines an alias wherever it is referenced,
+          so chains of aliases referencing aliases grow the query tree
+          without bound (exponentially when a column is read twice); in a
+          new layer the reference is to a real column of the inner layer.
 
         This preserves pandas-like execution order semantics in SQL.
 
@@ -349,12 +361,14 @@ class QueryPlanner:
             if not new_columns:
                 return False
             computed, read = _computed_and_read(layer)
-            return bool(new_columns & (computed | read))
+            if new_columns & (computed | read):
+                return True
+            return bool(self._columns_read_by(op) & computed)
 
         def _place(op):
             """Append ``op``, or open a new layer for it when it would
-            shadow a column the layer already uses. Returns whether a
-            layer was opened."""
+            shadow a column the layer already uses or compute from a column
+            the layer computes. Returns whether a layer was opened."""
             if current_layer and _shadows_layer_column(op, current_layer):
                 _open_layer_with(op)
                 return True
@@ -654,15 +668,26 @@ class QueryPlanner:
         current_ops = []
         is_first = True
 
+        def save_segment(segment_type, segment_ops):
+            nonlocal is_first
+            chunks = (
+                self._split_by_layer_depth(segment_ops)
+                if segment_type == "sql"
+                else [segment_ops]
+            )
+            for chunk in chunks:
+                exec_plan.segments.append(
+                    self._create_segment(
+                        segment_type, chunk, is_first, has_sql_source, schema
+                    )
+                )
+                is_first = False
+
         for op_type, op in op_types:
             if op_type != current_type:
                 # Save previous segment
                 if current_ops:
-                    segment = self._create_segment(
-                        current_type, current_ops, is_first, has_sql_source, schema
-                    )
-                    exec_plan.segments.append(segment)
-                    is_first = False
+                    save_segment(current_type, current_ops)
                 # Start new segment
                 current_type = op_type
                 current_ops = [op]
@@ -671,10 +696,7 @@ class QueryPlanner:
 
         # Save last segment
         if current_ops:
-            segment = self._create_segment(
-                current_type, current_ops, is_first, has_sql_source, schema
-            )
-            exec_plan.segments.append(segment)
+            save_segment(current_type, current_ops)
 
         self._logger.debug(
             "Execution plan: %d segments (%d SQL, %d Pandas)",
@@ -684,6 +706,17 @@ class QueryPlanner:
         )
 
         return exec_plan
+
+    def _split_by_layer_depth(self, ops: List[LazyOp]) -> List[List[LazyOp]]:
+        """Split SQL ops into consecutive runs of at most MAX_SQL_LAYERS
+        subquery layers each, in layer order."""
+        layers = self._build_layers(ops)
+        if len(layers) <= MAX_SQL_LAYERS:
+            return [ops]
+        return [
+            [op for layer in layers[i : i + MAX_SQL_LAYERS] for op in layer]
+            for i in range(0, len(layers), MAX_SQL_LAYERS)
+        ]
 
     @staticmethod
     def _computed_columns_of(op: LazyOp) -> Dict[str, Any]:

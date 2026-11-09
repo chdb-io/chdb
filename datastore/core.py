@@ -3800,6 +3800,48 @@ class DataStore(PandasCompatMixin):
             build_result.has_settings = True
         return build_result
 
+    def _pipeline_sql(self) -> Optional[str]:
+        """
+        SQL that yields this pipeline's final result, for internal queries
+        that wrap it (row counts, schema probes, describe(), sample(), ...).
+
+        It is the query ``_execute()`` runs, so every lazy op is applied in
+        order. Return ``None`` when the pipeline does not run as one SQL query
+        against a ClickHouse source, or when its result needs post-processing
+        (group keys moved to the index); callers then fall back to execution.
+        """
+        memo = self._meta_memo()
+        key = ("pipeline_sql", self._cache_version)
+        if key not in memo:
+            memo[key] = self._build_pipeline_sql()
+        return memo[key]
+
+    def _build_pipeline_sql(self) -> Optional[str]:
+        if not (self._table_function or self.table_name):
+            return None
+        # DataFrame sources rely on query_df's row-order handling in _execute.
+        if self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        ):
+            return None
+        if (
+            self._is_subquery
+            or self._delete_flag
+            or self._update_fields
+            or self._insert_columns
+        ):
+            return None
+        if self._flat_sql_reproduces_pipeline():
+            return self.to_sql()
+        try:
+            build_result = self._single_sql_query()
+        except Exception as e:  # planning / SQL-build issue -> execution
+            self._logger.debug("pipeline SQL unavailable: %s", e)
+            return None
+        if build_result is None or build_result.groupby_agg is not None:
+            return None
+        return build_result.sql
+
     def _append_format_settings(self, sql: Optional[str]) -> Optional[str]:
         """Append ``SETTINGS ...`` from ``self._format_settings`` (parity with
         the first SQL segment in :meth:`_execute`)."""
@@ -3938,7 +3980,9 @@ class DataStore(PandasCompatMixin):
         # SQL optimization: compute statistics via SQL aggregates (no full data load)
         if include is None and exclude is None and self._can_use_sql_no_load():
             try:
-                return self._sql_describe(percentiles=percentiles)
+                result = self._sql_describe(percentiles=percentiles)
+                if result is not None:
+                    return result
             except Exception as e:
                 self._logger.info(
                     "describe() SQL optimization failed, falling back to pandas: %s", e
@@ -3953,9 +3997,14 @@ class DataStore(PandasCompatMixin):
         return self._wrap_result(result_df, "describe()")
 
     def _sql_describe(self, percentiles=None):
-        """Compute describe() statistics via SQL aggregates (no full data load)."""
+        """Compute describe() statistics via SQL aggregates (no full data load).
+
+        Returns ``None`` when the pipeline does not run as one SQL query.
+        """
+        subquery_sql = self._pipeline_sql()
+        if subquery_sql is None:
+            return None
         probe_df = self._probe_schema()
-        subquery_sql = self.to_sql()
         dtypes = probe_df.dtypes
 
         # Find numeric columns
@@ -4171,14 +4220,17 @@ class DataStore(PandasCompatMixin):
             and self._can_use_sql_no_load()
         ):
             try:
+                result = None
                 if n is not None:
-                    return self._sql_sample(int(n))
+                    result = self._sql_sample(int(n))
                 elif frac is not None and 0 < frac <= 1:
                     total = self.count_rows()
                     actual_n = int(round(total * frac))
                     if actual_n < 1:
                         actual_n = 1
-                    return self._sql_sample(actual_n)
+                    result = self._sql_sample(actual_n)
+                if result is not None:
+                    return result
             except Exception as e:
                 self._logger.info(
                     "sample() SQL optimization failed, falling back to pandas: %s", e
@@ -4198,10 +4250,15 @@ class DataStore(PandasCompatMixin):
         return self._wrap_result(result_df, sample_desc)
 
     def _sql_sample(self, n):
-        """Sample n rows using SQL ORDER BY rand() LIMIT n (no full data load)."""
+        """Sample n rows using SQL ORDER BY rand() LIMIT n (no full data load).
+
+        Returns ``None`` when the pipeline does not run as one SQL query.
+        """
+        subquery_sql = self._pipeline_sql()
+        if subquery_sql is None:
+            return None
         if self._executor is None:
             self.connect()
-        subquery_sql = self.to_sql()
         sample_sql = f"SELECT * FROM ({subquery_sql}) ORDER BY rand() LIMIT {n}"
         self._logger.debug("sample() SQL: %s", sample_sql)
         result = self._executor.execute(sample_sql)
@@ -4274,12 +4331,8 @@ class DataStore(PandasCompatMixin):
             except Exception:
                 pass
         # SQL-pushdownable pipeline: probe the output schema with LIMIT 0 instead
-        # of materializing the full result. The probe reflects to_sql() (source +
-        # filters / ORDER BY / LIMIT). Column-altering lazy ops (select / rename /
-        # drop / assign) are applied post-SQL and are NOT in the probe SQL, so we
-        # only trust the probe when the lazy ops don't change the column set
-        # (transform_columns is the identity); otherwise we fall through to
-        # execution for correctness.
+        # of materializing the full result. The probe runs the pipeline's
+        # execution SQL, so it has the columns execution returns.
         #
         # Remote sources are excluded: _probe_schema() wraps the pipeline in a
         # nested subquery (SELECT * FROM (...) LIMIT 0), which chDB HANGS on for
@@ -4291,12 +4344,9 @@ class DataStore(PandasCompatMixin):
             and not self._is_remote_source()
         ):
             try:
-                probe_cols = list(self._probe_schema().columns)
-                cols = probe_cols
-                for op in (self._lazy_ops or []):
-                    cols = op.transform_columns(cols)
-                if cols == probe_cols:
-                    return pd.Index(probe_cols)
+                probe = self._probe_schema()
+                if probe is not None:
+                    return pd.Index(probe.columns)
             except Exception:
                 pass
         return self._get_df().columns
@@ -4343,24 +4393,24 @@ class DataStore(PandasCompatMixin):
             self._cached_result = None
             self._cached_at_version = -1
 
-    def _build_count_subquery(self) -> str:
-        """Build a subquery SQL suitable for COUNT operations.
+    def _build_count_subquery(self) -> Optional[str]:
+        """Build the SQL of this pipeline's rows for COUNT operations, or
+        ``None`` when the pipeline does not run as one SQL query.
 
-        Strips ORDER BY (unnecessary for counting and expensive on remote
-        servers) and clears LIMIT/OFFSET so the count covers all rows.
+        Sorts are dropped (they don't change the row count and are expensive
+        on remote servers) unless a LIMIT or OFFSET picks rows by them.
         """
         from copy import copy
 
+        def is_op(op, *op_types):
+            return isinstance(op, LazyRelationalOp) and op.op_type in op_types
+
         count_base = copy(self)
-        count_base._lazy_ops = [
-            op
-            for op in count_base._lazy_ops
-            if not (isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY")
-        ]
-        count_base._orderby_fields = []
-        count_base._limit_value = None
-        count_base._offset_value = None
-        return count_base.to_sql()
+        if not any(is_op(op, "LIMIT", "OFFSET") for op in self._lazy_ops):
+            count_base._lazy_ops = [
+                op for op in self._lazy_ops if not is_op(op, "ORDER BY")
+            ]
+        return count_base._pipeline_sql()
 
     def _meta_memo(self) -> dict:
         """Per-pipeline memo for metadata probes/counts, keyed by _cache_version.
@@ -4378,7 +4428,7 @@ class DataStore(PandasCompatMixin):
             self.__dict__["_metadata_memo"] = memo
         return memo
 
-    def _probe_schema(self, limit: int = 0) -> pd.DataFrame:
+    def _probe_schema(self, limit: int = 0) -> Optional[pd.DataFrame]:
         """Return a (near-)empty DataFrame with the pipeline's columns and dtypes.
 
         Executes ``SELECT * FROM (subquery) LIMIT {limit}`` -- lightweight because
@@ -4395,15 +4445,20 @@ class DataStore(PandasCompatMixin):
         carries both correct column names and reliable dtypes, so it also satisfies
         any lower-limit (columns-only) request -- e.g. a prior ``.dtypes`` probe
         serves a later ``.columns`` with no extra query.
+
+        Returns ``None`` when the pipeline does not run as one SQL query
+        (see :meth:`_pipeline_sql`).
         """
         memo = self._meta_memo()
         ver = self._cache_version
         cached = memo.get("probe")
         if cached is not None and cached[0] == ver and cached[1] >= limit:
             return cached[2]
+        subquery_sql = self._pipeline_sql()
+        if subquery_sql is None:
+            return None
         if self._executor is None:
             self.connect()
-        subquery_sql = self.to_sql()
         probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT {int(limit)}"
         df = self._executor.execute(probe_sql).to_df()
         # Keep the probe with the most rows -- it subsumes smaller-limit requests.
@@ -4437,10 +4492,10 @@ class DataStore(PandasCompatMixin):
             )
             return self._get_df().count()
 
-        # If LIMIT is applied (e.g., via head()), execute with LIMIT and count
-        # the actual result, since COUNT without LIMIT would over-count
-        if self._limit_value is not None:
-            self._logger.debug("count() executing due to LIMIT")
+        # If LIMIT or OFFSET is applied (e.g., via head() or ds[k:]), execute
+        # and count the actual result: the flat COUNT below would over-count
+        if self._limit_value is not None or self._offset_value is not None:
+            self._logger.debug("count() executing due to LIMIT/OFFSET")
             return self._execute().count()
 
         # Ensure we're connected
@@ -4496,6 +4551,8 @@ class DataStore(PandasCompatMixin):
             subquery_sql = None
             if not is_simple and not is_remote:
                 subquery_sql = self._build_count_subquery()
+                if subquery_sql is None:
+                    return self._execute().count()
 
             # Now get column names (may trigger execution on non-pristine
             # sources, clearing SQL state -- but we've already captured it).
@@ -4537,6 +4594,8 @@ class DataStore(PandasCompatMixin):
             # Non-remote complex case: subquery wrapping is safe
             if subquery_sql is None:
                 subquery_sql = self._build_count_subquery()
+            if subquery_sql is None:
+                return self._execute().count()
             count_exprs = []
             for col_name in column_names:
                 quoted_col = format_identifier(col_name, self.quote_char)
@@ -4670,6 +4729,8 @@ class DataStore(PandasCompatMixin):
 
         # Non-remote complex case: subquery wrapping is safe
         subquery_sql = self._build_count_subquery()
+        if subquery_sql is None:
+            return len(self._execute())
         count_sql = f"SELECT COUNT(*) FROM ({subquery_sql})"
         self._logger.debug("count_rows() executing SQL: %s", count_sql)
         result = self._executor.execute(count_sql)
@@ -7019,17 +7080,32 @@ class DataStore(PandasCompatMixin):
 
         q = self.quote_char
         out_fields = ", ".join(format_identifier(name, q) for name in names)
+        # The helper aliases share each operand's SELECT scope with the
+        # columns it reads and the names it outputs, so they must not equal
+        # any of them.
+        taken = set(names)
+
+        def helper_alias(base):
+            alias, suffix = f"__{base}__", 1
+            while alias in taken:
+                alias = f"__{base}_{suffix}__"
+                suffix += 1
+            taken.add(alias)
+            return format_identifier(alias, q)
+
+        side_alias = helper_alias("union_side")
+        row_alias = helper_alias("union_row")
 
         def operand(sql, side):
             return (
-                f"SELECT {out_fields}, {side} AS __union_side__, "
-                f"rowNumberInAllBlocks() AS __union_row__ FROM ({sql})"
+                f"SELECT {out_fields}, {side} AS {side_alias}, "
+                f"rowNumberInAllBlocks() AS {row_alias} FROM ({sql})"
             )
 
         return (
             f"SELECT {out_fields} FROM ({operand(left_sql, 0)} "
             f"UNION ALL {operand(right_sql, 1)}) "
-            f"ORDER BY __union_side__, __union_row__"
+            f"ORDER BY {side_alias}, {row_alias}"
         )
 
     def _union_operand_sql(self):
