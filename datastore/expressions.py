@@ -1005,11 +1005,31 @@ def _resolve_computed_node(expr, computed: dict, _visited: set, memo: dict):
             return expr
         return expr.with_attrs(left=resolved_left, right=resolved_right)
 
-    if isinstance(expr, NullSafeCondition):
-        resolved = _resolve_computed(expr.condition, computed, _visited, memo)
-        if resolved is expr.condition:
+    # Conditions wrapping one or more expressions (an IN subquery is not
+    # descended into: it has its own column scope)
+    from .conditions import (
+        BetweenCondition,
+        InCondition,
+        LikeCondition,
+        NotCondition,
+        UnaryCondition,
+    )
+
+    children = None
+    if isinstance(expr, (NotCondition, NullSafeCondition)):
+        children = ("condition",)
+    elif isinstance(expr, (UnaryCondition, InCondition, LikeCondition)):
+        children = ("expression",)
+    elif isinstance(expr, BetweenCondition):
+        children = ("expression", "lower", "upper")
+    if children:
+        resolved = {
+            name: _resolve_computed(getattr(expr, name), computed, _visited, memo)
+            for name in children
+        }
+        if all(resolved[name] is getattr(expr, name) for name in children):
             return expr
-        return expr.with_attrs(condition=resolved)
+        return expr.with_attrs(**resolved)
 
     # For Literal and other types, return as-is
     return expr

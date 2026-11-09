@@ -975,6 +975,13 @@ class SQLExecutionEngine:
                 ) or []
 
             computed_cols = layer_computed_columns(layer_ops, self.quote_char)
+            # The pre-aggregation WHERE filters the layer's input rows, where
+            # its computed columns don't exist (the GROUP BY SELECT holds only
+            # keys and aggregates), so they are inlined as in the aggregates.
+            clauses.where_conditions = [
+                resolve_computed_references(cond, computed_cols)
+                for cond in clauses.where_conditions
+            ]
             reserved_names = set(all_cols)
             scope_conditions = clauses.where_conditions + having_conditions
             if is_first_layer and self.ds._having_condition is not None:
