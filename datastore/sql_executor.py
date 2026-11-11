@@ -611,16 +611,15 @@ def build_groupby_select_fields(
         emitted_renames[temp_alias] = name
         return temp_alias
 
-    # A computed key is also emitted under a temp alias: ``upper(k) AS k``
-    # would make the ``k`` of ``GROUP BY upper(k)`` resolve to the alias.
-    # A key whose name an aggregate output takes is aliased to its hidden
-    # result column.
+    # A computed key, and a key under a hidden result column (an aggregate
+    # output takes its name), are also emitted under a temp alias: an alias
+    # equal to an input column, as in ``upper(k) AS k`` or
+    # ``g AS __key_g__`` next to ``sum(__key_g__)``, would make the
+    # aggregation's references to that column resolve to the alias.
     groupby_fields = []
     for expr, column, computed in keys:
-        if computed:
+        if computed or column != expr.name:
             expr = expr.as_(temp_alias_for("key", column))
-        elif column != expr.name:
-            expr = expr.as_(column)
         groupby_fields.append(expr)
 
     select_fields = list(groupby_fields)
@@ -945,8 +944,9 @@ class SQLExecutionEngine:
             from .functions import AggregateFunction, Function, WindowFunction
 
             key_columns = groupby_agg_op.key_columns()
-            key_order = [(Field(col), True) for col in key_columns]
-            # Inside the GROUP BY query a renamed key has its temp alias
+            # Inside the GROUP BY query a renamed key has its temp alias; the
+            # renaming projection reads that name too, also for a key it
+            # leaves out
             inner_name = {visible: temp for temp, visible in emitted_renames.items()}
             inner_key_order = [
                 (Field(inner_name.get(col, col)), True) for col in key_columns
@@ -973,7 +973,7 @@ class SQLExecutionEngine:
                 select_fields_for_sql = select_fields_for_sql + [position_expr]
             if not clauses.orderby_fields:
                 if groupby_agg_op.sort:
-                    clauses.orderby_fields = key_order
+                    clauses.orderby_fields = inner_key_order
                 elif group_position is not None:
                     clauses.orderby_fields = [(Field(group_position), True)]
             # GROUP BY reshapes rows; inner-layer ORDER BY no longer applies.
@@ -1113,9 +1113,9 @@ class SQLExecutionEngine:
                     f"Cannot project unnamed aggregation output: {f!r}"
                 )
             name = name.strip(qc)
-            if name in hidden:
-                continue
             visible = temp_to_visible.get(name)
+            if name in hidden or visible in hidden:
+                continue
             if visible is None:
                 projection.append(format_identifier(name, qc))
             else:

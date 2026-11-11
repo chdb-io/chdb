@@ -286,6 +286,31 @@ class TestOutputNamedLikeKey:
         d = make_source(self.FRAME, source_kind, tmp_path)
         assert_matches_pandas(chain(d), chain(self.FRAME))
 
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(
+                lambda d: d.groupby("g").agg(g=("v", "sum"), total=("__key_g__", "sum")),
+                id="other_output_reads_the_column",
+            ),
+            pytest.param(
+                lambda d: d.groupby("g").agg(g=("__key_g__", "sum")),
+                id="output_reads_the_column",
+            ),
+            pytest.param(
+                lambda d: d.groupby("g", as_index=False).agg(
+                    g=("v", "max"), total=("__key_g__", "min")
+                ),
+                id="as_index_false",
+            ),
+        ],
+    )
+    def test_hidden_key_name_of_an_input_column(self, source_kind, tmp_path, chain):
+        """The hidden name of a key whose name an output takes can be an
+        input column's name; the aggregates still read the column."""
+        frame = pd.DataFrame({"g": [1, 1, 2], "__key_g__": [10, 20, 30], "v": [1, 2, 3]})
+        assert_matches_pandas(chain(make_source(frame, source_kind, tmp_path)), chain(frame))
+
     @pytest.mark.parametrize("as_index", [True, False])
     def test_hidden_name_unlike_every_key(self, source_kind, tmp_path, as_index):
         frame = pd.DataFrame(
