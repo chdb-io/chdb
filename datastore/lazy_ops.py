@@ -1354,12 +1354,6 @@ class LazyGroupByAgg(LazyOp):
             f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict or self.named_agg}, sort={self.sort}, as_index={self.as_index}, dropna={self.dropna}, selected_columns={self.selected_columns}",
         )
 
-        # If selected_columns is specified, filter the DataFrame to only include
-        # groupby columns + selected columns before aggregation
-        if self.selected_columns:
-            cols_to_keep = self.groupby_cols + self.selected_columns
-            df = df[cols_to_keep]
-
         # Pass sort, as_index, and dropna parameters to pandas groupby
         grouped = df.groupby(
             self.groupby_cols,
@@ -1367,6 +1361,9 @@ class LazyGroupByAgg(LazyOp):
             as_index=self.as_index,
             dropna=self.dropna,
         )
+        # Only the selected columns are aggregated, a selected group key too
+        if self.selected_columns:
+            grouped = grouped[list(self.selected_columns)]
 
         if self.named_agg is not None:
             # Pandas named aggregation: agg(alias=('col', 'func'))
@@ -1513,8 +1510,10 @@ class LazyGroupByAgg(LazyOp):
         ``size()`` is named ``size``, as pandas names it; the column-less
         ``count()`` fallback emits an unnamed ``count(*)`` and is not listed.
         ``all_columns`` is only needed when
-        one function is applied to every non-key column. SQL expression
-        aggregates have neither a function name nor a source column.
+        one function is applied to every non-key column; selected columns
+        are all aggregated, a selected group key too, as in pandas
+        (``groupby('g')['g'].sum()``). SQL expression aggregates have
+        neither a function name nor a source column.
         """
         if self.expr_agg:
             return [(alias, None, None) for alias in self.expr_agg]
@@ -1540,10 +1539,13 @@ class LazyGroupByAgg(LazyOp):
             return outputs
         if self.agg_func == "size":
             return [("size", "size", None)]
+        if self.agg_func and self.selected_columns:
+            return [(col, self.agg_func, col) for col in self.selected_columns]
         if self.agg_func and all_columns:
-            cols = self.selected_columns or all_columns
             return [
-                (col, self.agg_func, col) for col in cols if col not in self.groupby_cols
+                (col, self.agg_func, col)
+                for col in all_columns
+                if col not in self.groupby_cols
             ]
         return []
 
