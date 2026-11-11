@@ -324,3 +324,48 @@ class TestExecuteReturnsWhatToPandasReturns:
         ds = DataStore.from_file(_write(_frame(), tmp_path))
         first_step = ds.select("a").to_sql(execution_format=True)
         assert ds.select("a")[::2].limit(2).to_sql(execution_format=True) == first_step
+
+
+def _masks_of_two_states(d):
+    """``a`` taken before ``a`` is overwritten, ``b`` and ``c`` after."""
+    if isinstance(d, pd.DataFrame):
+        d = d.copy()
+    a = d["a"] > 1
+    d["a"] = d["a"] * 10
+    return d, a, d["a"] > 25, d["b"] > 15
+
+
+class TestCombiningMasksOfDifferentStates:
+    """&, |, ^ and ~ of masks of different states, in any nesting, keep each
+    mask's values."""
+
+    @pytest.mark.parametrize(
+        "combine",
+        [
+            lambda a, b, c: (a ^ b) ^ c,
+            lambda a, b, c: c ^ (a ^ b),
+            lambda a, b, c: ~(a & b),
+            lambda a, b, c: ~(a | b),
+            lambda a, b, c: ~~(a & b),
+            lambda a, b, c: (a & b) | c,
+            lambda a, b, c: c & (a | b),
+            lambda a, b, c: ~(a ^ b) & c,
+            lambda a, b, c: (a & b) == c,
+            lambda a, b, c: ~a & b,
+        ],
+        ids=["xor_xor", "xor_reflected", "invert_and", "invert_or", "invert_twice",
+             "and_or", "and_reflected", "invert_xor_and", "compare", "invert_first"],
+    )
+    def test_combine(self, source, combine):
+        df = _frame()
+        d, a, b, c = _masks_of_two_states(source(df))
+        e, pa, pb, pc = _masks_of_two_states(df)
+        assert_datastore_equals_pandas(d[combine(a, b, c)], e[combine(pa, pb, pc)])
+
+    def test_combine_with_isin_of_other_state(self, source):
+        df = _frame()
+        d, a, b, _ = _masks_of_two_states(source(df))
+        e, pa, pb, _ = _masks_of_two_states(df)
+        assert_datastore_equals_pandas(
+            d[~(a & b) | d["b"].isin([10, 20])], e[~(pa & pb) | e["b"].isin([10, 20])]
+        )

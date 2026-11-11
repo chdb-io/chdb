@@ -2034,182 +2034,91 @@ class ColumnExpr:
             # Non-condition expression, convert to truthy check: expr = 1
             return BinaryCondition("=", self._expr, Literal(1))
 
-    @_operand_without_expression_uses_method_mode
+    def _combine_masks(self, op: str, other: Any, reflected: bool = False) -> "ColumnExpr":
+        """
+        ``self <op> other`` for a boolean combinator (``op`` is "AND", "OR" or
+        "XOR"; ``reflected``: ``other <op> self``), the one path for ``&``,
+        ``|`` and ``^`` in either order.
+
+        The result is a SQL condition when both sides are condition
+        expressions of the same state. When either side has no expression
+        (a method-mode or executor result, such as an earlier combination
+        of masks of different states, or a pandas Series / array) or the
+        sides are masks of different states, both sides are evaluated on
+        their own state and combined in pandas, aligned by index as pandas
+        combines two Series.
+        """
+        import numpy as np
+        import pandas as pd
+
+        from .conditions import CompoundCondition, Condition
+
+        symbol = {"AND": "and", "OR": "or", "XOR": "xor"}[op]
+        method_name = f"__r{symbol}__" if reflected else f"__{symbol}__"
+        other = _translate_pd_col_operand(other, op)
+        if (
+            isinstance(other, (np.ndarray, pd.Series))
+            or self._evaluated_in_pandas()
+            or (isinstance(other, ColumnExpr) and other._evaluated_in_pandas())
+            or self._is_cross_datastore(other)
+        ):
+            return ColumnExpr(source=self, method_name=method_name, method_args=(other,))
+
+        if isinstance(other, ColumnExpr):
+            other_cond = other._to_condition()
+        elif isinstance(other, LazyCondition):
+            other_cond = other.condition
+        elif isinstance(other, Condition):
+            other_cond = other
+        else:
+            raise TypeError(f"Cannot {op} ColumnExpr with {type(other).__name__}")
+        self_cond = self._to_condition()
+        left, right = (other_cond, self_cond) if reflected else (self_cond, other_cond)
+        return self._derive_expr(CompoundCondition(op, left, right))
+
+    def _evaluated_in_pandas(self) -> bool:
+        """Whether this value has no expression tree and is computed in pandas."""
+        return self._exec_mode != "expr" or self._expr is None
+
     def __and__(self, other: Any) -> "ColumnExpr":
         """
-        Combine with AND operator.
-
-        Returns a ColumnExpr wrapping CompoundCondition('AND', ...).
-        This allows chaining: (ds['a'] > 0) & (ds['b'] < 10)
+        Combine with AND operator (see ``_combine_masks``).
 
         Example:
             >>> ds.filter((ds['age'] > 18) & (ds['status'] == 'active'))
             >>> ((ds['a'] > 0) & (ds['b'] < 10)).value_counts()
         """
-        from .conditions import CompoundCondition, Condition
+        return self._combine_masks("AND", other)
 
-        # For method mode (e.g., from groupby comparison), use pandas & on executed results
-        import numpy as np
-        import pandas as pd
-
-        # Handle numpy arrays and pandas Series by deferring to method mode
-        if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name="__and__", method_args=(other,))
-
-        # pandas 3.x pd.col(...): translate to a chdb-ds Condition so the
-        # rest of __and__ treats it the same as ``ds['x'] > 0``.
-        other = _translate_pd_col_operand(other, "AND")
-
-        # For executor mode (e.g., cross-DataStore comparison result), use pandas & on executed results
-        # A mask of another state (e.g. taken before the frame was changed)
-        # keeps its values: both sides are evaluated on their own state and
-        # combined aligned by index, as pandas combines two Series.
-        if (
-            self._exec_mode in ("method", "executor")
-            or (isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor"))
-            or self._is_cross_datastore(other)
-        ):
-            return ColumnExpr(source=self, method_name="__and__", method_args=(other,))
-
-        self_cond = self._to_condition()
-
-        # Handle other operand
-        if isinstance(other, ColumnExpr):
-            other_cond = other._to_condition()
-        elif isinstance(other, LazyCondition):
-            other_cond = other.condition
-        elif isinstance(other, Condition):
-            other_cond = other
-        else:
-            raise TypeError(f"Cannot AND ColumnExpr with {type(other).__name__}")
-
-        return self._derive_expr(CompoundCondition("AND", self_cond, other_cond))
-
-    @_operand_without_expression_uses_method_mode
     def __rand__(self, other: Any) -> "ColumnExpr":
         """Right AND operator."""
-        from .conditions import CompoundCondition, Condition
-        import numpy as np
-        import pandas as pd
+        return self._combine_masks("AND", other, reflected=True)
 
-        # Handle numpy arrays and pandas Series by deferring to method mode
-        if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name="__rand__", method_args=(other,))
-
-        other = _translate_pd_col_operand(other, "AND")
-
-        self_cond = self._to_condition()
-
-        if isinstance(other, LazyCondition):
-            return self._derive_expr(
-                CompoundCondition("AND", other.condition, self_cond)
-            )
-        elif isinstance(other, Condition):
-            return self._derive_expr(CompoundCondition("AND", other, self_cond))
-        else:
-            raise TypeError(f"Cannot AND {type(other).__name__} with ColumnExpr")
-
-    @_operand_without_expression_uses_method_mode
     def __or__(self, other: Any) -> "ColumnExpr":
         """
-        Combine with OR operator.
-
-        Returns a ColumnExpr wrapping CompoundCondition('OR', ...).
+        Combine with OR operator (see ``_combine_masks``).
 
         Example:
             >>> ds.filter((ds['age'] < 18) | (ds['age'] > 65))
         """
-        from .conditions import CompoundCondition, Condition
+        return self._combine_masks("OR", other)
 
-        import numpy as np
-        import pandas as pd
-
-        # Handle numpy arrays and pandas Series by deferring to method mode
-        if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name="__or__", method_args=(other,))
-
-        other = _translate_pd_col_operand(other, "OR")
-
-        # For executor/method mode (e.g., cross-DataStore comparison result), use pandas | on executed results
-        # A mask of another state (e.g. taken before the frame was changed)
-        # keeps its values: both sides are evaluated on their own state and
-        # combined aligned by index, as pandas combines two Series.
-        if (
-            self._exec_mode in ("method", "executor")
-            or (isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor"))
-            or self._is_cross_datastore(other)
-        ):
-            return ColumnExpr(source=self, method_name="__or__", method_args=(other,))
-
-        self_cond = self._to_condition()
-
-        # Handle other operand
-        if isinstance(other, ColumnExpr):
-            other_cond = other._to_condition()
-        elif isinstance(other, LazyCondition):
-            other_cond = other.condition
-        elif isinstance(other, Condition):
-            other_cond = other
-        else:
-            raise TypeError(f"Cannot OR ColumnExpr with {type(other).__name__}")
-
-        return self._derive_expr(CompoundCondition("OR", self_cond, other_cond))
-
-    @_operand_without_expression_uses_method_mode
     def __ror__(self, other: Any) -> "ColumnExpr":
         """Right OR operator."""
-        from .conditions import CompoundCondition, Condition
-        import numpy as np
-        import pandas as pd
+        return self._combine_masks("OR", other, reflected=True)
 
-        # Handle numpy arrays and pandas Series by deferring to method mode
-        if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name="__ror__", method_args=(other,))
-
-        other = _translate_pd_col_operand(other, "OR")
-
-        self_cond = self._to_condition()
-
-        if isinstance(other, LazyCondition):
-            return self._derive_expr(
-                CompoundCondition("OR", other.condition, self_cond)
-            )
-        elif isinstance(other, Condition):
-            return self._derive_expr(CompoundCondition("OR", other, self_cond))
-        else:
-            raise TypeError(f"Cannot OR {type(other).__name__} with ColumnExpr")
-
-    @_operand_without_expression_uses_method_mode
     def __xor__(self, other: Any) -> "ColumnExpr":
-        """
-        Combine with XOR operator.
+        """Combine with XOR operator (see ``_combine_masks``)."""
+        return self._combine_masks("XOR", other)
 
-        Returns a ColumnExpr wrapping CompoundCondition('XOR', ...).
-        """
-        from .conditions import CompoundCondition, Condition
-        import numpy as np
-        import pandas as pd
-
-        # Handle numpy arrays and pandas Series by deferring to method mode
-        if isinstance(other, (np.ndarray, pd.Series)) or self._is_cross_datastore(other):
-            return ColumnExpr(source=self, method_name="__xor__", method_args=(other,))
-
-        self_cond = self._to_condition()
-
-        if isinstance(other, ColumnExpr):
-            other_cond = other._to_condition()
-        elif isinstance(other, Condition):
-            other_cond = other
-        else:
-            raise TypeError(f"Cannot XOR ColumnExpr with {type(other).__name__}")
-
-        return self._derive_expr(CompoundCondition("XOR", self_cond, other_cond))
+    def __rxor__(self, other: Any) -> "ColumnExpr":
+        """Right XOR operator."""
+        return self._combine_masks("XOR", other, reflected=True)
 
     def __invert__(self) -> "ColumnExpr":
         """
-        Negate with NOT operator.
-
-        Returns a ColumnExpr wrapping NotCondition.
+        Negate with NOT operator: a NotCondition, or for a value computed in
+        pandas (see ``_combine_masks``) its negation in pandas.
 
         Example:
             >>> ds.filter(~(ds['age'] > 18))  # age <= 18
@@ -2217,8 +2126,9 @@ class ColumnExpr:
         """
         from .conditions import NotCondition
 
-        self_cond = self._to_condition()
-        return self._derive_expr(NotCondition(self_cond))
+        if self._evaluated_in_pandas():
+            return ColumnExpr(source=self, method_name="__invert__")
+        return self._derive_expr(NotCondition(self._to_condition()))
 
     # ========== Arithmetic Operators (Return ColumnExpr) ==========
 
