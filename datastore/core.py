@@ -1516,7 +1516,7 @@ class DataStore(PandasCompatMixin):
         rowwise = _is_row_wise(value)
         return all(_keeps_read_columns(effect, reads, rowwise) for effect in later)
 
-    def _mask_alignment(self, mask) -> Optional[str]:
+    def _mask_alignment(self, mask, where_clause: bool = False) -> Optional[str]:
         """
         How a boolean mask (a ColumnExpr or LazyCondition) taken from a
         DataStore state applies to this frame's rows, as pandas applies a
@@ -1525,9 +1525,10 @@ class DataStore(PandasCompatMixin):
         None: the frame evaluates the mask on its own rows (in SQL or
         pandas). The mask is a condition expression taken from this frame's
         state or an earlier one whose later ops keep the values of the
-        columns it reads; a later filter, sort or projection keeps them
-        (``ds.select('a').filter(ds.c > 10)``), an overwrite or fillna of a
-        column it reads doesn't.
+        columns it reads, and the frame can still read those columns; a
+        later filter or sort keeps them, an overwrite or fillna of a column
+        it reads doesn't, and a projection or drop that leaves one out keeps
+        its values but not the column (see ``_reads_available``).
 
         Otherwise the mask is evaluated on its own state and matched to the
         rows by position ("position") when the later ops keep the rows and
@@ -1548,9 +1549,13 @@ class DataStore(PandasCompatMixin):
         )
         if expression:
             reads = _columns_read(mask)
-            if later is not None and all(
-                _keeps_read_columns(effect, reads, rowwise=True, values_only=True)
-                for effect in later
+            if (
+                later is not None
+                and all(
+                    _keeps_read_columns(effect, reads, rowwise=True, values_only=True)
+                    for effect in later
+                )
+                and self._reads_available(reads, later, where_clause)
             ):
                 return None
             # A column its own state doesn't have is a name for the frame's
@@ -1564,6 +1569,68 @@ class DataStore(PandasCompatMixin):
         if later is not None and all(_keeps_rows(effect) for effect in later):
             return "position"
         return "index"
+
+    def _reads_available(
+        self, reads: Optional[set], later: list, where_clause: bool
+    ) -> bool:
+        """
+        Whether the frame can read the columns in ``reads`` where it applies
+        a mask, given the ``later`` effects since the mask's state. A later
+        projection or drop may leave them out; a ``where_clause`` (a filter)
+        still reads the columns a select() projection leaves out when the
+        planner puts the filter in the projection's SQL layer, as SQL filters
+        the projection's input (``ds.select('a').filter(ds.c > 10)``).
+        """
+        removes = [
+            effect
+            for effect in later
+            if effect[0] == "columns" or (effect[0] == "select" and not effect[2])
+        ]
+        if not removes:
+            return True
+        if (
+            where_clause
+            and all(effect[0] == "select" for effect in removes)
+            and self._filters_in_projection_layer()
+        ):
+            return True
+        if reads is None:
+            return False
+        try:
+            return reads <= set(self._get_current_columns())
+        except Exception:
+            return False
+
+    def _filters_in_projection_layer(self) -> bool:
+        """
+        Whether a filter added now runs in the SQL layer of this pipeline's
+        last explicit projection, so it can read the columns the projection
+        leaves out: only filters follow the projection, and the planner puts
+        a filter in its layer.
+        """
+        from .expressions import is_star_item
+        from .query_planner import QueryPlanner
+
+        ops = list(self._lazy_ops)
+        last = next(
+            (
+                i
+                for i in range(len(ops) - 1, -1, -1)
+                if isinstance(ops[i], LazyRelationalOp)
+                and ops[i].op_type == "SELECT"
+                and ops[i].fields
+                and not any(is_star_item(f) for f in ops[i].fields)
+            ),
+            None,
+        )
+        if last is None or not all(
+            isinstance(op, LazyRelationalOp) and op.op_type == "WHERE"
+            for op in ops[last + 1 :]
+        ):
+            return False
+        probe = LazyRelationalOp("WHERE", "probe")
+        layers = QueryPlanner()._build_layers(ops + [probe])
+        return any(op is ops[last] for op in layers[-1])
 
     def _ops_after(self, state: "DataStore") -> Optional[list]:
         """
@@ -6981,7 +7048,7 @@ class DataStore(PandasCompatMixin):
             # state whose values or rows the frame no longer has) is
             # evaluated on its own state and matched to the rows, see
             # _mask_alignment.
-            alignment = self._mask_alignment(condition)
+            alignment = self._mask_alignment(condition, where_clause=True)
             method_mode = isinstance(condition, ColumnExpr) and (
                 condition._exec_mode == "method" or condition._expr is None
             )

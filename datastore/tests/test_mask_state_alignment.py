@@ -184,3 +184,48 @@ class TestToSqlRunsLikeExecution:
         df = _frame()
         d = source(df)
         assert_datastore_equals_pandas(d.head(3)[d["a"] > 1], df.head(3)[df["a"] > 1])
+
+
+class TestMaskOfColumnsDroppedSince:
+    """A mask reading a column the frame dropped since keeps its values."""
+
+    @staticmethod
+    def _dropped(d, how):
+        if isinstance(d, pd.DataFrame):
+            d = d.copy()
+        m = d["a"] > 2
+        if how == "del":
+            del d["a"]
+        elif how == "drop":
+            d = d.drop(columns=["a"])
+        else:
+            d = d[["b"]]
+        return d, m
+
+    @pytest.mark.parametrize("how", ["del", "drop", "projection"])
+    @pytest.mark.parametrize(
+        "then",
+        [
+            lambda d, m: d.where(m, 0),
+            lambda d, m: d.mask(m, 0),
+            lambda d, m: d[m],
+            lambda d, m: d.loc[m],
+            lambda d, m: d.loc[m, ["b"]],
+            lambda d, m: d.sort_values("b")[m],
+            lambda d, m: d.head(3)[m],
+        ],
+        ids=["where", "mask", "getitem", "loc", "loc_columns", "sort", "head"],
+    )
+    def test_then(self, source, how, then):
+        df = _frame()
+        assert_datastore_equals_pandas(
+            then(*self._dropped(source(df), how)), then(*self._dropped(df, how))
+        )
+
+    def test_filter_reading_projected_out_column_stays_sql(self, tmp_path):
+        # A filter in the projection's SQL layer reads the projection's input
+        ds = DataStore.from_file(_write(_frame(), tmp_path))
+        got = ds.select("b").filter(ds.a > 2)
+        assert 'WHERE "a" > 2' in got.to_sql()
+        df = _frame()
+        assert_datastore_equals_pandas(got, df[["b"]][df["a"] > 2])
