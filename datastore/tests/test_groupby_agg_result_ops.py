@@ -493,6 +493,50 @@ class TestMinCount:
         d = make_source(frame, source_kind, tmp_path)
         assert_series_equal(d.groupby("g")["v"].prod(), frame.groupby("g")["v"].prod())
 
+    DTYPES = [
+        "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64",
+        "float32", "float64", "bool", "Int8", "UInt8", "Int64", "Float32", "boolean",
+    ]
+
+    @pytest.mark.parametrize("dtype", DTYPES)
+    @pytest.mark.parametrize("func", ["sum", "prod"])
+    @pytest.mark.parametrize(
+        "values",
+        [pytest.param([2, 3, 5], id="fits"), pytest.param([100, 100, 5], id="wide")],
+    )
+    def test_result_dtype_of_every_numeric_dtype(self, dtype, func, values):
+        """pandas keeps the input dtype: floats always, integers when the
+        result fits, else 64 bits of the same signedness; booleans sum and
+        multiply to int64."""
+        if dtype in ("bool", "boolean"):
+            values = [True, True, False]
+        frame = pd.DataFrame({"g": ["a", "a", "b"], "v": pd.array(values, dtype=dtype)})
+        for min_count in (0, 3):
+            assert_series_equal(
+                getattr(DataStore(frame.copy()).groupby("g")["v"], func)(min_count=min_count),
+                getattr(frame.groupby("g")["v"], func)(min_count=min_count),
+            )
+
+    @pytest.mark.parametrize("dtype", ["int8", "uint8", "Int8", "UInt8", "bool", "float32"])
+    def test_product_of_narrow_types_on_files(self, tmp_path, dtype):
+        values = [True, True, False] if dtype == "bool" else [2, 3, 5]
+        frame = pd.DataFrame({"g": ["a", "a", "b"], "v": pd.array(values, dtype=dtype)})
+        result = make_source(frame, "file", tmp_path).groupby("g")["v"].prod()
+        expected = frame.groupby("g")["v"].prod()
+        assert result.index.tolist() == expected.index.tolist()
+        assert result.astype("float64").tolist() == expected.astype("float64").tolist()
+
+    def test_product_of_decimals_on_files(self, tmp_path):
+        from decimal import Decimal
+
+        frame = pd.DataFrame(
+            {"g": ["a", "a", "b"], "v": [Decimal("1.5"), Decimal("2.0"), Decimal("3.25")]}
+        )
+        result = make_source(frame, "file", tmp_path).groupby("g")["v"].prod()
+        expected = frame.groupby("g")["v"].prod()
+        assert result.index.tolist() == expected.index.tolist()
+        assert result.tolist() == [float(v) for v in expected]
+
 
 class TestHiddenColumnsStayInternal:
     """A key moved to a hidden column when an output takes its name is not

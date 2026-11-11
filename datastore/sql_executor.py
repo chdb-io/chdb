@@ -444,6 +444,7 @@ def build_groupby_select_fields(
     reserved_names: Optional[Set[str]] = None,
     all_columns: List[str] = None,
     computed_columns: Dict[str, Expression] = None,
+    column_types: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[Field], List[Expression], Dict[str, str]]:
     """
     Build GROUP BY and SELECT fields from a LazyGroupByAgg operation.
@@ -465,6 +466,7 @@ def build_groupby_select_fields(
             COUNT(col) per column)
         computed_columns: Dict mapping computed column names to their
             expressions (for expanding assign() columns in aggregations)
+        column_types: ClickHouse types of the input columns, if known
 
     Returns:
         Tuple of (groupby_fields, select_fields, emitted_renames).
@@ -475,6 +477,7 @@ def build_groupby_select_fields(
 
     emitted_renames: Dict[str, str] = {}
     computed_columns = computed_columns or {}
+    column_types = column_types or {}
 
     def resolve_column(col_name: str) -> Expression:
         """Resolve column name - return expression if computed column, else Field."""
@@ -489,8 +492,13 @@ def build_groupby_select_fields(
         sum() / prod() with pandas' min_count: a group with fewer than
         min_count values is NULL, otherwise the values' sum (0 without
         values) or product (1 without values). SQL's sum() of no values is
-        NULL, and SQL has no product aggregate: the values are folded,
-        starting from 1 in the input's type.
+        NULL, and SQL has no product aggregate: the values are folded from 1.
+
+        arrayFold needs ``acc * v`` to keep the accumulator's type. The seed
+        is 1 in the type multiplication widens the values' type to (64-bit
+        integers of their signedness, Float64), which ``* 1`` reaches from
+        any narrower one. A Decimal's scale grows with every product, so
+        decimals are multiplied as Float64.
         """
         from .config import is_performance_mode
 
@@ -499,11 +507,20 @@ def build_groupby_select_fields(
             if min_count <= 0 and not is_performance_mode():
                 expr = Function('ifNull', expr, Literal(0))
         else:
+            value = col_expr
+            if isinstance(col_expr, Field) and "Decimal" in column_types.get(
+                col_expr.name, ""
+            ):
+                value = Function('toFloat64', col_expr)
             one = Function(
-                'ifNull',
+                'multiply',
                 Function(
-                    'plus',
-                    Function('multiply', AggregateFunction('any', col_expr), Literal(0)),
+                    'ifNull',
+                    Function(
+                        'plus',
+                        Function('multiply', AggregateFunction('any', value), Literal(0)),
+                        Literal(1),
+                    ),
                     Literal(1),
                 ),
                 Literal(1),
@@ -511,7 +528,7 @@ def build_groupby_select_fields(
             expr = Function(
                 'arrayFold',
                 _SQLText('(acc, v) -> acc * v'),
-                AggregateFunction('groupArray', col_expr),
+                AggregateFunction('groupArray', value),
                 one,
             )
         if min_count > 0:
@@ -922,6 +939,7 @@ class SQLExecutionEngine:
                 reserved_names=reserved_names,
                 all_columns=all_cols,
                 computed_columns=computed_cols,
+                column_types=schema,
             )
 
             from .functions import AggregateFunction, Function, WindowFunction
@@ -2704,7 +2722,7 @@ class SQLExecutionEngine:
         from .config import is_performance_mode as _is_perf
 
         if plan.groupby_agg and not _is_perf():
-            result_df = plan.groupby_agg.restore_nullable_dtypes(result_df, df)
+            result_df = plan.groupby_agg.restore_input_dtypes(result_df, df)
             if plan.groupby_agg.groupby_cols:
                 result_df = plan.groupby_agg.set_group_index(result_df)
 

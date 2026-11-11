@@ -1240,6 +1240,34 @@ class LazyRelationalOp(LazyOp):
         return True
 
 
+def _aggregate_dtype(dtype, func: str, values: pd.Series):
+    """
+    The dtype pandas gives ``func``'s result over a column of ``dtype``,
+    for the ``values`` a SQL aggregate returned; None keeps them as they are.
+    """
+    nullable = isinstance(dtype, pd.api.extensions.ExtensionDtype)
+    base = getattr(dtype, "numpy_dtype", None) if nullable else dtype
+    if base is None or base.kind not in "biuf":
+        return None
+    kind = getattr(values.dtype, "numpy_dtype", values.dtype).kind
+    if base.kind == "f" or (base.kind == "b" and func not in ("sum", "prod")):
+        return dtype if kind == base.kind else None
+    if kind not in "iu":
+        return None
+    present = values.dropna()
+    if not nullable and len(present) < len(values):
+        # A numpy integer column can't hold NA (min_count): pandas uses float64
+        return np.dtype("float64")
+    if base.kind == "b":
+        return pd.Int64Dtype() if nullable else np.dtype("int64")
+    info = np.iinfo(base)
+    if present.empty or (present.min() >= info.min and present.max() <= info.max):
+        return dtype
+    if base.kind == "i":
+        return pd.Int64Dtype() if nullable else np.dtype("int64")
+    return pd.UInt64Dtype() if nullable else np.dtype("uint64")
+
+
 class LazyGroupByAgg(LazyOp):
     """
     Lazy groupby aggregation operation.
@@ -1411,15 +1439,17 @@ class LazyGroupByAgg(LazyOp):
         aggregated._add_lazy_op(self)
         return self.set_group_index(aggregated._execute())
 
-    def restore_nullable_dtypes(
+    def restore_input_dtypes(
         self, result: pd.DataFrame, source: pd.DataFrame
     ) -> pd.DataFrame:
         """
         Give outputs of type-preserving aggregates (sum, prod, min, max,
-        first, last) of a nullable column (Int64, Float64, boolean) that
-        dtype again: chDB returns a Nullable column without NULLs as the
-        plain numpy dtype. A column a later op recomputed into another
-        dtype is left alone.
+        first, last) the dtype pandas gives them. SQL computes sums and
+        products of integers in 64 bits and returns a Nullable column without
+        NULLs as the plain numpy dtype; pandas keeps the input dtype (float,
+        nullable extension, or integer when the values fit, else 64 bits of
+        the same signedness) and sums or multiplies booleans to int64. A
+        column a later op recomputed into another kind is left alone.
         """
         for name, func, col in self.aggregate_outputs(list(source.columns)):
             if (
@@ -1428,12 +1458,9 @@ class LazyGroupByAgg(LazyOp):
                 or name not in result.columns
             ):
                 continue
-            dtype = source[col].dtype
-            if (
-                isinstance(dtype, pd.api.extensions.ExtensionDtype)
-                and getattr(dtype, "numpy_dtype", None) == result[name].dtype
-            ):
-                result[name] = result[name].astype(dtype)
+            target = _aggregate_dtype(source[col].dtype, func, result[name])
+            if target is not None and result[name].dtype != target:
+                result[name] = result[name].astype(target)
         return result
 
     def set_group_index(self, df: pd.DataFrame) -> pd.DataFrame:
