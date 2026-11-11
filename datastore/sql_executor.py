@@ -658,11 +658,12 @@ def build_groupby_select_fields(
     # Build GROUP BY fields
     # Use resolve_column to expand computed columns in groupby keys
     groupby_fields = []
-    for col in groupby_agg.groupby_cols:
+    for col, column in zip(groupby_agg.groupby_cols, groupby_agg.key_columns()):
         col_expr = resolve_column(col)
-        # If computed column, alias it with the column name for SELECT
-        if col in computed_columns:
-            col_expr = col_expr.as_(col)
+        # A computed key, or one whose name an aggregate output takes, is
+        # aliased to its result column
+        if col in computed_columns or column != col:
+            col_expr = col_expr.as_(column)
         groupby_fields.append(col_expr)
 
     # Build SELECT fields with aggregations
@@ -1055,7 +1056,8 @@ class SQLExecutionEngine:
 
             from .functions import AggregateFunction, Function, WindowFunction
 
-            key_order = [(Field(col), True) for col in groupby_agg_op.groupby_cols]
+            key_columns = groupby_agg_op.key_columns()
+            key_order = [(Field(col), True) for col in key_columns]
             if group_position is not None:
                 if groupby_agg_op.sort:
                     position_expr = WindowFunction(
@@ -1083,6 +1085,12 @@ class SQLExecutionEngine:
             preserved_orderby = None
             preserved_orderby_kind = None
 
+            # A key whose name an output takes is dropped with as_index=False
+            dropped_keys = (
+                set()
+                if groupby_agg_op.as_index
+                else set(key_columns) - set(groupby_agg_op.groupby_cols)
+            )
             # ORDER BY / LIMIT / OFFSET bind to user-visible names, so they
             # move to the outer projection that renames the temp aliases.
             if emitted_renames or group_position is not None:
@@ -1166,7 +1174,8 @@ class SQLExecutionEngine:
                 select_fields_for_sql,
                 emitted_renames,
                 agg_outer_clauses,
-                hidden=(
+                hidden=dropped_keys
+                | (
                     {group_position}
                     if group_position is not None and not expose_group_position
                     else set()
@@ -2418,9 +2427,7 @@ class SQLExecutionEngine:
                     [(Field(group_position), True)] if not is_last else None
                 )
                 preserved_orderby_kind = None
-                index_keys = (
-                    list(layer_agg.groupby_cols) if layer_agg.as_index else []
-                )
+                index_keys = layer_agg.key_columns() if layer_agg.as_index else []
             elif sort_position is not None:
                 preserved_orderby = [(Field(sort_position), True)]
                 preserved_orderby_kind = None
@@ -2788,16 +2795,8 @@ class SQLExecutionEngine:
         # In performance mode, skip set_index -- group keys stay as columns
         from .config import is_performance_mode as _is_perf
 
-        if plan.groupby_agg and plan.groupby_agg.groupby_cols:
-            groupby_cols = plan.groupby_agg.groupby_cols
-            # Don't set index if as_index=False (user wants group keys as columns)
-            as_index = getattr(plan.groupby_agg, "as_index", True)
-            if not _is_perf() and as_index:
-                if all(col in result_df.columns for col in groupby_cols):
-                    result_df = result_df.set_index(groupby_cols)
-                    self._logger.debug(
-                        "  Set groupby columns as index: %s", groupby_cols
-                    )
+        if plan.groupby_agg and plan.groupby_agg.groupby_cols and not _is_perf():
+            result_df = plan.groupby_agg.set_group_index(result_df)
 
         # Convert flat column names to MultiIndex for pandas compatibility
         # Only needed when ANY column has multiple aggregation functions (e.g., agg({'col': ['sum', 'mean']}))

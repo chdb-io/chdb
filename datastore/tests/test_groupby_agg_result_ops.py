@@ -231,6 +231,52 @@ class TestSqlStyleAggregation:
         )
 
 
+class TestOutputNamedLikeKey:
+    """An aggregate output named like a group key: pandas keeps the key in
+    the index (or drops it with as_index=False) and names the column after
+    the output."""
+
+    FRAME = pd.DataFrame({"g": ["b", "a", "b", "c"], "amount": [1, 6, 3, 2]})
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(lambda d: d.groupby("g").agg(g=("amount", "sum")), id="named"),
+            pytest.param(lambda d: d.groupby("g").agg({"g": "count"}), id="dict"),
+            pytest.param(
+                lambda d: d.groupby("g").agg({"g": "count", "amount": "sum"}),
+                id="dict_two_outputs",
+            ),
+            pytest.param(
+                lambda d: d.groupby("g", as_index=False).agg(g=("amount", "sum")),
+                id="as_index_false",
+            ),
+            pytest.param(
+                lambda d: d.groupby("g", sort=False)
+                .agg({"g": "count", "amount": "sum"})
+                .sort_values("amount", kind="stable"),
+                id="sort_false_then_sort",
+            ),
+            pytest.param(
+                lambda d: (lambda a: a[a["g"] > 1][["amount"]])(
+                    d.groupby("g").agg({"g": "count", "amount": "sum"})
+                ),
+                id="filter_then_select",
+            ),
+        ],
+    )
+    def test_matches_pandas(self, source_kind, tmp_path, chain):
+        d = make_source(self.FRAME, source_kind, tmp_path)
+        assert_matches_pandas(chain(d), chain(self.FRAME))
+
+    def test_sql_expression_output(self, source_kind, tmp_path):
+        d = make_source(self.FRAME, source_kind, tmp_path)
+        assert_matches_pandas(
+            d.groupby("g").agg(g=col("amount").sum()),
+            self.FRAME.groupby("g").agg(g=("amount", "sum")),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Random chains that continue after the aggregation
 # ---------------------------------------------------------------------------

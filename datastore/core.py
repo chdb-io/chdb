@@ -2013,10 +2013,8 @@ class DataStore(PandasCompatMixin):
                         )
                     # For empty groupby results, set group keys as index
                     # to match pandas behavior (groupby with as_index=True)
-                    if plan.groupby_agg and getattr(plan.groupby_agg, 'as_index', True):
-                        groupby_cols = plan.groupby_agg.groupby_cols
-                        if all(col in df.columns for col in groupby_cols):
-                            df = df.set_index(groupby_cols)
+                    if plan.groupby_agg:
+                        df = plan.groupby_agg.set_group_index(df)
                     return df
 
             # If we have a source but no DataFrame yet, load raw data first
@@ -2146,17 +2144,9 @@ class DataStore(PandasCompatMixin):
         from .config import is_performance_mode
 
         if plan.groupby_agg and plan.groupby_agg.groupby_cols:
-            groupby_cols = plan.groupby_agg.groupby_cols
-            # Check as_index: only set index if as_index=True (default)
             # In performance mode, skip set_index -- group keys stay as columns
-            as_index = getattr(plan.groupby_agg, "as_index", True)
-            if (
-                not is_performance_mode()
-                and as_index
-                and all(col in df.columns for col in groupby_cols)
-            ):
-                df = df.set_index(groupby_cols)
-                self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
+            if not is_performance_mode():
+                df = plan.groupby_agg.set_group_index(df)
 
             # Convert flat column names to MultiIndex for pandas compatibility
             # Skip for single_column_agg which should return flat column names

@@ -1366,8 +1366,31 @@ class LazyGroupByAgg(LazyOp):
         outputs = [name for name, _, _ in self.aggregate_outputs(columns)]
         if not outputs:
             return columns
-        keys = list(self.groupby_cols)
-        return keys + [name for name in outputs if name not in keys]
+        keys = [
+            column
+            for key, column in zip(self.groupby_cols, self.key_columns())
+            if self.as_index or column == key
+        ]
+        return keys + outputs
+
+    def key_columns(self) -> List[str]:
+        """
+        The SQL result column of each group key: the key's name, or a hidden
+        name when an aggregate output takes it (``agg(g=col('v').sum())``
+        grouped by ``g``). pandas then keeps the key in the index, or drops
+        it with ``as_index=False``.
+        """
+        outputs = {name for name, _, _ in self.aggregate_outputs()}
+        return [f"__key_{key}__" if key in outputs else key for key in self.groupby_cols]
+
+    def set_group_index(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Move the group key columns of a SQL result to the index."""
+        columns = self.key_columns()
+        if not self.as_index or not all(c in df.columns for c in columns):
+            return df
+        df = df.set_index(columns)
+        df.index.names = list(self.groupby_cols)
+        return df
 
     def aggregate_outputs(
         self, all_columns: Optional[List[str]] = None
@@ -1413,20 +1436,13 @@ class LazyGroupByAgg(LazyOp):
         """
         Check if this GroupByAgg can be pushed to SQL.
 
-        Most aggregation modes can be pushed to SQL, except:
-        - agg_dict is a list (e.g., ['sum', 'mean', 'count']) which needs pandas
-        - an aggregate output named like a group key: pandas keeps the key in
-          the index, but a SQL result cannot hold two columns with one name
+        Most aggregation modes can be pushed to SQL, except agg_dict as a
+        list (e.g., ['sum', 'mean', 'count']), which needs pandas. An output
+        named like a group key is emitted under that name while the key
+        moves to a hidden column (see ``key_columns``).
         """
-        if self.expr_agg:
-            return True
         # List format agg (e.g., agg(['sum', 'mean'])) needs pandas
-        if self.agg_dict is not None and isinstance(self.agg_dict, list):
-            return False
-        output_names = {name for name, _, _ in self.aggregate_outputs()}
-        if output_names & set(self.groupby_cols):
-            return False
-        return True
+        return not (self.agg_dict is not None and isinstance(self.agg_dict, list))
 
     def execution_engine(self) -> str:
         """Return which engine this operation should use.
