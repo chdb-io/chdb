@@ -2436,6 +2436,15 @@ class DataStore(PandasCompatMixin):
             columns = op.transform_columns(columns)
         return False, columns, known
 
+    def _has_pending_write(self) -> bool:
+        """
+        Whether this DataStore is a write statement (INSERT, UPDATE or
+        DELETE) that ``execute()`` runs. Shortcuts that read the pipeline's
+        rows (labelled queries, Arrow, operands, probes) must not stand in
+        for it.
+        """
+        return bool(self._delete_flag or self._update_fields or self._insert_columns)
+
     def _runs_as_one_query(self) -> bool:
         """
         Whether ``to_sql()`` is the whole pipeline: a write statement, no
@@ -2444,7 +2453,7 @@ class DataStore(PandasCompatMixin):
         the pipeline reads a DataFrame or continues in pandas after its
         first SQL step.
         """
-        if self._delete_flag or self._update_fields or self._insert_columns:
+        if self._has_pending_write():
             return True
         if not self._lazy_ops:
             return True
@@ -3841,8 +3850,9 @@ class DataStore(PandasCompatMixin):
         self._logger.debug("Generated SQL for execution")
 
         try:
-            # Rows read from a file keep their file positions, as in to_df()
-            build_result = self._labelled_query()
+            # Rows read from a file keep their file positions, as in to_df();
+            # a write runs its statement
+            build_result = None if self._has_pending_write() else self._labelled_query()
             if build_result is not None:
                 df = self._executor.execute(build_result.sql).to_df()
                 return QueryResult(
@@ -3990,7 +4000,7 @@ class DataStore(PandasCompatMixin):
         if isinstance(self._table_function, PythonTableFunction):
             return None
         # Only plain SELECT queries can be read as Arrow (not writeback/DML).
-        if self._delete_flag or self._update_fields or self._insert_columns:
+        if self._has_pending_write():
             return None
 
         try:
@@ -4022,9 +4032,13 @@ class DataStore(PandasCompatMixin):
         planning done in :meth:`_execute`. The SQL is a single SELECT with at
         most one SETTINGS clause, so it can also be embedded as a subquery.
         With ``row_labels`` it is the query ``_execute()`` runs, whose result
-        rows ``_label_source_rows`` labels.
+        rows ``_label_source_rows`` labels. A pending write (INSERT, UPDATE,
+        DELETE) is not a SELECT: None.
         """
         from .query_planner import QueryPlanner
+
+        if self._has_pending_write():
+            return None
 
         if (
             row_labels
@@ -4130,12 +4144,7 @@ class DataStore(PandasCompatMixin):
             self._table_function, PythonTableFunction
         ):
             return None
-        if (
-            self._is_subquery
-            or self._delete_flag
-            or self._update_fields
-            or self._insert_columns
-        ):
+        if self._is_subquery or self._has_pending_write():
             return None
         try:
             build_result = self._single_sql_query()
@@ -7455,12 +7464,7 @@ class DataStore(PandasCompatMixin):
             self._table_function, PythonTableFunction
         ):
             return None
-        if (
-            self._is_subquery
-            or self._delete_flag
-            or self._update_fields
-            or self._insert_columns
-        ):
+        if self._is_subquery or self._has_pending_write():
             return None
 
         try:
