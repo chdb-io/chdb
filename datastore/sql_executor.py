@@ -3158,6 +3158,10 @@ class SQLExecutionEngine:
             sql, df, "__df__", preserve_order=needs_order_preservation
         )
 
+        if is_simple_limit_only and not _is_perf_exec():
+            # The first rows in order: they keep the DataFrame's first labels
+            result_df.index = df.index[: len(result_df)]
+
         # Handle empty column selection: return DataFrame with 0 columns but correct row count
         if getattr(plan, "_empty_column_select", False):
             # Remove _row_id and return empty column DataFrame

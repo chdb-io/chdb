@@ -55,6 +55,7 @@ CHAINS = {
         lambda p: p.iloc[:3].iloc[5:],
     ),
     "head_tail": (lambda d: d.head(5).tail(2), lambda p: p.head(5).tail(2)),
+    "tail_head": (lambda d: d.tail(4).head(2), lambda p: p.tail(4).head(2)),
     "tail_offset": (lambda d: d.tail(3).offset(1), lambda p: p.tail(3).iloc[1:]),
     "slice_slice": (lambda d: d[1:9][2:5], lambda p: p[1:9][2:5]),
     "slice_offset_limit": (lambda d: d[2:].offset(1).limit(3), lambda p: p[2:].iloc[1:].iloc[:3]),
@@ -89,3 +90,22 @@ def test_flat_sql_composes_offsets(make_source):
 
     assert "LIMIT 4 OFFSET 5" in sql
 
+
+@pytest.mark.parametrize(
+    "chain",
+    [
+        (lambda d: d.head(2), lambda p: p.head(2)),
+        (lambda d: d.head(3).head(2), lambda p: p.head(3).head(2)),
+        (lambda d: d.limit(3), lambda p: p.head(3)),
+    ],
+    ids=["head", "head_head", "limit"],
+)
+def test_limit_keeps_dataframe_labels(chain):
+    # A DataFrame source labelled other than 0..n-1
+    ds_chain, pd_chain = chain
+    df = pd.DataFrame({"v": [10, 20, 30, 40]}, index=[3, 5, 7, 9])
+    pd_result = pd_chain(df)
+
+    ds_result = ds_chain(DataStore(df.copy()))
+
+    assert_datastore_equals_pandas(ds_result, pd_result)
