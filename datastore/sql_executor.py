@@ -17,6 +17,7 @@ Design Goals:
 
 from copy import copy
 from dataclasses import dataclass, field
+import functools
 import re
 from typing import List, Optional, Dict, Any, Set, Tuple, TYPE_CHECKING
 import pandas as pd
@@ -439,6 +440,42 @@ def _referenced_identifiers(expr: Any) -> Set[str]:
     return {m.replace('""', '"') for m in _QUOTED_IDENTIFIER.findall(sql)}
 
 
+def _sql_type_of(expr: Expression, column_types: Dict[str, str]) -> Optional[str]:
+    """
+    ClickHouse type of ``expr`` over columns of ``column_types``, or None
+    when a column it reads has no known type. A column's type is read
+    directly; an expression's is asked of ClickHouse over the columns'
+    default values, so no data is read.
+    """
+    if isinstance(expr, Field):
+        return column_types.get(expr.name)
+    names = _referenced_identifiers(expr)
+    if not names or not names <= set(column_types):
+        return None
+    return _type_of_expression_sql(
+        expr.to_sql(quote_char='"'),
+        tuple(sorted((name, column_types[name]) for name in names)),
+    )
+
+
+@functools.lru_cache(maxsize=256)
+def _type_of_expression_sql(expr_sql: str, typed_columns: Tuple[Tuple[str, str], ...]) -> Optional[str]:
+    import chdb
+
+    columns = ", ".join(
+        "defaultValueOfTypeName('{}') AS {}".format(
+            column_type.replace("\\", "\\\\").replace("'", "\\'"),
+            format_identifier(name, '"'),
+        )
+        for name, column_type in typed_columns
+    )
+    try:
+        result = chdb.query(f"SELECT toTypeName({expr_sql}) FROM (SELECT {columns})", "CSV")
+    except Exception:
+        return None
+    return result.bytes().decode().strip().strip('"') or None
+
+
 def build_groupby_select_fields(
     groupby_agg: LazyGroupByAgg,
     reserved_names: Optional[Set[str]] = None,
@@ -508,9 +545,7 @@ def build_groupby_select_fields(
                 expr = Function('ifNull', expr, Literal(0))
         else:
             value = col_expr
-            if isinstance(col_expr, Field) and "Decimal" in column_types.get(
-                col_expr.name, ""
-            ):
+            if "Decimal" in (_sql_type_of(col_expr, column_types) or ""):
                 value = Function('toFloat64', col_expr)
             one = Function(
                 'multiply',

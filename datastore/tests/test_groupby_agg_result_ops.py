@@ -562,6 +562,20 @@ class TestMinCount:
         assert result.index.tolist() == expected.index.tolist()
         assert result.tolist() == [float(v) for v in expected]
 
+    def test_product_of_a_computed_decimal_on_files(self, tmp_path):
+        from decimal import Decimal
+
+        frame = pd.DataFrame(
+            {"g": ["a", "a", "b"], "v": [Decimal("1.5"), Decimal("2.0"), Decimal("3.25")]}
+        )
+
+        def chain(d):
+            return d.assign(w=d["v"] * 2).groupby("g")["w"].prod()
+
+        result, expected = chain(make_source(frame, "file", tmp_path)), chain(frame)
+        assert result.index.tolist() == expected.index.tolist()
+        assert result.tolist() == [float(v) for v in expected]
+
 class TestAggregateDtypeOfRecomputedColumns:
     """Only an output that is still the aggregate of a source column gets
     the dtype pandas gives the aggregate; a column recomputed before or
