@@ -1451,9 +1451,10 @@ class ColumnExpr:
         return self._executor()
 
     def _execute_if_needed(self, value: Any, as_operand: bool = False) -> Any:
-        """Execute ColumnExpr arguments if needed; a single-value Series
-        argument becomes a scalar unless it is an operator's operand."""
-        if isinstance(value, ColumnExpr):
+        """Execute ColumnExpr and LazyCondition arguments if needed; a
+        single-value Series argument becomes a scalar unless it is an
+        operator's operand."""
+        if isinstance(value, (ColumnExpr, LazyCondition)):
             result = value._execute()
             if not as_operand and isinstance(result, pd.Series) and len(result) == 1:
                 return result.iloc[0]
@@ -2060,8 +2061,13 @@ class ColumnExpr:
         other = _translate_pd_col_operand(other, "AND")
 
         # For executor mode (e.g., cross-DataStore comparison result), use pandas & on executed results
-        if self._exec_mode in ("method", "executor") or (
-            isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor")
+        # A mask of another state (e.g. taken before the frame was changed)
+        # keeps its values: both sides are evaluated on their own state and
+        # combined aligned by index, as pandas combines two Series.
+        if (
+            self._exec_mode in ("method", "executor")
+            or (isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor"))
+            or self._is_cross_datastore(other)
         ):
             return ColumnExpr(source=self, method_name="__and__", method_args=(other,))
 
@@ -2125,8 +2131,13 @@ class ColumnExpr:
         other = _translate_pd_col_operand(other, "OR")
 
         # For executor/method mode (e.g., cross-DataStore comparison result), use pandas | on executed results
-        if self._exec_mode in ("method", "executor") or (
-            isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor")
+        # A mask of another state (e.g. taken before the frame was changed)
+        # keeps its values: both sides are evaluated on their own state and
+        # combined aligned by index, as pandas combines two Series.
+        if (
+            self._exec_mode in ("method", "executor")
+            or (isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor"))
+            or self._is_cross_datastore(other)
         ):
             return ColumnExpr(source=self, method_name="__or__", method_args=(other,))
 
@@ -2180,7 +2191,7 @@ class ColumnExpr:
         import pandas as pd
 
         # Handle numpy arrays and pandas Series by deferring to method mode
-        if isinstance(other, (np.ndarray, pd.Series)):
+        if isinstance(other, (np.ndarray, pd.Series)) or self._is_cross_datastore(other):
             return ColumnExpr(source=self, method_name="__xor__", method_args=(other,))
 
         self_cond = self._to_condition()
@@ -2255,7 +2266,8 @@ class ColumnExpr:
 
     def _is_cross_datastore(self, other: Any) -> bool:
         """
-        Check if other is a ColumnExpr from a different DataStore.
+        Check if other is a ColumnExpr or LazyCondition from a different
+        DataStore state.
 
         This is used to detect cross-DataStore operations that need
         special handling (row alignment via _row_id).
@@ -2266,7 +2278,7 @@ class ColumnExpr:
         Returns:
             True if other is a ColumnExpr from a different DataStore
         """
-        if not isinstance(other, ColumnExpr):
+        if not isinstance(other, (ColumnExpr, LazyCondition)):
             return False
         if other._datastore is None or self._datastore is None:
             return False

@@ -601,6 +601,23 @@ class LazyColumnAssignment(LazyOp):
         return expr
 
 
+def aligned_mask(mask, df: pd.DataFrame, alignment: str):
+    """
+    ``mask`` (a boolean Series evaluated on the state it was taken from) as
+    an indexer of ``df``'s rows: its values when ``alignment`` is "position"
+    and it has one per row, otherwise the Series itself, which pandas aligns
+    by index label and rejects with IndexingError when its index doesn't
+    cover ``df``'s.
+    """
+    if not isinstance(mask, pd.Series):
+        return mask
+    if alignment == "position" and len(mask) == len(df):
+        # The array keeps a nullable boolean mask's dtype, so pandas applies
+        # its NA rules (NA selects no row) instead of rejecting object values.
+        return pd.Series(mask.array, index=df.index, name=mask.name)
+    return mask
+
+
 def _null_safe_comparisons(cond):
     """Copy of ``cond`` with each comparison wrapped in NullSafeCondition."""
     from .conditions import BinaryCondition, CompoundCondition, NotCondition, NullSafeCondition
@@ -920,6 +937,7 @@ class LazyRelationalOp(LazyOp):
         limit_value=None,
         offset_value=None,
         kind="quicksort",
+        alignment="position",
     ):
         """
         Args:
@@ -931,6 +949,10 @@ class LazyRelationalOp(LazyOp):
             limit_value: Value for LIMIT
             offset_value: Value for OFFSET
             kind: Sort algorithm for ORDER BY ('quicksort', 'stable', 'mergesort', etc.)
+            alignment: For PANDAS_FILTER, how the evaluated mask is matched to
+                the rows: "position" (the rows are those it was evaluated
+                on) or "index" (by index label, as pandas aligns a boolean
+                Series; see DataStore._mask_alignment).
         """
         super().__init__()
         self.op_type = op_type
@@ -941,6 +963,7 @@ class LazyRelationalOp(LazyOp):
         self.limit_value = limit_value
         self.offset_value = offset_value
         self.kind = kind
+        self.alignment = alignment
 
     def transform_columns(self, columns: List[str]) -> List[str]:
         """Transform columns based on the operation type."""
@@ -1056,19 +1079,15 @@ class LazyRelationalOp(LazyOp):
                     len(result),
                 )
                 return result
-            if isinstance(self.condition, ColumnExpr):
+            from .lazy_result import LazyCondition
+
+            if isinstance(self.condition, (ColumnExpr, LazyCondition)):
                 # Set datastore for proper execution context
                 if self.condition._datastore is None:
                     self.condition._datastore = context
-                # Execute to get boolean mask
+                # Evaluated on the state the mask was taken from
                 bool_series = self.condition._execute()
-                # Filter DataFrame using the boolean mask
-                # Align index if necessary
-                if len(bool_series) == len(df):
-                    result = df[bool_series.values]
-                else:
-                    # Try to align by index
-                    result = df.loc[bool_series.index[bool_series]]
+                result = df[aligned_mask(bool_series, df, self.alignment)]
                 self._logger.debug(
                     "      -> Pandas filter (method-mode): %d -> %d rows",
                     rows_before,
@@ -2239,17 +2258,24 @@ class LazyWhere(LazyOp):
         ds.where(ds['value'] > 100, 0)  # Keep where value > 100, else 0
     """
 
-    def __init__(self, condition, other, columns: List[str] = None):
+    def __init__(
+        self, condition, other, columns: List[str] = None, alignment: str = None
+    ):
         """
         Args:
             condition: Condition object or ColumnExpr containing condition
             other: Value to use where condition is False
             columns: Column names for SQL pushdown (optional, inferred at execution)
+            alignment: None when the condition is evaluated on the frame's
+                rows; otherwise it is evaluated on the state it was taken
+                from and matched to the rows by "position" or "index" (see
+                DataStore._mask_alignment).
         """
         super().__init__()
         self.condition = condition
         self.other = other
         self.columns = columns
+        self.alignment = alignment
         self._is_mask = False  # Subclass sets this to True
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
@@ -2257,6 +2283,7 @@ class LazyWhere(LazyOp):
         from .expression_evaluator import ExpressionEvaluator
         from .column_expr import ColumnExpr
         from .conditions import Condition
+        from .lazy_result import LazyCondition
         from .pandas_col_compat import PandasFallbackExpr
 
         op_name = "Mask" if self._is_mask else "Where"
@@ -2264,11 +2291,15 @@ class LazyWhere(LazyOp):
 
         # Evaluate condition to boolean Series
         cond = self.condition
-        if isinstance(cond, ColumnExpr):
+        if self.alignment is not None:
+            bool_series = aligned_mask(cond._execute(), df, self.alignment)
+        elif isinstance(cond, ColumnExpr):
             cond_expr = cond._expr
             evaluator = ExpressionEvaluator(df, context)
             bool_series = evaluator.evaluate(cond_expr)
-        elif isinstance(cond, Condition):
+        elif isinstance(cond, (Condition, LazyCondition)):
+            if isinstance(cond, LazyCondition):
+                cond = cond.condition
             evaluator = ExpressionEvaluator(df, context)
             bool_series = evaluator.evaluate(cond)
         elif isinstance(cond, PandasFallbackExpr):
@@ -2333,6 +2364,10 @@ class LazyWhere(LazyOp):
         from .column_expr import ColumnExpr
         from .conditions import Condition
         from .function_executor import function_config
+
+        # A condition evaluated on its own state is applied in pandas
+        if self.alignment is not None:
+            return False
 
         # Check function_config - respect user's engine preference
         func_name = "mask" if self._is_mask else "where"
@@ -2545,8 +2580,10 @@ class LazyMask(LazyWhere):
         ds.mask(ds['value'] > 100, -1)  # Replace where value > 100 with -1
     """
 
-    def __init__(self, condition, other, columns: List[str] = None):
-        super().__init__(condition, other, columns)
+    def __init__(
+        self, condition, other, columns: List[str] = None, alignment: str = None
+    ):
+        super().__init__(condition, other, columns, alignment)
         self._is_mask = True
 
 

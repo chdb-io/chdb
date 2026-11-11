@@ -302,6 +302,10 @@ class QueryPlanner:
           so chains of aliases referencing aliases grow the query tree
           without bound (exponentially when a column is read twice); in a
           new layer the reference is to a real column of the inner layer.
+        - A where/mask follows an op that changes the columns (SELECT or
+          column assignment), or such an op follows a where/mask. The
+          CASE WHEN replaces the layer's projection with one expression per
+          column it reads from the layer's input.
 
         This preserves pandas-like execution order semantics in SQL.
 
@@ -318,6 +322,16 @@ class QueryPlanner:
         pending_column_assignments = []  # Column assignments after LIMIT/OFFSET
         computed_columns_after_limit = set()  # Computed columns added after LIMIT
         seen_groupby = False  # Has the current layer a LazyGroupByAgg?
+
+        def _changes_columns(op):
+            return isinstance(op, LazyColumnAssignment) or (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "SELECT"
+                and bool(op.fields)
+            )
+
+        def _has_where_mask(layer):
+            return any(isinstance(prev, (LazyWhere, LazyMask)) for prev in layer)
 
         def _is_pure_projection_select(op):
             """Pure projection SELECT = ``SELECT col1, col2, ...`` with no
@@ -424,7 +438,9 @@ class QueryPlanner:
             elif isinstance(op, LazyRelationalOp):
                 needs_new_layer = False
 
-                if op.op_type == "WHERE" and (seen_limit or seen_offset):
+                if _changes_columns(op) and _has_where_mask(current_layer):
+                    needs_new_layer = True
+                elif op.op_type == "WHERE" and (seen_limit or seen_offset):
                     # WHERE after LIMIT/OFFSET - start new layer
                     needs_new_layer = True
                 elif op.op_type == "ORDER BY" and (seen_limit or seen_offset):
@@ -456,7 +472,10 @@ class QueryPlanner:
 
             elif isinstance(op, LazyColumnAssignment):
                 # Column assignment after LIMIT/OFFSET needs special handling
-                if seen_limit or seen_offset:
+                if _has_where_mask(current_layer):
+                    # Assignment after a where/mask computes on its result
+                    _start_new_layer_with(op)
+                elif seen_limit or seen_offset:
                     # Track the column for dependency checking
                     computed_columns_after_limit.add(op.column)
                     # Queue the assignment to be added before any dependent WHERE/ORDER BY
@@ -494,6 +513,12 @@ class QueryPlanner:
                 # masked output:
                 # ``SELECT ... agg() FROM (SELECT CASE WHEN ...) GROUP BY``.
                 _start_new_layer_with(op)
+            elif isinstance(op, (LazyWhere, LazyMask)):
+                _flush_pending()
+                if any(_changes_columns(prev) for prev in current_layer):
+                    _open_layer_with(op)
+                else:
+                    _place(op)
             else:
                 # Other operations - add pending column assignments first, then this op
                 _flush_pending()

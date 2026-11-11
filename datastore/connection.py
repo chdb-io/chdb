@@ -393,6 +393,10 @@ class Connection:
 
         if not preserve_order:
             pass  # All False
+        elif not re.search(r"\bFROM\b", sql_upper):
+            # The query reads no table (e.g. SELECT 1): its rows aren't rows
+            # of the DataFrame, and _row_id doesn't exist
+            pass  # All False
         elif has_group_by or is_aggregate:
             # GROUP BY/aggregate: rows don't correspond to original rows
             # _row_id is meaningless after aggregation

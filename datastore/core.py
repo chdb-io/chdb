@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .case_when import CaseWhenBuilder
     from .query_planner import ExecutionSegment, QueryPlan
 
-from .expressions import Field, Expression, Literal, Star
+from .expressions import Field, Expression, Literal, Star, bind_projection_item
 from .conditions import Condition
 from .utils import (
     immutable,
@@ -106,11 +106,23 @@ def _op_effect(op) -> tuple:
     """
     ``(token, effect)`` of an op in a lineage, where ``effect`` says what it
     does to columns and rows without holding its data: ``("rows",)``,
-    ``("assign", column)``, ``("select", names, keeps_others)`` or
+    ``("assign", column)``, ``("select", names, keeps_others, computed)``,
+    ``("columns",)`` (drops or selects columns, keeping values and rows),
+    ``("values",)`` (keeps the rows, changes values of unknown columns) or
     ``("other",)``.
     """
     from .expressions import is_star_item, projection_name
-    from .lazy_ops import LazyAssignCallable, LazyColumnAssignment
+    from .lazy_ops import (
+        LazyAsType,
+        LazyAssignCallable,
+        LazyColumnAssignment,
+        LazyColumnSelection,
+        LazyDropColumns,
+        LazyFillNA,
+        LazyMask,
+        LazyRenameColumns,
+        LazyWhere,
+    )
 
     cached = op.__dict__.get("_provenance_effect")
     if cached is not None:
@@ -123,16 +135,21 @@ def _op_effect(op) -> tuple:
             fields = op.fields or []
             if any(is_star_item(f) for f in fields):
                 computed = frozenset(projection_name(f) for f in fields if not is_star_item(f))
-                effect = ("select", computed, True)
+                effect = ("select", computed, True, computed)
             else:
                 plain = frozenset(
                     f if isinstance(f, str) else f.name
                     for f in fields
                     if isinstance(f, str) or (isinstance(f, Field) and not f.alias)
                 )
-                effect = ("select", plain, False)
+                names = frozenset(projection_name(f) for f in fields)
+                effect = ("select", plain, False, names - plain)
     elif isinstance(op, (LazyColumnAssignment, LazyAssignCallable)):
         effect = ("assign", op.column)
+    elif isinstance(op, (LazyColumnSelection, LazyDropColumns)):
+        effect = ("columns",)
+    elif isinstance(op, (LazyAsType, LazyFillNA, LazyMask, LazyRenameColumns, LazyWhere)):
+        effect = ("values",)
     cached = op.__dict__["_provenance_effect"] = (_token(op), effect)
     return cached
 
@@ -147,10 +164,12 @@ def _columns_read(value) -> Optional[set]:
     if unknown.
     """
     from .column_expr import ColumnExpr
-    from .lazy_result import LazySeries
+    from .lazy_result import LazyCondition, LazySeries
 
     if isinstance(value, Expression):
         return {f.name for f in value.subtree() if isinstance(f, Field)}
+    if isinstance(value, LazyCondition):
+        return _columns_read(value.condition)
     if isinstance(value, LazySeries):
         if value._executor is not None:
             return None
@@ -178,23 +197,35 @@ def _columns_read(value) -> Optional[set]:
     return names
 
 
-def _keeps_read_columns(effect: tuple, reads: Optional[set], rowwise: bool) -> bool:
+def _keeps_read_columns(
+    effect: tuple, reads: Optional[set], rowwise: bool, values_only: bool = False
+) -> bool:
     """
     Whether an op with ``effect`` (see ``_op_effect``) keeps the values of the
     columns in ``reads`` (``None``: unknown columns) and, unless ``rowwise``,
-    the rows.
+    the rows. Unless ``values_only``, the columns must also still be there: a
+    projection or drop that leaves one out doesn't keep it.
     """
     kind = effect[0]
     if kind == "rows":
         return rowwise
+    if kind == "columns":
+        return values_only
     if reads is None:
         return False
     if kind == "assign":
         return effect[1] not in reads
     if kind == "select":
-        names, keeps_others = effect[1], effect[2]
-        return not reads & names if keeps_others else reads <= names
+        names, keeps_others, computed = effect[1], effect[2], effect[3]
+        if keeps_others or values_only:
+            return not reads & computed
+        return reads <= names
     return False
+
+
+def _keeps_rows(effect: tuple) -> bool:
+    """Whether an op with ``effect`` keeps the rows and their order."""
+    return effect[0] in ("select", "assign", "columns", "values")
 
 
 def _is_row_wise(value) -> bool:
@@ -1478,17 +1509,155 @@ class DataStore(PandasCompatMixin):
         source = getattr(value, "_datastore", None) if _is_lazy_value(value) else None
         if not isinstance(source, DataStore):
             return True
-        identity, frame_ops = self._lineage()
-        source_identity, ops = source._lineage()
-        if source_identity != identity:
-            return False
-        if frame_ops[: len(ops)] != ops:
+        later = self._ops_after(source)
+        if later is None:
             return False
         reads = _columns_read(value)
         rowwise = _is_row_wise(value)
-        return all(
-            _keeps_read_columns(effect, reads, rowwise) for _, effect in frame_ops[len(ops) :]
+        return all(_keeps_read_columns(effect, reads, rowwise) for effect in later)
+
+    def _mask_alignment(self, mask, where_clause: bool = False) -> Optional[str]:
+        """
+        How a boolean mask (a ColumnExpr or LazyCondition) taken from a
+        DataStore state applies to this frame's rows, as pandas applies a
+        boolean Series: with the values it was taken with, aligned by index.
+
+        None: the frame evaluates the mask on its own rows (in SQL or
+        pandas). The mask is a condition expression taken from this frame's
+        state or an earlier one whose later ops keep the values of the
+        columns it reads, and the frame can still read those columns; a
+        later filter or sort keeps them, an overwrite or fillna of a column
+        it reads doesn't, and a projection or drop that leaves one out keeps
+        its values but not the column (see ``_reads_available``).
+
+        Otherwise the mask is evaluated on its own state and matched to the
+        rows by position ("position") when the later ops keep the rows and
+        their order, or by index label ("index"), which raises like pandas
+        when the mask's index doesn't cover the rows.
+        """
+        from .column_expr import ColumnExpr
+        from .lazy_result import LazyCondition
+
+        source = getattr(mask, "_datastore", None)
+        if not isinstance(source, DataStore):
+            return None
+        later = self._ops_after(source)
+        expression = isinstance(mask, LazyCondition) or (
+            isinstance(mask, ColumnExpr)
+            and mask._exec_mode == "expr"
+            and mask._expr is not None
         )
+        if expression:
+            reads = _columns_read(mask)
+            if (
+                later is not None
+                and all(
+                    _keeps_read_columns(effect, reads, rowwise=True, values_only=True)
+                    for effect in later
+                )
+                and self._reads_available(reads, later, mask, where_clause)
+            ):
+                return None
+            # A column its own state doesn't have is a name for the frame's
+            # column (nat.add_prefix('col_').filter(nat.col_age > 25)).
+            if reads is None:
+                return None
+            try:
+                own_columns = set(source._get_current_columns())
+            except Exception:
+                own_columns = None
+            if own_columns and not reads <= own_columns:
+                return None
+        if later is not None and all(_keeps_rows(effect) for effect in later):
+            return "position"
+        return "index"
+
+    def _reads_available(
+        self, reads: Optional[set], later: list, mask, where_clause: bool
+    ) -> bool:
+        """
+        Whether the frame can read the columns in ``reads`` where it applies
+        ``mask``, given the ``later`` effects since the mask's state. A later
+        projection or drop may leave them out; a ``where_clause`` (a filter)
+        reads the columns entering its SQL layer, which include the ones a
+        select() projection in that layer leaves out, as SQL filters the
+        projection's input (``ds.select('a').filter(ds.c > 10)``).
+        """
+        removes = [
+            effect
+            for effect in later
+            if effect[0] == "columns" or (effect[0] == "select" and not effect[2])
+        ]
+        if not removes:
+            return True
+        if reads is None:
+            return False
+        if where_clause and all(effect[0] == "select" for effect in removes):
+            return self._filter_reads(reads, mask)
+        try:
+            return reads <= set(self._get_current_columns())
+        except Exception:
+            return False
+
+    def _filter_reads(self, reads: set, mask) -> bool:
+        """
+        Whether a filter by ``mask`` added now reads the columns in
+        ``reads``: they enter the SQL layer the planner puts it in, which is
+        the source's columns for the first layer and the columns the earlier
+        layers output otherwise (an earlier projection may have left them
+        out). Only filters may follow the pipeline's last projection: another
+        op (a sort or limit) may run in pandas, on the projected rows.
+        """
+        from .expressions import is_star_item
+        from .lazy_result import LazyCondition
+        from .query_planner import QueryPlanner
+
+        def projects(op):
+            return (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "SELECT"
+                and op.fields
+                and not any(is_star_item(f) for f in op.fields)
+            )
+
+        ops = list(self._lazy_ops)
+        last = next((i for i in range(len(ops) - 1, -1, -1) if projects(ops[i])), None)
+        if last is None or not all(
+            isinstance(op, LazyRelationalOp) and op.op_type == "WHERE"
+            for op in ops[last + 1 :]
+        ):
+            return False
+        condition = mask.condition if isinstance(mask, LazyCondition) else mask._expr
+        probe = LazyRelationalOp("WHERE", "probe", condition=condition)
+        layers = QueryPlanner()._build_layers(ops + [probe])
+        before = [op for layer in layers[:-1] for op in layer]
+        if not before:
+            return True
+        try:
+            columns = (
+                list(self._source_df.columns)
+                if self._source_df is not None
+                else list(self._get_all_column_names())
+            )
+        except Exception:
+            columns = []
+        known = bool(columns)
+        for op in before:
+            known = known or projects(op)
+            columns = op.transform_columns(columns)
+        return known and reads <= set(columns)
+
+    def _ops_after(self, state: "DataStore") -> Optional[list]:
+        """
+        The effects (see ``_op_effect``) of the ops this pipeline applies
+        after ``state``, this pipeline's state or an earlier one; None if
+        ``state`` is neither.
+        """
+        identity, frame_ops = self._lineage()
+        state_identity, ops = state._lineage()
+        if state_identity != identity or frame_ops[: len(ops)] != ops:
+            return None
+        return [effect for _, effect in frame_ops[len(ops) :]]
 
     def _null_as_nan_inputs(self, expr) -> bool:
         """
@@ -1688,8 +1857,10 @@ class DataStore(PandasCompatMixin):
 
                 self._logger.debug(exec_plan.describe())
 
-            # Execute segments
-            df = pd.DataFrame()
+            # Execute segments. None until a segment has read the source: an
+            # empty DataFrame is a result (a step that kept no rows), which
+            # the next segments run on.
+            df = None
             has_executed_pandas = False
 
             for seg_idx, segment in enumerate(exec_plan.segments):
@@ -1712,6 +1883,9 @@ class DataStore(PandasCompatMixin):
                     ):
                         df = self._execute_pandas_segment(segment, df, profiler)
                         has_executed_pandas = True
+
+            if df is None:
+                df = pd.DataFrame()
 
             self._logger.debug("=" * 70)
             self._logger.debug(
@@ -1952,80 +2126,8 @@ class DataStore(PandasCompatMixin):
 
         else:
             # Subsequent segment: execute on DataFrame via Python() table function
-            if df.empty and not (self._table_function or self.table_name):
-                self._logger.debug("  No data to execute SQL on")
-                # Even for empty DataFrames, apply column selection if present
-                # This ensures df[['a', 'b']] on empty df returns correct columns
-                plan = segment.plan
-                if plan is None:
-                    from .query_planner import QueryPlan
-
-                    plan = QueryPlan(has_sql_source=True)
-                    plan.sql_ops = segment.ops.copy()
-                # Check if there's a SELECT operation for column selection
-                select_cols = None
-                computed_cols = []
-                for op in plan.sql_ops or []:
-                    if hasattr(op, "op_type") and op.op_type == "SELECT":
-                        if hasattr(op, "fields") and op.fields:
-                            select_cols = []
-                            has_star = False
-                            for f in op.fields:
-                                if isinstance(f, str):
-                                    col = f.strip('"')
-                                    if col == "*":
-                                        has_star = True
-                                    else:
-                                        select_cols.append(col)
-                                elif hasattr(f, "alias") and f.alias:
-                                    select_cols.append(f.alias)
-                                elif hasattr(f, "name"):
-                                    select_cols.append(f.name.strip('"'))
-                                # Skip fields without identifiable names
-                            # If '*' was in fields, expand it to all existing columns
-                            if has_star:
-                                select_cols = list(df.columns) + [
-                                    c for c in select_cols if c not in df.columns
-                                ]
-                    # Also check LazyColumnAssignment for computed columns
-                    elif hasattr(op, "column") and hasattr(op, "can_push_to_sql"):
-                        # LazyColumnAssignment
-                        if op.can_push_to_sql():
-                            computed_cols.append(op.column)
-
-                # Check if SELECT has any new expressions (not just column references)
-                # e.g., assign() creates SELECT *, expression AS alias
-                has_new_expressions = False
-                for op in plan.sql_ops or []:
-                    if hasattr(op, "op_type") and op.op_type == "SELECT":
-                        if hasattr(op, "fields") and op.fields:
-                            for f in op.fields:
-                                if not isinstance(f, str):
-                                    # Non-string field = expression (need SQL execution)
-                                    has_new_expressions = True
-                                    break
-
-                # If we have computed columns, new expressions or an
-                # aggregation, execute SQL for correct columns and dtypes
-                # chDB can correctly infer output types even for empty DataFrames
-                if computed_cols or has_new_expressions or plan.groupby_agg:
-                    self._logger.debug(
-                        "  Empty df has computed columns/expressions, executing SQL for correct dtypes"
-                    )
-                    # Fall through to execute SQL below
-                else:
-                    # No computed columns, just apply column selection if present
-                    if select_cols:
-                        existing_cols = [c for c in select_cols if c in df.columns]
-                        if existing_cols:
-                            df = df[existing_cols]
-                        self._logger.debug(
-                            "  Applied column selection to empty df: %s", select_cols
-                        )
-                    return df
-
-            # If we have a source but no DataFrame yet, load raw data first
-            if df.empty and (self._table_function or self.table_name):
+            # Nothing read yet (the first segment ran in pandas): load the source
+            if df is None and (self._table_function or self.table_name):
                 if self._executor is None:
                     self.connect()
                 # Load raw data without any filters
@@ -2046,6 +2148,8 @@ class DataStore(PandasCompatMixin):
                 result = self._executor.execute(load_sql)
                 df = result.to_df()
                 self._logger.debug("  Loaded raw data from source: %s rows", len(df))
+            elif df is None:
+                df = pd.DataFrame()
 
             plan = segment.plan
             if plan is None:
@@ -2078,8 +2182,8 @@ class DataStore(PandasCompatMixin):
         Returns:
             Result DataFrame
         """
-        # If first operation and we have SQL source but no DataFrame, load raw data
-        if df.empty and (self._table_function or self.table_name):
+        # Nothing read yet and a SQL source: load its raw data
+        if df is None and (self._table_function or self.table_name):
             if self._executor is None:
                 self.connect()
             # Load raw data - include JOINs if present
@@ -2123,6 +2227,8 @@ class DataStore(PandasCompatMixin):
             self._logger.debug(
                 "  Loaded raw data from source for Pandas: %s rows", len(df)
             )
+        elif df is None:
+            df = pd.DataFrame()
 
         for i, op in enumerate(segment.ops, 1):
             self._logger.debug(
@@ -2204,12 +2310,19 @@ class DataStore(PandasCompatMixin):
         # Only generate SQL if we have a SQL source
         if not (self._table_function or self.table_name):
             return None
-
-        # No lazy ops means use traditional SQL generation
-        if not self._lazy_ops:
+        result = self._plan_build_result()
+        if result is None:
             return self._generate_select_sql(self.quote_char)
+        return result.sql
 
-        from .query_planner import QueryPlanner
+    def _plan_build_result(self) -> Optional["SQLBuildResult"]:
+        """
+        SQL of the lazy-op plan's first step against the source, built as
+        ``_execute()`` builds it; None without a SQL source or lazy ops, or
+        when the first step runs in pandas.
+        """
+        if not (self._table_function or self.table_name) or not self._lazy_ops:
+            return None
 
         # Use QueryPlanner segmented planning (same as _execute). This
         # method models "the SQL ``_execute()`` would issue against the
@@ -2218,32 +2331,64 @@ class DataStore(PandasCompatMixin):
         # - First segment is SQL: return that segment's SQL.
         # - First segment is Pandas (cost-aware planner, e.g. ORDER BY
         #   without LIMIT): the executor first materializes data via a
-        #   plain ``SELECT * FROM source``, so return that. Returning a
-        #   later SQL-on-DataFrame segment would be misleading - its
-        #   FROM is ``Python(__df__)``, not the original source.
+        #   plain ``SELECT * FROM source``, so return None and let the
+        #   caller render that. Returning a later SQL-on-DataFrame segment
+        #   would be misleading - its FROM is ``Python(__df__)``, not the
+        #   original source.
         # - No segments / single Pandas-only segment: same fallback.
-        planner = QueryPlanner()
-        schema = self.schema() or {}
-        local_source = self._source_df is not None or isinstance(
-            self._table_function, PythonTableFunction
-        )
-        exec_plan = planner.plan_segments(
-            self._lazy_ops,
-            has_sql_source=True,
-            schema=schema,
-            local_source=local_source,
-        )
+        exec_plan, schema = self._plan_segments()
         first_segment = exec_plan.segments[0] if exec_plan.segments else None
         if (
             first_segment is None
             or not first_segment.is_sql()
             or first_segment.plan is None
         ):
-            return self._generate_select_sql(self.quote_char)
+            return None
 
         sql_engine = SQLExecutionEngine(self)
-        result = sql_engine.build_sql_from_plan(first_segment.plan, schema)
-        return result.sql
+        return sql_engine.build_sql_from_plan(first_segment.plan, schema)
+
+    def _plan_segments(self):
+        """
+        ``(execution plan, schema)``: the lazy ops split into SQL and pandas
+        steps as ``_execute()`` splits them for this SQL source.
+        """
+        from .query_planner import QueryPlanner
+
+        schema = self.schema() or {}
+        local_source = self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        )
+        exec_plan = QueryPlanner().plan_segments(
+            self._lazy_ops,
+            has_sql_source=True,
+            schema=schema,
+            local_source=local_source,
+        )
+        return exec_plan, schema
+
+    def _runs_as_one_query(self) -> bool:
+        """
+        Whether ``to_sql()`` is the whole pipeline: a write statement, no
+        lazy ops, a pipeline the flat query-builder SQL renders, or one the
+        planner runs as a single SQL step against this SQL source. Otherwise
+        the pipeline reads a DataFrame or continues in pandas after its
+        first SQL step.
+        """
+        if self._delete_flag or self._update_fields or self._insert_columns:
+            return True
+        if not self._lazy_ops:
+            return True
+        if not (self._table_function or self.table_name):
+            return False
+        if self._flat_sql_renders_pipeline():
+            return True
+        segments = self._plan_segments()[0].segments
+        return (
+            len(segments) == 1
+            and segments[0].is_sql()
+            and segments[0].plan is not None
+        )
 
     def _get_table_source(self) -> str:
         """Get the table source for SQL generation."""
@@ -3643,6 +3788,14 @@ class DataStore(PandasCompatMixin):
                     df_to_use = df_to_use[existing_cols]
                     self._source_df = df_to_use
 
+            # The schema lists the columns of the DataFrame the table function
+            # reads (an index reset below stays out, as it isn't a column).
+            known_types = self._schema or {}
+            self._schema = {
+                col: known_types.get(col, str(dtype))
+                for col, dtype in df_to_use.dtypes.items()
+            }
+
             # Preserve index info if DataFrame has a custom index
             # A custom index is one with a name (from set_index()) or a MultiIndex
             has_custom_index = (
@@ -3837,12 +3990,20 @@ class DataStore(PandasCompatMixin):
         """
         Execute the query and return results.
 
+        A pipeline that runs as one SQL query runs ``to_sql()``. One that
+        doesn't (it reads a DataFrame, or continues in pandas after its first
+        SQL step, so ``to_sql()`` is only that step) runs as ``to_pandas()``
+        runs it. Either way the result holds what ``to_pandas()`` returns.
+
         Returns:
             QueryResult object with data and metadata
         """
         self._logger.debug("=" * 70)
         self._logger.debug("DataStore.execute() called")
         self._logger.debug("=" * 70)
+
+        if not self._runs_as_one_query():
+            return QueryResult(data=self.to_pandas(), output_format="Dataframe")
 
         # Ensure we're connected
         if self._executor is None:
@@ -5572,6 +5733,54 @@ class DataStore(PandasCompatMixin):
         same_server = self._is_all_same_remote_server(target_host)
         return self._writeback_select_sql(same_server)
 
+    def _flat_sql_renders_pipeline(self) -> bool:
+        """
+        Whether the flat ``_generate_select_sql()`` renders the lazy ops, so
+        ``to_sql()`` shows it: no lazy ops, or only ops the query builder
+        records in the flat state (select, filter, sort, limit, offset,
+        distinct), with at most one select, that the planner runs in one SQL
+        layer, so the flat clauses are the plan's. Anything else is rendered
+        from the plan: column assignments, a filter recorded only as an op
+        (``loc[cond]``), a second select (the flat state adds its fields to
+        the first select's, the plan selects from the first select's
+        output), or an op the plan runs on an earlier op's result (a filter
+        after a limit).
+        """
+        from .lazy_ops import LazyDistinct
+        from .query_planner import QueryPlanner
+
+        ops = self._lazy_ops
+        if not ops:
+            return True
+        recorded = {
+            "SELECT": bool(self._select_fields) or self._select_star,
+            "WHERE": self._where_condition is not None,
+            "ORDER BY": bool(self._orderby_fields),
+            "LIMIT": self._limit_value is not None,
+            "OFFSET": self._offset_value is not None,
+        }
+        conditions = []
+        selects = 0
+        for op in ops:
+            if isinstance(op, LazyDistinct) and self._distinct:
+                continue
+            if not (isinstance(op, LazyRelationalOp) and recorded.get(op.op_type)):
+                return False
+            if op.op_type == "WHERE":
+                conditions.append(op.condition)
+            elif op.op_type == "SELECT":
+                selects += 1
+        if selects > 1:
+            return False
+        if conditions:
+            folded = conditions[0]
+            for condition in conditions[1:]:
+                folded = folded & condition
+            q = self.quote_char
+            if folded.to_sql(quote_char=q) != self._where_condition.to_sql(quote_char=q):
+                return False
+        return len(QueryPlanner()._build_layers(list(ops))) <= 1
+
     def _canonical_writeback_sql(self) -> str:
         """``remote(source, ...)``-form SELECT that reproduces ``_execute()``,
         used as the cross-server writeback body, the base for
@@ -6720,7 +6929,8 @@ class DataStore(PandasCompatMixin):
             elif isinstance(field, ColumnExpr):
                 field = field._expr
 
-            self._select_fields.append(field)
+            # A field named like a selected one replaces it in place.
+            bind_projection_item(self._select_fields, field)
 
         return self
 
@@ -6822,29 +7032,35 @@ class DataStore(PandasCompatMixin):
         # Handle LazyCondition (e.g., from isin(), between()) - extract underlying Condition
         from .lazy_result import LazyCondition
 
-        if isinstance(condition, LazyCondition):
-            # Extract the underlying Condition for SQL generation
-            condition = condition.condition
+        if isinstance(condition, (ColumnExpr, LazyCondition)):
+            # A boolean mask the frame can't evaluate on its own rows (a
+            # method-mode value such as cumsum() > 6, or a mask taken from a
+            # state whose values or rows the frame no longer has) is
+            # evaluated on its own state and matched to the rows, see
+            # _mask_alignment.
+            alignment = self._mask_alignment(condition, where_clause=True)
+            method_mode = isinstance(condition, ColumnExpr) and (
+                condition._exec_mode == "method" or condition._expr is None
+            )
+            if method_mode or alignment is not None:
+                self._track_operation("pandas", "filter(boolean_mask)", {"lazy": True})
+                self._add_lazy_op(
+                    LazyRelationalOp(
+                        "PANDAS_FILTER",
+                        "method_mode" if method_mode else "earlier_state",
+                        condition=condition,
+                        alignment=alignment or "position",
+                    )
+                )
+                return self
+            if isinstance(condition, LazyCondition):
+                # Extract the underlying Condition for SQL generation
+                condition = condition.condition
 
         # Unified handling: extract Condition from ColumnExpr._expr
         # Since comparison operators now return ColumnExpr wrapping Condition,
         # we just need to check if _expr is already a Condition.
         if isinstance(condition, ColumnExpr):
-            # Check if this is a method-mode ColumnExpr (e.g., cumsum() > 6, rank() > 3)
-            # These cannot be converted to SQL and need pandas-based filtering
-            if condition._exec_mode == "method" or condition._expr is None:
-                # For method-mode ColumnExpr, we need to execute it and use pandas filtering
-                # Add as a pandas filter operation
-                self._track_operation(
-                    "pandas", f"filter(method_mode_condition)", {"lazy": True}
-                )
-                self._add_lazy_op(
-                    LazyRelationalOp(
-                        "PANDAS_FILTER", "method_mode", condition=condition
-                    )
-                )
-                return self
-
             if isinstance(condition._expr, Condition):
                 # ColumnExpr wrapping Condition (e.g., ds['col'] > 5)
                 condition = condition._expr
@@ -7498,36 +7714,14 @@ class DataStore(PandasCompatMixin):
             else:
                 groupby_fields.append(process_field(field))
 
-        # Extract selected columns from prior LazyRelationalOp(SELECT) operations
-        # This ensures that df[['col1', 'col2']].groupby('col1').mean() only aggregates
-        # the explicitly selected columns, not all columns from the source
-        selected_columns = None
-        for op in reversed(target_ds._lazy_ops):
-            if (
-                isinstance(op, LazyRelationalOp)
-                and op.op_type == "SELECT"
-                and op.fields
-            ):
-                # Found a SELECT operation - extract column names
-                selected_columns = []
-                for f in op.fields:
-                    if isinstance(f, str) and f != "*":
-                        selected_columns.append(f)
-                    elif isinstance(f, Field):
-                        selected_columns.append(f.name)
-                # If SELECT * or no explicit columns, don't override
-                if not selected_columns:
-                    selected_columns = None
-                break
-
-        # Return a GroupBy wrapper that references target_ds
+        # The aggregation reads the columns target_ds has after its lazy ops
+        # (a projection, assignments); only groupby(...)[cols] selects some.
         return LazyGroupBy(
             target_ds,
             groupby_fields,
             sort=sort,
             as_index=as_index,
             dropna=dropna,
-            selected_columns=selected_columns,
         )
 
     @immutable
@@ -9045,7 +9239,14 @@ class DataStore(PandasCompatMixin):
         execution_format: bool = False,
     ) -> str:
         """
-        Generate SQL query.
+        Generate SQL query: the SQL DataStore sends to the source.
+
+        For a pipeline that runs as one SQL query this is that query, and it
+        returns what ``to_pandas()`` returns. A pipeline with a pandas step
+        between SQL steps (e.g. ``ds.select('a')[::2].limit(2)``) can't be
+        one query: its SQL is the first step only, run on the source before
+        the pandas steps and the SQL steps on their result. ``explain()``
+        shows every step, and ``execute()`` runs the whole pipeline.
 
         Args:
             quote_char: Quote character for identifiers
@@ -9055,7 +9256,11 @@ class DataStore(PandasCompatMixin):
                              preservation logic). When the plan has later
                              stages (pandas ops, or SQL run on the
                              intermediate DataFrame), those are not included.
-                             If False (default), returns clean semantic SQL.
+                             If False (default), returns the same SQL with
+                             the SETTINGS _execute() adds, except for a
+                             pipeline the flat query-builder SQL renders
+                             (select / filter / sort / limit calls), which
+                             keeps that clean form.
 
         Returns:
             SQL query string
@@ -9070,16 +9275,16 @@ class DataStore(PandasCompatMixin):
             sql = self._generate_update_sql(quote_char)
         elif self._insert_columns:
             sql = self._generate_insert_sql(quote_char)
-        elif (
-            (execution_format or self._has_lazy_aggregation())
-            and self._lazy_ops
-            and (self._table_function or self.table_name)
-        ):
-            # Use unified SQL generation for lazy operations
-            # This returns the exact SQL that _execute() would run
-            sql = self._build_execution_sql()
-            if sql is None:
+        elif execution_format or not self._flat_sql_renders_pipeline():
+            # The lazy-op plan as _execute() runs it; the default form also
+            # carries the SETTINGS _execute() adds.
+            result = self._plan_build_result()
+            if result is None:
                 sql = self._generate_select_sql(quote_char)
+            elif execution_format or result.has_settings:
+                sql = result.sql
+            else:
+                sql = self._append_format_settings(result.sql)
         else:
             sql = self._generate_select_sql(quote_char)
 
@@ -9090,13 +9295,6 @@ class DataStore(PandasCompatMixin):
                 sql = f"{sql} AS {format_identifier(self._alias, quote_char)}"
 
         return sql
-
-    def _has_lazy_aggregation(self) -> bool:
-        """Whether a groupby aggregation is among the lazy ops; the flat
-        query-builder state does not record it, so to_sql() renders the plan."""
-        from .lazy_ops import LazyGroupByAgg
-
-        return any(isinstance(op, LazyGroupByAgg) for op in self._lazy_ops)
 
     def _generate_select_sql(self, quote_char: str) -> str:
         """Generate SELECT SQL."""
