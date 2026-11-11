@@ -1454,6 +1454,12 @@ class DataStore(PandasCompatMixin):
         if memo is not None and memo._frozen_lineage == lineage:
             return memo
         frozen = copy(self)
+        # While this DataStore holds the state, the view runs on it and uses
+        # its cache; afterwards the view recomputes the state from its ops.
+        # Holding the cached result here would keep it alive for as long as
+        # the view, i.e. for every assigned value that read the state.
+        frozen._cached_result = None
+        frozen._cached_at_version = -1
         frozen._computed_columns = dict(self._computed_columns or {})
         frozen._frozen_lineage = lineage
         frozen._frozen_origin = weakref.ref(self)
@@ -1642,12 +1648,10 @@ class DataStore(PandasCompatMixin):
                 origin = self._frozen_origin() if self._frozen_origin else None
                 if origin is not None and origin._lineage() == self._frozen_lineage:
                     # The DataStore this view was taken from still holds its
-                    # state: run (and cache, checkpoint) it there.
-                    result = origin._execute()
-                    self._cached_result = result
-                    self._cached_at_version = self._cache_version
-                    self._cache_timestamp = time.time()
-                    return result
+                    # state: run (and cache, checkpoint) it there. The view
+                    # keeps no copy of that result, which the DataStore drops
+                    # once it moves on.
+                    return origin._execute()
 
             self._logger.debug("=" * 70)
             self._logger.debug("Starting execution (version=%d)", self._cache_version)
