@@ -612,7 +612,9 @@ def aligned_mask(mask, df: pd.DataFrame, alignment: str):
     if not isinstance(mask, pd.Series):
         return mask
     if alignment == "position" and len(mask) == len(df):
-        return pd.Series(mask.to_numpy(), index=df.index, name=mask.name)
+        # The array keeps a nullable boolean mask's dtype, so pandas applies
+        # its NA rules (NA selects no row) instead of rejecting object values.
+        return pd.Series(mask.array, index=df.index, name=mask.name)
     return mask
 
 

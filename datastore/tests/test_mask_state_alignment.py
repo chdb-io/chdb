@@ -229,3 +229,37 @@ class TestMaskOfColumnsDroppedSince:
         assert 'WHERE "a" > 2' in got.to_sql()
         df = _frame()
         assert_datastore_equals_pandas(got, df[["b"]][df["a"] > 2])
+
+
+class TestNullableBooleanMask:
+    """A mask with NA selects no row where it is NA, as in pandas."""
+
+    @staticmethod
+    def _frame():
+        return pd.DataFrame(
+            {"a": pd.array([1, None, 3, 4], dtype="Int64"), "b": [40, 30, 20, 10]}
+        )
+
+    @pytest.mark.parametrize("overwrite", [False, True], ids=["same_state", "overwritten_since"])
+    @pytest.mark.parametrize(
+        "then",
+        [
+            lambda d, m: d[m],
+            lambda d, m: d.loc[m],
+            lambda d, m: d.where(m, 0),
+            lambda d, m: d.mask(m, 0),
+            lambda d, m: d.sort_values("b")[m],
+        ],
+        ids=["getitem", "loc", "where", "mask", "sort"],
+    )
+    def test_then(self, source, overwrite, then):
+        def chain(d):
+            if isinstance(d, pd.DataFrame):
+                d = d.copy()
+            m = d["a"] > 2
+            if overwrite:
+                d["a"] = d["a"] * 0
+            return then(d, m)
+
+        df = self._frame()
+        assert_datastore_equals_pandas(chain(source(df)), chain(df))
