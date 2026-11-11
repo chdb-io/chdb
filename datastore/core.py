@@ -2148,9 +2148,13 @@ class DataStore(PandasCompatMixin):
         # For GroupBy SQL pushdown: set group keys as index
         from .config import is_performance_mode
 
-        if plan.groupby_agg and plan.groupby_agg.groupby_cols:
+        if plan.groupby_agg and not is_performance_mode():
+            if isinstance(self._table_function, PythonTableFunction):
+                df = plan.groupby_agg.restore_nullable_dtypes(
+                    df, self._table_function._df
+                )
             # In performance mode, skip set_index -- group keys stay as columns
-            if not is_performance_mode():
+            if plan.groupby_agg.groupby_cols:
                 df = plan.groupby_agg.set_group_index(df)
 
             # Convert flat column names to MultiIndex for pandas compatibility

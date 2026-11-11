@@ -1327,6 +1327,11 @@ class ColumnExpr:
                 sort=sort,
                 as_index=as_index,
                 dropna=dropna,
+                **{
+                    k: v
+                    for k, v in self._method_kwargs.items()
+                    if k == "min_count"
+                },
             )
         else:
             # A parametrized function (quantile(q), stddevPop for ddof=0)

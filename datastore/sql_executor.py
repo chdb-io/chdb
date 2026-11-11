@@ -482,6 +482,47 @@ def build_groupby_select_fields(
             return computed_columns[col_name]
         return Field(col_name)
 
+    min_count = groupby_agg.kwargs.get("min_count") or 0
+
+    def with_min_count(func: str, col_expr: Expression) -> Expression:
+        """
+        sum() / prod() with pandas' min_count: a group with fewer than
+        min_count values is NULL, otherwise the values' sum (0 without
+        values) or product (1 without values). SQL's sum() of no values is
+        NULL, and SQL has no product aggregate: the values are folded,
+        starting from 1 in the input's type.
+        """
+        from .config import is_performance_mode
+
+        if func == 'sum':
+            expr = AggregateFunction('sum', col_expr)
+            if min_count <= 0 and not is_performance_mode():
+                expr = Function('ifNull', expr, Literal(0))
+        else:
+            one = Function(
+                'ifNull',
+                Function(
+                    'plus',
+                    Function('multiply', AggregateFunction('any', col_expr), Literal(0)),
+                    Literal(1),
+                ),
+                Literal(1),
+            )
+            expr = Function(
+                'arrayFold',
+                _SQLText('(acc, v) -> acc * v'),
+                AggregateFunction('groupArray', col_expr),
+                one,
+            )
+        if min_count > 0:
+            enough = Function(
+                'greaterOrEquals',
+                AggregateFunction('count', col_expr),
+                Literal(min_count),
+            )
+            expr = Function('if', enough, expr, Literal(None))
+        return expr
+
     def create_agg_expr(func: str, col_expr: Expression) -> AggregateFunction:
         """
         Create aggregation expression, handling special cases for first/last.
@@ -512,10 +553,8 @@ def build_groupby_select_fields(
         elif func == 'size':
             # size() counts ALL rows including NULL
             return AggregateFunction('count', Star())
-        elif func == 'sum' and not is_performance_mode():
-            # pandas sums a group without values to 0 (min_count=0); SQL
-            # returns NULL
-            return Function('ifNull', AggregateFunction('sum', col_expr), Literal(0))
+        elif func in ('sum', 'prod'):
+            return with_min_count(func, col_expr)
         else:
             sql_func = map_agg_func(func)
             return AggregateFunction(sql_func, col_expr)
@@ -2629,8 +2668,10 @@ class SQLExecutionEngine:
         # In performance mode, skip set_index -- group keys stay as columns
         from .config import is_performance_mode as _is_perf
 
-        if plan.groupby_agg and plan.groupby_agg.groupby_cols and not _is_perf():
-            result_df = plan.groupby_agg.set_group_index(result_df)
+        if plan.groupby_agg and not _is_perf():
+            result_df = plan.groupby_agg.restore_nullable_dtypes(result_df, df)
+            if plan.groupby_agg.groupby_cols:
+                result_df = plan.groupby_agg.set_group_index(result_df)
 
         # Convert flat column names to MultiIndex for pandas compatibility
         # Only needed when ANY column has multiple aggregation functions (e.g., agg({'col': ['sum', 'mean']}))

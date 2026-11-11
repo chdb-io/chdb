@@ -20,7 +20,6 @@ from datetime import datetime, date
 
 from datastore import DataStore
 from tests.test_utils import assert_datastore_equals_pandas, get_series
-from tests.xfail_markers import chdb_no_product_function
 
 
 class TestAggregationEdgeCases:
@@ -852,7 +851,6 @@ class TestEmptyDataFrameEdgeCases:
 class TestGroupByAggEdgeCases:
     """Test groupby aggregation edge cases."""
 
-    @chdb_no_product_function
     def test_groupby_prod(self):
         """Test groupby product - chDB doesn't have prodIf function."""
         pd_df = pd.DataFrame({'category': ['A', 'B', 'A', 'B'], 'value': [2, 3, 4, 5]})

@@ -399,6 +399,66 @@ class TestComputedGroupKey:
             assert_matches_pandas(result, expected)
 
 
+class TestMinCount:
+    """sum() / prod() follow pandas' min_count: a group with fewer values is
+    NaN, otherwise the sum (0 without values) or product (1)."""
+
+    FLOATS = pd.DataFrame(
+        {"g": ["a", "a", "b", "b", "c", "c"], "v": [np.nan, np.nan, 1.0, np.nan, 2.0, 3.0]}
+    )
+    NULLABLE = pd.DataFrame(
+        {"g": ["a", "a", "b", "c", "c"], "v": pd.array([None, None, 2, 3, 4], dtype="Int64")}
+    )
+
+    @pytest.mark.parametrize("min_count", [0, 1, 2])
+    @pytest.mark.parametrize("func", ["sum", "prod"])
+    @pytest.mark.parametrize(
+        "form",
+        [
+            pytest.param(lambda d, f, n: getattr(d.groupby("g")["v"], f)(min_count=n), id="series"),
+            pytest.param(lambda d, f, n: getattr(d.groupby("g"), f)(min_count=n), id="frame"),
+            pytest.param(lambda d, f, n: d.groupby("g").agg(f, min_count=n), id="agg_name"),
+        ],
+    )
+    @pytest.mark.parametrize("kind", ["dataframe", "file", "csv"])
+    def test_floats(self, kind, tmp_path, form, func, min_count):
+        result = form(make_source(self.FLOATS, kind, tmp_path), func, min_count)
+        expected = form(self.FLOATS, func, min_count)
+        if isinstance(expected, pd.Series):
+            assert_series_equal(result, expected)
+        else:
+            assert_matches_pandas(result, expected)
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(lambda d: d.groupby("g").agg({"v": "sum"}), id="dict_sum"),
+            pytest.param(lambda d: d.groupby("g").agg({"v": "prod"}), id="dict_prod"),
+            pytest.param(lambda d: d.groupby("g").agg(t=("v", "sum")), id="named_sum"),
+            pytest.param(lambda d: d.groupby("g").agg(t=("v", "prod")), id="named_prod"),
+        ],
+    )
+    @pytest.mark.parametrize("kind", ["dataframe", "file", "csv"])
+    def test_dict_and_named_forms_default_to_zero_count(self, kind, tmp_path, chain):
+        assert_matches_pandas(
+            chain(make_source(self.FLOATS, kind, tmp_path)), chain(self.FLOATS)
+        )
+
+    @pytest.mark.parametrize("min_count", [0, 1, 2])
+    @pytest.mark.parametrize("func", ["sum", "prod"])
+    def test_nullable_integers(self, func, min_count):
+        result = getattr(DataStore(self.NULLABLE.copy()).groupby("g")["v"], func)(
+            min_count=min_count
+        )
+        expected = getattr(self.NULLABLE.groupby("g")["v"], func)(min_count=min_count)
+        assert_series_equal(result, expected)
+
+    def test_integer_product_keeps_integer_dtype(self, source_kind, tmp_path):
+        frame = pd.DataFrame({"g": ["a", "a", "b"], "v": [2, 3, 5]})
+        d = make_source(frame, source_kind, tmp_path)
+        assert_series_equal(d.groupby("g")["v"].prod(), frame.groupby("g")["v"].prod())
+
+
 # ---------------------------------------------------------------------------
 # Random chains that continue after the aggregation
 # ---------------------------------------------------------------------------

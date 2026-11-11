@@ -392,9 +392,13 @@ class LazyGroupBy:
         """Compute mean of groups. Returns lazy DataStore."""
         return self._apply_agg('mean', numeric_only=numeric_only)
 
-    def sum(self, numeric_only: bool = False) -> 'DataStore':
+    def sum(self, numeric_only: bool = False, min_count: int = 0) -> 'DataStore':
         """Compute sum of groups. Returns lazy DataStore."""
-        return self._apply_agg('sum', numeric_only=numeric_only)
+        return self._apply_agg('sum', numeric_only=numeric_only, min_count=min_count)
+
+    def prod(self, numeric_only: bool = False, min_count: int = 0) -> 'DataStore':
+        """Compute product of groups. Returns lazy DataStore."""
+        return self._apply_agg('prod', numeric_only=numeric_only, min_count=min_count)
 
     def count(self) -> 'DataStore':
         """Compute count of groups. Returns lazy DataStore."""

@@ -1393,6 +1393,31 @@ class LazyGroupByAgg(LazyOp):
         aggregated._add_lazy_op(self)
         return self.set_group_index(aggregated._execute())
 
+    def restore_nullable_dtypes(
+        self, result: pd.DataFrame, source: pd.DataFrame
+    ) -> pd.DataFrame:
+        """
+        Give outputs of type-preserving aggregates (sum, prod, min, max,
+        first, last) of a nullable column (Int64, Float64, boolean) that
+        dtype again: chDB returns a Nullable column without NULLs as the
+        plain numpy dtype. A column a later op recomputed into another
+        dtype is left alone.
+        """
+        for name, func, col in self.aggregate_outputs(list(source.columns)):
+            if (
+                func not in ("sum", "prod", "min", "max", "first", "last")
+                or col not in source.columns
+                or name not in result.columns
+            ):
+                continue
+            dtype = source[col].dtype
+            if (
+                isinstance(dtype, pd.api.extensions.ExtensionDtype)
+                and getattr(dtype, "numpy_dtype", None) == result[name].dtype
+            ):
+                result[name] = result[name].astype(dtype)
+        return result
+
     def set_group_index(self, df: pd.DataFrame) -> pd.DataFrame:
         """Move the group key columns of a SQL result to the index."""
         columns = self.key_columns()
