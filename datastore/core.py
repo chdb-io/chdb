@@ -4017,8 +4017,8 @@ class DataStore(PandasCompatMixin):
         from .query_planner import QueryPlanner
 
         if (
-            not self._lazy_ops
-            and row_labels
+            row_labels
+            and self._is_pristine_sql_source()
             and getattr(self._table_function, "reads_files", False)
         ):
             # A file in file order, as _execute() reads it
@@ -4062,7 +4062,10 @@ class DataStore(PandasCompatMixin):
         rows it reads from a file by their positions there; None when the
         pipeline isn't one SQL query over a file or doesn't relabel its rows.
         """
-        if not getattr(self._table_function, "reads_files", False) or not self._lazy_ops:
+        if (
+            not getattr(self._table_function, "reads_files", False)
+            or self._is_pristine_sql_source()
+        ):
             return None
         build_result = self._single_sql_query(row_labels=True)
         if build_result is None or not (
@@ -7512,7 +7515,7 @@ class DataStore(PandasCompatMixin):
         Return ``None`` when the pipeline needs pandas execution; the join
         then runs in pandas.
         """
-        if not self._lazy_ops and not self._joins:
+        if self._is_pristine_sql_source():
             return self._frozen()
         result = self._operand_sql()
         if result is None:

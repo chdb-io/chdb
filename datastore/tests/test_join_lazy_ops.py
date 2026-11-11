@@ -207,3 +207,23 @@ def test_right_file_ops_in_join_sql(files):
 
     assert sql.count("JOIN") == 1
     assert '"w" > 2' in sql
+
+
+def test_to_arrow_of_file_join(files):
+    lp, rp = files
+    pd_result = LEFT.merge(RIGHT, on="k")
+
+    table = DataStore.from_file(lp).join(DataStore.from_file(rp), on="k").to_arrow()
+
+    pd.testing.assert_frame_equal(table.to_pandas(), pd_result, check_dtype=False)
+
+
+def test_to_arrow_of_file_join_then_filter(files):
+    lp, rp = files
+    pd_joined = LEFT.merge(RIGHT, on="k")
+    pd_result = pd_joined[pd_joined["w"] > 2].reset_index(drop=True)
+
+    joined = DataStore.from_file(lp).join(DataStore.from_file(rp), on="k")
+    table = joined[joined["w"] > 2].to_arrow()
+
+    pd.testing.assert_frame_equal(table.to_pandas(), pd_result, check_dtype=False)
