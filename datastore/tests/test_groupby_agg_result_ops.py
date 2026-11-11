@@ -286,6 +286,29 @@ class TestOutputNamedLikeKey:
         d = make_source(self.FRAME, source_kind, tmp_path)
         assert_matches_pandas(chain(d), chain(self.FRAME))
 
+    def test_performance_mode_result_has_no_hidden_key(self, source_kind, tmp_path):
+        """Performance mode keeps the group keys as columns instead of the
+        index; a key an output's name takes is dropped as with
+        as_index=False."""
+        from datastore.config import (
+            CompatMode,
+            ExecutionEngine,
+            set_compat_mode,
+            set_execution_engine,
+        )
+
+        d = make_source(self.FRAME, source_kind, tmp_path)
+        set_compat_mode(CompatMode.PERFORMANCE)
+        try:
+            result = d.groupby("g").agg(g=("amount", "sum"))
+            assert list(result.columns) == ["g"]
+            assert sorted(result["g"].tolist()) == sorted(
+                self.FRAME.groupby("g").agg(g=("amount", "sum"))["g"].tolist()
+            )
+        finally:
+            set_compat_mode(CompatMode.PANDAS)
+            set_execution_engine(ExecutionEngine.AUTO)
+
     def test_sql_expression_output(self, source_kind, tmp_path):
         d = make_source(self.FRAME, source_kind, tmp_path)
         assert_matches_pandas(

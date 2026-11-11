@@ -2142,7 +2142,7 @@ class SQLExecutionEngine:
                 overwrite inherited columns in place.
             keep_hidden_keys: Whether the last layer outputs the hidden group
                 key columns (``LazyGroupByAgg.hidden_key_columns``); only
-                execution reads them.
+                execution outside performance mode reads them.
 
         Returns:
             The full nested SQL string.
@@ -2168,7 +2168,11 @@ class SQLExecutionEngine:
         last_idx = len(layers) - 1
         index_keys: List[str] = []
         # Index keys under a hidden name; outside execution the result leaves
-        # them out
+        # them out, and so does execution in performance mode, which keeps
+        # group keys as columns instead of building the index
+        from .config import is_performance_mode
+
+        keep_hidden_keys = keep_hidden_keys and not is_performance_mode()
         hidden_keys: List[str] = []
         aggs = [self._extract_special_ops_from_layer(l)[0] for l in layers]
         first_agg_idx = next(
