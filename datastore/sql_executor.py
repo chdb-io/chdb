@@ -808,6 +808,7 @@ class SQLExecutionEngine:
         orderby_tiebreak: Optional[List[Tuple[Any, bool]]] = None,
         keep_hidden_keys: bool = True,
         input_columns: Optional[List[str]] = None,
+        passthrough_columns: Optional[List[str]] = None,
     ) -> "LayerBuildResult":
         """
         Build SQL for a single nested-subquery layer (unified entry point).
@@ -866,6 +867,9 @@ class SQLExecutionEngine:
             input_columns: Columns the layer reads, in order, if known. The
                 CASE WHEN of a where/mask and an aggregation over every
                 column cover the columns entering that op.
+            passthrough_columns: Input columns a where/mask leaves as they
+                are: the index keys of an aggregation result, which pandas
+                does not mask, and hidden columns.
 
         Returns:
             LayerBuildResult containing the SQL text and every temp alias
@@ -927,19 +931,31 @@ class SQLExecutionEngine:
                 all_columns = list(schema.keys())
             if all_columns:
                 where_needs_temp_alias = True
-                for col in all_columns:
+                # Index keys and hidden columns pass through unmasked; the
+                # last layer leaves the hidden ones out
+                passthrough = [
+                    c for c in passthrough_columns or [] if c not in (star_except or [])
+                ]
+                select_fields_for_sql = []
+                for col in list(all_columns) + [
+                    c for c in passthrough_columns or [] if c not in all_columns
+                ]:
+                    if col in (passthrough_columns or []):
+                        if col in passthrough:
+                            where_temp_alias_columns.append((col, col))
+                        select_fields_for_sql.append(Field(col))
+                        continue
                     temp_alias = f"__tmp_{col}__"
                     where_temp_alias_columns.append((temp_alias, col))
-                select_fields_for_sql = [
-                    CaseWhenExpr(
-                        col,
-                        where_ops,
-                        self.quote_char,
-                        schema.get(col, "Unknown"),
-                        alias=f"__tmp_{col}__",
+                    select_fields_for_sql.append(
+                        CaseWhenExpr(
+                            col,
+                            where_ops,
+                            self.quote_char,
+                            schema.get(col, "Unknown"),
+                            alias=temp_alias,
+                        )
                     )
-                    for col in all_columns
-                ]
                 if clauses.where_conditions:
                     where_needs_subquery = True
 
@@ -2171,14 +2187,14 @@ class SQLExecutionEngine:
     def _layer_output_columns(
         layer_ops: List[LazyOp], input_columns: Optional[List[str]]
     ) -> Optional[List[str]]:
-        """Columns a non-aggregating layer outputs, if its input is known."""
-        if input_columns is None or any(
-            isinstance(op, LazyGroupByAgg) for op in layer_ops
-        ):
-            return None
-        columns = list(input_columns)
+        """Columns a layer outputs, if known. An aggregation outputs its key
+        columns and named outputs, also when its input is not known."""
+        columns = None if input_columns is None else list(input_columns)
         for op in layer_ops:
-            columns = op.transform_columns(columns)
+            if isinstance(op, LazyGroupByAgg):
+                columns = op.transform_columns(columns)
+            elif columns is not None:
+                columns = op.transform_columns(columns)
         return columns
 
     @staticmethod
@@ -2277,6 +2293,7 @@ class SQLExecutionEngine:
 
         for layer_idx, layer_ops in enumerate(layers):
             is_first = layer_idx == 0
+            incoming_hidden = list(hidden_columns)
             from_source = (
                 first_layer_from_source
                 if is_first
@@ -2418,6 +2435,7 @@ class SQLExecutionEngine:
                 orderby_tiebreak=orderby_tiebreak,
                 keep_hidden_keys=keep_hidden_keys or not is_last,
                 input_columns=layer_input_columns,
+                passthrough_columns=index_keys + incoming_hidden,
             )
             sql = result.sql
             alias_renames.update(result.renames_introduced)

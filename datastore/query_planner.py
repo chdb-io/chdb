@@ -297,6 +297,11 @@ class QueryPlanner:
           step whose output is exactly its result rows (group keys and
           aggregates); everything after it reads those rows from a
           subquery, as pandas reads the aggregated frame.
+        - A where/mask follows a WHERE, ORDER BY, LIMIT or OFFSET, or any op
+          follows a where/mask. The where/mask rewrites every column in its
+          layer's SELECT, so it is a closed step like an aggregation: it
+          reads the filtered, sorted or sliced rows from a subquery, and
+          what follows it reads its result from one.
         - An op computes an expression that reads a column computed in the
           same layer. ClickHouse inlines an alias wherever it is referenced,
           so chains of aliases referencing aliases grow the query tree
@@ -322,6 +327,7 @@ class QueryPlanner:
         pending_column_assignments = []  # Column assignments after LIMIT/OFFSET
         computed_columns_after_limit = set()  # Computed columns added after LIMIT
         seen_groupby = False  # Has the current layer a LazyGroupByAgg?
+        seen_mask = False  # Has the current layer a LazyWhere / LazyMask?
 
         def _changes_columns(op):
             return isinstance(op, LazyColumnAssignment) or (
@@ -376,10 +382,12 @@ class QueryPlanner:
             return bool((read & computed) - op_set)
 
         def _append(op):
-            nonlocal seen_limit, seen_offset, seen_groupby
+            nonlocal seen_limit, seen_offset, seen_groupby, seen_mask
             current_layer.append(op)
             if isinstance(op, LazyGroupByAgg):
                 seen_groupby = True
+            if isinstance(op, (LazyWhere, LazyMask)):
+                seen_mask = True
             if isinstance(op, LazyRelationalOp):
                 if op.op_type == "LIMIT":
                     seen_limit = True
@@ -387,11 +395,11 @@ class QueryPlanner:
                     seen_offset = True
 
         def _open_layer_with(op):
-            nonlocal current_layer, seen_limit, seen_offset, seen_groupby
+            nonlocal current_layer, seen_limit, seen_offset, seen_groupby, seen_mask
             nonlocal computed_columns_after_limit
             layers.append(current_layer)
             current_layer = []
-            seen_limit = seen_offset = seen_groupby = False
+            seen_limit = seen_offset = seen_groupby = seen_mask = False
             computed_columns_after_limit = set()
             _append(op)
 
@@ -433,7 +441,7 @@ class QueryPlanner:
                 _open_layer_with(op)
 
         for op in ops:
-            if seen_groupby:
+            if seen_groupby or seen_mask:
                 _start_new_layer_with(op)
             elif isinstance(op, LazyRelationalOp):
                 needs_new_layer = False
@@ -491,6 +499,12 @@ class QueryPlanner:
                 # GROUPS instead of the number of input rows. Split into a
                 # new layer so the LIMIT applies to the inner subquery
                 # (i.e. ``SELECT ... FROM (SELECT ... LIMIT N) GROUP BY``).
+                _start_new_layer_with(op)
+            elif isinstance(op, (LazyWhere, LazyMask)) and any(
+                isinstance(prev, LazyRelationalOp)
+                and prev.op_type in ("WHERE", "ORDER BY", "LIMIT", "OFFSET")
+                for prev in current_layer
+            ):
                 _start_new_layer_with(op)
             elif isinstance(op, LazyGroupByAgg) and any(
                 self._computes_window(prev) for prev in current_layer

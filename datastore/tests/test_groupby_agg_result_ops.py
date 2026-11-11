@@ -678,6 +678,142 @@ class TestHiddenColumnsStayInternal:
         assert_matches_pandas(result, expected)
 
 
+class TestColumnOpsAfterAggregation:
+    """Assignment and where/mask on an aggregation result work on its
+    columns: an assignment replaces the aggregated column, and a mask
+    covers the result's columns but not the group keys in the index."""
+
+    FRAME = pd.DataFrame(
+        {"g": ["a", "b", "a", "c"], "h": ["x", "x", "y", "x"], "v": [1, 2, 3, 4], "w": [10, 20, 30, 40]}
+    )
+
+    @staticmethod
+    def _setitem(column, value):
+        def apply(a):
+            a[column] = value(a)
+            return a
+
+        return apply
+
+    @pytest.mark.parametrize("as_index", [True, False])
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(
+                lambda d, i: TestColumnOpsAfterAggregation._setitem("v", lambda a: a["v"] / 3)(
+                    d.groupby("g", as_index=i).agg(v=("v", "sum"))
+                ),
+                id="setitem_overwrite",
+            ),
+            pytest.param(
+                lambda d, i: TestColumnOpsAfterAggregation._setitem("v", lambda a: a["v"] + a["w"])(
+                    d.groupby("g", as_index=i).agg({"v": "sum", "w": "max"})
+                ),
+                id="setitem_from_two_outputs",
+            ),
+            pytest.param(
+                lambda d, i: TestColumnOpsAfterAggregation._setitem("t", lambda a: a["v"] * 2)(
+                    d.groupby("g", as_index=i).agg({"v": "sum", "w": "max"})
+                ),
+                id="setitem_new_column",
+            ),
+            pytest.param(
+                lambda d, i: (lambda a: a[a["v"] > 1])(
+                    TestColumnOpsAfterAggregation._setitem("v", lambda a: a["v"] / 2)(
+                        d.groupby("g", as_index=i).agg({"v": "sum"})
+                    )
+                ),
+                id="setitem_then_filter",
+            ),
+            pytest.param(
+                lambda d, i: (lambda a: a.mask(a["v"] > 3, 0))(
+                    d.groupby("g", as_index=i).agg(v=("v", "sum"))
+                ),
+                id="mask",
+            ),
+            pytest.param(
+                lambda d, i: (lambda a: a.mask(a["v"] > 3, 0))(
+                    d.groupby("g", as_index=i).agg({"v": "sum", "w": "max"})
+                ),
+                id="mask_two_outputs",
+            ),
+            pytest.param(
+                lambda d, i: (lambda a: a.where(a["w"] > 20, -1))(
+                    d.groupby("g", as_index=i).agg({"v": "sum", "w": "max"})
+                ),
+                id="where",
+            ),
+            pytest.param(
+                lambda d, i: (lambda a: a.mask(a["v"] > 3, 0).sort_values("w", kind="stable"))(
+                    d.groupby("g", sort=False, as_index=i).agg({"v": "sum", "w": "max"})
+                ),
+                id="mask_then_sort",
+            ),
+            pytest.param(
+                lambda d, i: (lambda a: a.mask(a["v"] > 3, 0))(
+                    d.groupby("g", as_index=i).agg({"v": "sum", "w": "max"}).sort_values("w", ascending=False)
+                ),
+                id="sort_then_mask",
+            ),
+            pytest.param(
+                lambda d, i: (lambda a: a.mask(a["v"] > 2, 0))(
+                    d.groupby(["g", "h"], as_index=i).agg({"v": "sum"})
+                ),
+                id="mask_two_keys",
+            ),
+        ],
+    )
+    def test_matches_pandas(self, source_kind, tmp_path, as_index, chain, request):
+        reorders = any(
+            name in request.node.callspec.id
+            for name in ("setitem_then_filter", "mask_then_sort", "sort_then_mask")
+        )
+        if not as_index and reorders:
+            request.applymarker(
+                pytest.mark.xfail(
+                    strict=True,
+                    reason="as_index=False rows that are filtered or reordered "
+                    "after the aggregation get labels 0..n-1 instead of their "
+                    "group positions",
+                )
+            )
+        d = make_source(self.FRAME, source_kind, tmp_path)
+        assert_matches_pandas(chain(d, as_index), chain(self.FRAME.copy(), as_index))
+
+
+class TestMaskReadsPrecedingRows:
+    """A where/mask applies to the rows a filter, sort or slice before it
+    produced; what follows it reads the masked values."""
+
+    FRAME = pd.DataFrame({"g": ["a", "b", "a", "c"], "v": [1, 2, 3, 4], "w": [10, 20, 30, 40]})
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(lambda d: d[d["v"] > 1].mask(d["v"] > 2, 0), id="filter_then_mask"),
+            pytest.param(
+                lambda d: d.sort_values("w", ascending=False).head(2).mask(d["v"] > 2, 0),
+                id="sort_head_then_mask",
+            ),
+            pytest.param(
+                lambda d: d.where(d["v"] > 1, -1).sort_values("v", kind="stable"),
+                id="where_then_sort",
+            ),
+            pytest.param(
+                lambda d: (lambda m: m[m["w"] != 20])(d.mask(d["v"] > 2, 0)),
+                id="mask_then_filter",
+            ),
+        ],
+    )
+    def test_matches_pandas(self, source_kind, tmp_path, chain):
+        result = chain(make_source(self.FRAME, source_kind, tmp_path))
+        expected = chain(self.FRAME.copy())
+        if source_kind == "dataframe":
+            assert_matches_pandas(result, expected)
+        else:
+            assert_datastore_equals_pandas(result, expected)
+
+
 # ---------------------------------------------------------------------------
 # Random chains that continue after the aggregation
 # ---------------------------------------------------------------------------
