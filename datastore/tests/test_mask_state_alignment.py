@@ -1,11 +1,13 @@
 """
 A boolean mask applies with the values it was taken with, matched to the
-rows by index label, as pandas applies a boolean Series. Every case runs on
-a DataFrame source and on a file source.
+rows by index label, as pandas applies a boolean Series; to_sql() shows the
+query that runs. Every case runs on a DataFrame source and on a file source.
 """
 
 import itertools
+import warnings
 
+import chdb
 import pandas as pd
 import pytest
 
@@ -150,3 +152,35 @@ class TestMaskReadOnFrame:
         got = d.add_prefix("x_").filter(d.x_a > 2)
         expected = df.add_prefix("x_")
         assert_datastore_equals_pandas(got, expected[expected["x_a"] > 2])
+
+
+class TestToSqlRunsLikeExecution:
+    """The SQL to_sql() shows returns what execution returns."""
+
+    @staticmethod
+    def _assert_sql_runs_like(d):
+        sql_rows = chdb.query(d.to_sql(), "DataFrame")
+        executed = d.to_pandas()
+        assert list(sql_rows.columns) == list(executed.columns)
+        assert sql_rows.values.tolist() == executed.values.tolist()
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            lambda d: d.head(3)[d["a"] > 1],
+            lambda d: d.select("a", "b").select("b"),
+            lambda d: d.limit(3).offset(1),
+            lambda d: d.offset(1).limit(2),
+            lambda d: d.select("a", "b").filter(d.a > 1).sort("b").limit(2),
+        ],
+        ids=["head_then_filter", "select_twice", "limit_then_offset", "offset_then_limit", "builder_chain"],
+    )
+    def test_file_source(self, tmp_path, chain):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self._assert_sql_runs_like(chain(DataStore.from_file(_write(_frame(), tmp_path))))
+
+    def test_head_then_filter_matches_pandas(self, source):
+        df = _frame()
+        d = source(df)
+        assert_datastore_equals_pandas(d.head(3)[d["a"] > 1], df.head(3)[df["a"] > 1])

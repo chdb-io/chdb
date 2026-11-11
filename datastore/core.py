@@ -5681,10 +5681,13 @@ class DataStore(PandasCompatMixin):
         Whether the flat ``_generate_select_sql()`` renders the lazy ops, so
         ``to_sql()`` shows it: no lazy ops, or only ops the query builder
         records in the flat state (select, filter, sort, limit, offset,
-        distinct) whose selects the planner computes in one SQL layer.
-        Anything else (column assignments, a filter recorded only as an op
-        such as ``loc[cond]``, a select reading or overwriting a column an
-        earlier select computes) is rendered from the plan.
+        distinct), with at most one select, that the planner runs in one SQL
+        layer, so the flat clauses are the plan's. Anything else is rendered
+        from the plan: column assignments, a filter recorded only as an op
+        (``loc[cond]``), a second select (the flat state adds its fields to
+        the first select's, the plan selects from the first select's
+        output), or an op the plan runs on an earlier op's result (a filter
+        after a limit).
         """
         from .lazy_ops import LazyDistinct
         from .query_planner import QueryPlanner
@@ -5700,7 +5703,7 @@ class DataStore(PandasCompatMixin):
             "OFFSET": self._offset_value is not None,
         }
         conditions = []
-        selects = []
+        selects = 0
         for op in ops:
             if isinstance(op, LazyDistinct) and self._distinct:
                 continue
@@ -5709,7 +5712,9 @@ class DataStore(PandasCompatMixin):
             if op.op_type == "WHERE":
                 conditions.append(op.condition)
             elif op.op_type == "SELECT":
-                selects.append(op)
+                selects += 1
+        if selects > 1:
+            return False
         if conditions:
             folded = conditions[0]
             for condition in conditions[1:]:
@@ -5717,7 +5722,7 @@ class DataStore(PandasCompatMixin):
             q = self.quote_char
             if folded.to_sql(quote_char=q) != self._where_condition.to_sql(quote_char=q):
                 return False
-        return len(QueryPlanner()._build_layers(selects)) <= 1
+        return len(QueryPlanner()._build_layers(list(ops))) <= 1
 
     def _canonical_writeback_sql(self) -> str:
         """``remote(source, ...)``-form SELECT that reproduces ``_execute()``,
