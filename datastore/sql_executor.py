@@ -702,11 +702,9 @@ def _plan_keeps_source_rows(plan, ds) -> bool:
     contiguous run of the source: rows filtered, sorted or deduplicated,
     not aggregated. pandas labels such rows by their source positions.
     """
-    from .lazy_ops import LazyDistinct
-
     if _plan_aggregates(plan):
         return False
-    return bool(ds._distinct or ds._distinct_subset) or any(
+    return any(
         isinstance(op, LazyDistinct)
         or (isinstance(op, LazyRelationalOp) and op.op_type in _ROW_SELECTING_OPS)
         for op in _plan_ops(plan)
