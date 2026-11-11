@@ -1105,6 +1105,28 @@ class TestToClickHouseLocalDataFrame:
         finally:
             _drop(target)
 
+    def test_multiindex_flattened_name_collision_raises(self):
+        """A key column amount_sum next to ('amount', 'sum') would write two
+        columns with one name."""
+        target = "wb_localdf_multiindex_clash"
+        _drop(target)
+        try:
+            frame = _local_df()[["status", "amount"]].assign(amount_sum=1)
+            with pytest.raises(DataStoreError, match="collide"):
+                DataStore(frame).groupby(["status", "amount_sum"]).agg(
+                    ["sum", "max"]
+                ).to_clickhouse(
+                    f"{DATABASE}.{target}",
+                    host=HOST, user=USER, password=PASSWORD, index=True,
+                )
+            assert not _q(
+                f"SELECT name FROM remote('{HOST}', 'system', 'tables', "
+                f"'{USER}', '{PASSWORD}') "
+                f"WHERE database = '{DATABASE}' AND name = '{target}'"
+            ).shape[0]
+        finally:
+            _drop(target)
+
     def test_fail_when_target_exists_raises(self):
         target = "wb_localdf_exists"
         _drop(target)

@@ -5893,13 +5893,20 @@ class DataStore(PandasCompatMixin):
     @staticmethod
     def _flatten_column_index(df: "pd.DataFrame") -> "pd.DataFrame":
         """Join MultiIndex column levels with ``_``, skipping empty levels."""
+        from .exceptions import DataStoreError
+
         if not isinstance(df.columns, pd.MultiIndex):
             return df
+        names = ["_".join(str(level) for level in col if level != "") for col in df.columns]
+        clashes = sorted({name for name in names if names.count(name) > 1})
+        if clashes:
+            raise DataStoreError(
+                "Cannot write MultiIndex columns: their flattened names "
+                f"(levels joined with '_') collide: {clashes}. Rename the "
+                "columns before writing."
+            )
         df = df.copy(deep=False)
-        df.columns = [
-            "_".join(str(level) for level in col if level != "")
-            for col in df.columns
-        ]
+        df.columns = names
         return df
 
     def _insert_dataframe_to_remote(
