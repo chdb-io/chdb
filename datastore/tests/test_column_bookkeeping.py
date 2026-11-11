@@ -131,3 +131,42 @@ class TestWhereMaskColumns:
             ds_drop.mask(ds_drop["qty"] > 5, -1),
             pd_drop.mask(pd_drop["qty"] > 5, -1),
         )
+
+
+class TestAssignReadsInputColumns:
+    """#717: every assign() value is computed from the frame before the call."""
+
+    def test_swap(self, source):
+        df = pd.DataFrame({"region": ["n", "s"], "price": [1, 2], "qty": [10, 20]})
+        d = source(df)
+        assert_datastore_equals_pandas(
+            d.assign(price=d["qty"], qty=d["price"]),
+            df.assign(price=df["qty"], qty=df["price"]),
+        )
+
+    def test_rotate_with_expressions(self, source):
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [10, 20, 30], "c": [100, 200, 300]})
+        d = source(df)
+        assert_datastore_equals_pandas(
+            d.assign(a=d["b"] + 1, b=d["c"] * 2, c=d["a"] - d["b"]),
+            df.assign(a=df["b"] + 1, b=df["c"] * 2, c=df["a"] - df["b"]),
+        )
+
+    def test_swap_then_filter_and_sort(self, source):
+        df = pd.DataFrame({"k": [3, 1, 2], "x": [1, 2, 3], "y": [30, 10, 20]})
+        d = source(df)
+        r = d.assign(x=d["y"], y=d["x"])
+        r = r[r["x"] > 10].sort_values("y")
+        e = df.assign(x=df["y"], y=df["x"])
+        e = e[e["x"] > 10].sort_values("y")
+        assert_datastore_equals_pandas(r, e)
+
+    def test_swap_in_callables(self, source):
+        df = pd.DataFrame({"region": ["n", "s"], "price": [1, 2], "qty": [10, 20]})
+        d = source(df)
+        # pandas calls each callable on the frame with the earlier
+        # assignments applied, so the second callable reads the new price.
+        assert_datastore_equals_pandas(
+            d.assign(price=lambda x: x["qty"], qty=lambda x: x["price"] * 3),
+            df.assign(price=lambda x: x["qty"], qty=lambda x: x["price"] * 3),
+        )
