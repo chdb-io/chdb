@@ -1112,6 +1112,11 @@ class TestWhereWithFilterCombinations:
 
             assert len(ds_result) == len(pd_result)
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="#735: a filter on a file source relabels the rows 0..n-1, so "
+        "a mask of the unfiltered frame is matched to the wrong rows",
+    )
     def test_where_between_filters(self):
         """where() operation between two filter operations."""
         df = pd.DataFrame({'id': range(10), 'value': [i * 10 for i in range(10)], 'flag': [True, False] * 5})

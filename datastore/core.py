@@ -1516,28 +1516,54 @@ class DataStore(PandasCompatMixin):
         rowwise = _is_row_wise(value)
         return all(_keeps_read_columns(effect, reads, rowwise) for effect in later)
 
-    def _filters_changed_values(self, condition) -> bool:
+    def _mask_alignment(self, mask) -> Optional[str]:
         """
-        Whether a later op of this frame changed the values of a column that
-        ``condition``, taken from an earlier state of this pipeline, reads
-        (``d.assign(a=0)[d['a'] > 1]``). pandas filters by the values the
-        condition was taken with, aligned by index. A projection that drops a
-        column the condition reads keeps its values (``ds.select('a')
-        .filter(ds.c > 10)``). The condition is matched to the frame's rows
-        by position, so only a frame whose later ops keep the rows and their
-        order is filtered by it.
+        How a boolean mask (a ColumnExpr or LazyCondition) taken from a
+        DataStore state applies to this frame's rows, as pandas applies a
+        boolean Series: with the values it was taken with, aligned by index.
+
+        None: the frame evaluates the mask on its own rows (in SQL or
+        pandas). The mask is a condition expression taken from this frame's
+        state or an earlier one whose later ops keep the values of the
+        columns it reads; a later filter, sort or projection keeps them
+        (``ds.select('a').filter(ds.c > 10)``), an overwrite or fillna of a
+        column it reads doesn't.
+
+        Otherwise the mask is evaluated on its own state and matched to the
+        rows by position ("position") when the later ops keep the rows and
+        their order, or by index label ("index"), which raises like pandas
+        when the mask's index doesn't cover the rows.
         """
-        source = getattr(condition, "_datastore", None)
+        from .column_expr import ColumnExpr
+        from .lazy_result import LazyCondition
+
+        source = getattr(mask, "_datastore", None)
         if not isinstance(source, DataStore):
-            return False
+            return None
         later = self._ops_after(source)
-        if not later or not all(_keeps_rows(effect) for effect in later):
-            return False
-        reads = _columns_read(condition)
-        return not all(
-            _keeps_read_columns(effect, reads, rowwise=True, values_only=True)
-            for effect in later
+        expression = isinstance(mask, LazyCondition) or (
+            isinstance(mask, ColumnExpr)
+            and mask._exec_mode == "expr"
+            and mask._expr is not None
         )
+        if expression:
+            reads = _columns_read(mask)
+            if later is not None and all(
+                _keeps_read_columns(effect, reads, rowwise=True, values_only=True)
+                for effect in later
+            ):
+                return None
+            # A column its own state doesn't have is a name for the frame's
+            # column (nat.add_prefix('col_').filter(nat.col_age > 25)).
+            try:
+                own_columns = set(source._get_current_columns())
+            except Exception:
+                return None
+            if reads is None or not reads <= own_columns:
+                return None
+        if later is not None and all(_keeps_rows(effect) for effect in later):
+            return "position"
+        return "index"
 
     def _ops_after(self, state: "DataStore") -> Optional[list]:
         """
@@ -6944,47 +6970,35 @@ class DataStore(PandasCompatMixin):
         # Handle LazyCondition (e.g., from isin(), between()) - extract underlying Condition
         from .lazy_result import LazyCondition
 
-        if isinstance(condition, LazyCondition):
-            if self._filters_changed_values(condition):
-                # Taken before a column it reads was overwritten: evaluated
-                # on its own state.
-                self._track_operation(
-                    "pandas", "filter(condition_of_earlier_state)", {"lazy": True}
-                )
+        if isinstance(condition, (ColumnExpr, LazyCondition)):
+            # A boolean mask the frame can't evaluate on its own rows (a
+            # method-mode value such as cumsum() > 6, or a mask taken from a
+            # state whose values or rows the frame no longer has) is
+            # evaluated on its own state and matched to the rows, see
+            # _mask_alignment.
+            alignment = self._mask_alignment(condition)
+            method_mode = isinstance(condition, ColumnExpr) and (
+                condition._exec_mode == "method" or condition._expr is None
+            )
+            if method_mode or alignment is not None:
+                self._track_operation("pandas", "filter(boolean_mask)", {"lazy": True})
                 self._add_lazy_op(
                     LazyRelationalOp(
-                        "PANDAS_FILTER", "earlier_state", condition=condition
+                        "PANDAS_FILTER",
+                        "method_mode" if method_mode else "earlier_state",
+                        condition=condition,
+                        alignment=alignment or "position",
                     )
                 )
                 return self
-            # Extract the underlying Condition for SQL generation
-            condition = condition.condition
+            if isinstance(condition, LazyCondition):
+                # Extract the underlying Condition for SQL generation
+                condition = condition.condition
 
         # Unified handling: extract Condition from ColumnExpr._expr
         # Since comparison operators now return ColumnExpr wrapping Condition,
         # we just need to check if _expr is already a Condition.
         if isinstance(condition, ColumnExpr):
-            # Check if this is a method-mode ColumnExpr (e.g., cumsum() > 6, rank() > 3)
-            # These cannot be converted to SQL and need pandas-based filtering,
-            # as does a condition on values this frame no longer holds (taken
-            # before they were overwritten): it is evaluated on its own state.
-            if (
-                condition._exec_mode == "method"
-                or condition._expr is None
-                or self._filters_changed_values(condition)
-            ):
-                # For method-mode ColumnExpr, we need to execute it and use pandas filtering
-                # Add as a pandas filter operation
-                self._track_operation(
-                    "pandas", f"filter(method_mode_condition)", {"lazy": True}
-                )
-                self._add_lazy_op(
-                    LazyRelationalOp(
-                        "PANDAS_FILTER", "method_mode", condition=condition
-                    )
-                )
-                return self
-
             if isinstance(condition._expr, Condition):
                 # ColumnExpr wrapping Condition (e.g., ds['col'] > 5)
                 condition = condition._expr
