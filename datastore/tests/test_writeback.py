@@ -1105,6 +1105,31 @@ class TestToClickHouseLocalDataFrame:
         finally:
             _drop(target)
 
+    @pytest.mark.parametrize("index_name", [42, None, "status"])
+    def test_index_label_names_the_index_column(self, index_name):
+        """index_label names the index column whatever the index's name,
+        also next to flattened MultiIndex columns."""
+        target = "wb_localdf_index_label"
+        _drop(target)
+        try:
+            frame = _local_df()[["status", "amount"]]
+            result = DataStore(frame).groupby("status").agg(["sum", "max"])
+            expected = frame.groupby("status").agg(["sum", "max"])
+            expected.columns = ["amount_sum", "amount_max"]
+            expected.index.name = index_name
+            expected = expected.reset_index()
+            expected.columns = ["row_id", "amount_sum", "amount_max"]
+            to_write = result.rename_axis(index_name)
+            to_write.to_clickhouse(
+                f"{DATABASE}.{target}",
+                host=HOST, user=USER, password=PASSWORD,
+                index=True, index_label="row_id",
+            )
+            assert [c for c, _ in _columns(target)] == list(expected.columns)
+            _assert_written(target, expected, ["row_id"])
+        finally:
+            _drop(target)
+
     def test_multiindex_flattened_name_collision_raises(self):
         """A key column amount_sum next to ('amount', 'sum') would write two
         columns with one name."""

@@ -5857,11 +5857,8 @@ class DataStore(PandasCompatMixin):
         ``v_sum`` / ``v_max``, the names the aggregation has in SQL.
         """
         if index:
-            is_multi = isinstance(df.index, pd.MultiIndex)
-            original_index_names = (
-                list(df.index.names) if is_multi else [df.index.name]
-            )
-            df = self._flatten_column_index(df.reset_index())
+            original_index_names = list(df.index.names)
+            df = df.reset_index()
             if index_label is not None:
                 labels = (
                     [index_label] if isinstance(index_label, str)
@@ -5875,20 +5872,20 @@ class DataStore(PandasCompatMixin):
                         f"index_label has {len(labels)} name(s) but the index "
                         f"has {len(original_index_names)} level(s); they must match."
                     )
-                rename_map = {}
-                for level, (old, new) in enumerate(
-                    zip(original_index_names, labels)
-                ):
-                    if old is not None:
-                        col_name = old
-                    elif is_multi:
-                        col_name = f"level_{level}"
-                    else:
-                        col_name = "index"
-                    if col_name in df.columns and new != col_name:
-                        rename_map[col_name] = new
-                if rename_map:
-                    df = df.rename(columns=rename_map)
+                # reset_index() inserts the index levels as the first columns
+                columns = list(df.columns)
+                for position, label in enumerate(labels):
+                    columns[position] = (
+                        (label,) + ("",) * (df.columns.nlevels - 1)
+                        if isinstance(df.columns, pd.MultiIndex)
+                        else label
+                    )
+                df.columns = (
+                    pd.MultiIndex.from_tuples(columns)
+                    if isinstance(df.columns, pd.MultiIndex)
+                    else columns
+                )
+            df = self._flatten_column_index(df)
         else:
             # Drop a non-default index quietly — chDB's Python() adapter
             # ignores the index but downstream column counts must agree
