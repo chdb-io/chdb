@@ -9054,7 +9054,7 @@ class DataStore(PandasCompatMixin):
         elif self._insert_columns:
             sql = self._generate_insert_sql(quote_char)
         elif (
-            execution_format
+            (execution_format or self._has_lazy_aggregation())
             and self._lazy_ops
             and (self._table_function or self.table_name)
         ):
@@ -9073,6 +9073,13 @@ class DataStore(PandasCompatMixin):
                 sql = f"{sql} AS {format_identifier(self._alias, quote_char)}"
 
         return sql
+
+    def _has_lazy_aggregation(self) -> bool:
+        """Whether a groupby aggregation is among the lazy ops; the flat
+        query-builder state does not record it, so to_sql() renders the plan."""
+        from .lazy_ops import LazyGroupByAgg
+
+        return any(isinstance(op, LazyGroupByAgg) for op in self._lazy_ops)
 
     def _generate_select_sql(self, quote_char: str) -> str:
         """Generate SELECT SQL."""

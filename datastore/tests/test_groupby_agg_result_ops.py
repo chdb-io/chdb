@@ -231,6 +231,19 @@ class TestSqlStyleAggregation:
         )
 
 
+    def test_to_sql_renders_the_aggregation(self, tmp_path):
+        path = str(tmp_path / "src.parquet")
+        self.FRAME.to_parquet(path)
+        d = DataStore.from_file(path)
+        for agg in [
+            d.groupby("g").agg(total=col("amount").sum()),
+            d.groupby("g").agg({"amount": "sum"}),
+        ]:
+            sql = agg.to_sql()
+            assert 'sum("amount")' in sql
+            assert 'GROUP BY "g"' in sql
+
+
 class TestOutputNamedLikeKey:
     """An aggregate output named like a group key: pandas keeps the key in
     the index (or drops it with as_index=False) and names the column after
