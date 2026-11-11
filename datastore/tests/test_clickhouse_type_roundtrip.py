@@ -18,6 +18,7 @@ Types tested:
 - Array(String): array mapping
 """
 
+from decimal import Decimal
 import ipaddress
 import uuid
 
@@ -26,6 +27,7 @@ import pandas as pd
 import pytest
 
 from datastore import DataStore
+from tests.test_utils import assert_datastore_equals_pandas
 
 
 class TestClickHouseTypeRoundTrip:
@@ -77,8 +79,8 @@ class TestClickHouseTypeRoundTrip:
         finally:
             self._cleanup(ds, conn, "t_decimal")
 
-    def test_decimal_maps_to_float64(self):
-        """Decimal(18,4) maps to float64 dtype in pandas."""
+    def test_decimal_maps_to_decimal_objects(self):
+        """Decimal(18,4) reads as an object column of decimal.Decimal, as pandas reads it through pyarrow."""
         ds, conn = self._setup_table(
             "t_decimal_dt",
             "CREATE TABLE t_decimal_dt (val Decimal(18,4)) ENGINE = Memory",
@@ -86,17 +88,13 @@ class TestClickHouseTypeRoundTrip:
         )
         try:
             df = self._read_df(ds)
-            assert df["val"].dtype == np.float64
+            assert df["val"].dtype == object
+            assert df["val"].iloc[0] == Decimal("1.0000")
         finally:
             self._cleanup(ds, conn, "t_decimal_dt")
 
-    def test_decimal_large_value_precision_loss(self):
-        """Decimal(18,4) with very large values may lose precision via float64.
-
-        This documents the known limitation: Decimal -> float64 conversion
-        cannot represent all Decimal(18,4) values exactly.
-        99999999999999.9999 becomes 100000000000000.0 in float64.
-        """
+    def test_decimal_large_value_is_exact(self):
+        """Decimal(18,4) keeps values that float64 cannot represent, such as 99999999999999.9999."""
         ds, conn = self._setup_table(
             "t_decimal_lg",
             "CREATE TABLE t_decimal_lg (val Decimal(18,4)) ENGINE = Memory",
@@ -104,12 +102,22 @@ class TestClickHouseTypeRoundTrip:
         )
         try:
             df = self._read_df(ds)
-            val = float(df["val"].iloc[0])
-            # float64 cannot represent 99999999999999.9999 exactly
-            # It rounds to 100000000000000.0
-            assert val == pytest.approx(100000000000000.0)
+            assert df["val"].iloc[0] == Decimal("99999999999999.9999")
         finally:
             self._cleanup(ds, conn, "t_decimal_lg")
+
+    def test_describe_decimal_only_matches_pandas(self):
+        """describe() of a table without numeric columns describes its Decimal column, as pandas does."""
+        ds, conn = self._setup_table(
+            "t_decimal_desc",
+            "CREATE TABLE t_decimal_desc (val Decimal(18,4)) ENGINE = Memory",
+            "INSERT INTO t_decimal_desc VALUES (1.1), (2.25), (1.1)",
+        )
+        try:
+            pd_df = pd.DataFrame({"val": [Decimal("1.1000"), Decimal("2.2500"), Decimal("1.1000")]})
+            assert_datastore_equals_pandas(ds.describe(), pd_df.describe())
+        finally:
+            self._cleanup(ds, conn, "t_decimal_desc")
 
     # -- FixedString(16) --
 

@@ -714,3 +714,12 @@ def groupby_apply_compat(grouped, func, **kwargs):
         pd_result = groupby_apply_compat(df.groupby('category'), lambda x: x.sum())
     """
     return grouped.apply(func, include_groups=False, **kwargs)
+
+
+# chDB returns a String holding binary data as str (valid UTF-8) or bytearray, not as the bytes it stores, so a
+# bytes column that goes through SQL no longer compares equal to pandas.
+# See: https://github.com/chdb-io/chdb/issues/740
+chdb_binary_string_output = pytest.mark.xfail(
+    reason="chDB returns String columns holding binary data as str or bytearray, not bytes (#740)",
+    strict=True,
+)

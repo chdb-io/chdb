@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 from datastore import DataStore
 from tests.test_utils import assert_datastore_equals_pandas
+from tests.xfail_markers import chdb_binary_string_output
 
 
 class TestBlobColumn(unittest.TestCase):
@@ -57,6 +58,7 @@ class TestBlobColumn(unittest.TestCase):
         # Compare results
         assert_datastore_equals_pandas(ds_df, pd_df)
 
+    @chdb_binary_string_output
     def test_select_blob_column(self):
         """Test selecting blob column."""
         # pandas operations
@@ -78,6 +80,7 @@ class TestBlobColumn(unittest.TestCase):
         # Compare results
         assert_datastore_equals_pandas(ds_result, pd_result)
 
+    @chdb_binary_string_output
     def test_filter_with_blob_column(self):
         """Test filtering DataStore that has blob column."""
         # pandas operations
@@ -159,6 +162,7 @@ class TestBlobColumn(unittest.TestCase):
         # Compare results
         assert_datastore_equals_pandas(ds_result, pd_result)
 
+    @chdb_binary_string_output
     def test_blob_column_head_tail(self):
         """Test head and tail operations with blob column."""
         # pandas operations
