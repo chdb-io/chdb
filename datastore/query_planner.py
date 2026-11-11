@@ -449,6 +449,13 @@ class QueryPlanner:
                 # (i.e. ``SELECT ... FROM (SELECT ... LIMIT N) GROUP BY``).
                 _start_new_layer_with(op)
             elif isinstance(op, LazyGroupByAgg) and any(
+                self._computes_window(prev) for prev in current_layer
+            ):
+                # The aggregation inlines the layer's computed columns, and a
+                # window function (shift, cumsum, ...) cannot sit inside an
+                # aggregate function: aggregate it from a subquery.
+                _start_new_layer_with(op)
+            elif isinstance(op, LazyGroupByAgg) and any(
                 isinstance(prev, (LazyWhere, LazyMask)) for prev in current_layer
             ):
                 # ``mask(cond, other).groupby(...).agg(...)`` (or ``where``)
@@ -726,6 +733,14 @@ class QueryPlanner:
                 if not isinstance(f, str) and getattr(f, "alias", None)
             }
         return {}
+
+    def _computes_window(self, op: LazyOp) -> bool:
+        """Whether an op computes a column with a window function."""
+        if isinstance(op, LazyColumnAssignment):
+            exprs = [op.get_sql_expression()] if op.can_push_to_sql() else []
+        else:
+            exprs = list(self._computed_columns_of(op).values())
+        return any(" OVER (" in expr.to_sql(quote_char='"') for expr in exprs)
 
     def _columns_read_by(self, op: LazyOp) -> Set[str]:
         """Columns an op's condition, sort keys or computed expressions read.

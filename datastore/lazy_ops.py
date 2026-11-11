@@ -1360,8 +1360,8 @@ class LazyGroupByAgg(LazyOp):
         """
         The group keys followed by the aggregate outputs. The keys stay
         columns of the SQL result until execution moves them to the index;
-        when the outputs aren't named (``size()``) the columns are unknown
-        and passed through.
+        when the outputs aren't named (column-less ``count()``) the columns
+        are unknown and passed through.
         """
         outputs = [name for name, _, _ in self.aggregate_outputs(columns)]
         if not outputs:
@@ -1383,6 +1383,16 @@ class LazyGroupByAgg(LazyOp):
         outputs = {name for name, _, _ in self.aggregate_outputs()}
         return [f"__key_{key}__" if key in outputs else key for key in self.groupby_cols]
 
+    def run_on(self, datastore: "DataStore") -> pd.DataFrame:
+        """The aggregation of ``datastore``'s rows, indexed by the group keys
+        unless ``as_index=False`` (also in performance mode)."""
+        from copy import copy
+
+        aggregated = copy(datastore)
+        aggregated._groupby_fields = []
+        aggregated._add_lazy_op(self)
+        return self.set_group_index(aggregated._execute())
+
     def set_group_index(self, df: pd.DataFrame) -> pd.DataFrame:
         """Move the group key columns of a SQL result to the index."""
         columns = self.key_columns()
@@ -1398,8 +1408,9 @@ class LazyGroupByAgg(LazyOp):
         """
         ``(output_name, func, source_column)`` for every named aggregate output.
 
-        ``size()`` and the column-less ``count()`` fallback emit an unnamed
-        ``count(*)`` and are not listed. ``all_columns`` is only needed when
+        ``size()`` is named ``size``, as pandas names it; the column-less
+        ``count()`` fallback emits an unnamed ``count(*)`` and is not listed.
+        ``all_columns`` is only needed when
         one function is applied to every non-key column. SQL expression
         aggregates have neither a function name nor a source column.
         """
@@ -1425,7 +1436,9 @@ class LazyGroupByAgg(LazyOp):
                         name = col
                     outputs.append((name, func, col))
             return outputs
-        if self.agg_func and self.agg_func != "size" and all_columns:
+        if self.agg_func == "size":
+            return [("size", "size", None)]
+        if self.agg_func and all_columns:
             cols = self.selected_columns or all_columns
             return [
                 (col, self.agg_func, col) for col in cols if col not in self.groupby_cols

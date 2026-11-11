@@ -246,7 +246,7 @@ class TestQueryPlannerAliasRenames(unittest.TestCase):
         # Building the SQL records the temp alias and renames it back in SQL
         self.assertIn('__agg_int_col__', plan.alias_renames)
         self.assertEqual(plan.alias_renames['__agg_int_col__'], 'int_col')
-        self.assertIn('sum("int_col") AS "__agg_int_col__"', sql)
+        self.assertIn('ifNull(sum("int_col"),0) AS "__agg_int_col__"', sql)
         self.assertIn('"__agg_int_col__" AS "int_col"', sql)
 
         # GroupByAgg should still be pushed to SQL
@@ -712,52 +712,6 @@ class TestCrossLayerAliasRewriting(unittest.TestCase):
         np.testing.assert_array_equal(ds_sorted.index, pd_sorted.index)
         np.testing.assert_array_equal(ds_sorted['int_col'], pd_sorted['int_col'])
 
-    def test_rewrite_column_refs_in_expression_returns_new_tree(self):
-        """The helper must return a new tree without mutating the original."""
-        from datastore.sql_executor import rewrite_column_refs_in_expression
-        from datastore.expressions import Field, Literal
-        from datastore.conditions import BinaryCondition, CompoundCondition
-
-        original = CompoundCondition(
-            'AND',
-            BinaryCondition('>', Field('a'), Literal(1)),
-            BinaryCondition('<', Field('b'), Literal(10)),
-        )
-        rewritten = rewrite_column_refs_in_expression(original, {'a': '__a__'})
-
-        # Original tree untouched
-        self.assertEqual(original.left.left.name, 'a')
-        # Rewritten tree has the new name
-        self.assertEqual(rewritten.left.left.name, '__a__')
-        # Non-targeted field is unchanged
-        self.assertEqual(rewritten.right.left.name, 'b')
-
-    def test_rewrite_column_refs_handles_unary_in_between(self):
-        """The helper recurses through UnaryCondition / InCondition /
-        BetweenCondition with no exceptions and rewrites their nested
-        Field references."""
-        from datastore.sql_executor import rewrite_column_refs_in_expression
-        from datastore.expressions import Field, Literal
-        from datastore.conditions import (
-            UnaryCondition,
-            InCondition,
-            BetweenCondition,
-        )
-
-        rename = {'col': '__col__'}
-
-        unary = UnaryCondition('IS NULL', Field('col'))
-        rewritten_unary = rewrite_column_refs_in_expression(unary, rename)
-        self.assertEqual(rewritten_unary.expression.name, '__col__')
-
-        in_cond = InCondition(Field('col'), [1, 2, 3])
-        rewritten_in = rewrite_column_refs_in_expression(in_cond, rename)
-        self.assertEqual(rewritten_in.expression.name, '__col__')
-
-        between = BetweenCondition(Field('col'), Literal(1), Literal(10))
-        rewritten_between = rewrite_column_refs_in_expression(between, rename)
-        self.assertEqual(rewritten_between.expression.name, '__col__')
-
 
 class TestDispatchByOpType(unittest.TestCase):
     """Unit tests for :meth:`SQLExecutionEngine._build_layer` op-type
@@ -879,35 +833,6 @@ class TestDispatchByOpType(unittest.TestCase):
         )
         self.assertIs(gb, agg)
         self.assertEqual(wheres, [lazy_where, lazy_mask])
-
-    def test_split_wheres_by_groupby_position(self):
-        """WHEREs strictly before LazyGroupByAgg go to pre_agg (WHERE),
-        WHEREs after go to post_agg (HAVING)."""
-        from datastore.lazy_ops import LazyRelationalOp, LazyGroupByAgg
-        from datastore.sql_executor import SQLExecutionEngine
-        from datastore.expressions import Field, Literal
-        from datastore.conditions import BinaryCondition
-
-        ds = DataStore.from_file(self.parquet_path)
-        engine = SQLExecutionEngine(ds)
-
-        pre_where = LazyRelationalOp(
-            'WHERE', 'a > 1', condition=BinaryCondition('>', Field('a'), Literal(1))
-        )
-        agg = LazyGroupByAgg(groupby_cols=['cat'], agg_dict={'a': 'sum'})
-        post_where = LazyRelationalOp(
-            'WHERE', 'a > 5', condition=BinaryCondition('>', Field('a'), Literal(5))
-        )
-
-        pre, post = engine._split_wheres_by_groupby_position(
-            [pre_where, agg, post_where]
-        )
-        self.assertEqual(len(pre), 1)
-        self.assertEqual(len(post), 1)
-        # Pre-agg condition is on the source column
-        self.assertIs(pre[0], pre_where.condition)
-        # Post-agg condition is on the aggregation output
-        self.assertIs(post[0], post_where.condition)
 
     def test_mask_then_groupby_splits_into_nested_layers(self):
         """Regression for PR #578 Copilot comment: ``mask(...).groupby(...).agg(...)``

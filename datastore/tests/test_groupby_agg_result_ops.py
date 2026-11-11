@@ -230,7 +230,6 @@ class TestSqlStyleAggregation:
             d[d["amount"] > 2], self.FRAME[self.FRAME["amount"] > 2]
         )
 
-
     def test_to_sql_renders_the_aggregation(self, tmp_path):
         path = str(tmp_path / "src.parquet")
         self.FRAME.to_parquet(path)
@@ -288,6 +287,77 @@ class TestOutputNamedLikeKey:
             d.groupby("g").agg(g=col("amount").sum()),
             self.FRAME.groupby("g").agg(g=("amount", "sum")),
         )
+
+
+class TestSeriesAndSizeAggregation:
+    """groupby()[col].<agg>() and size() run as the same aggregation step."""
+
+    @pytest.mark.parametrize("sort", [True, False])
+    def test_size(self, source_kind, tmp_path, sort):
+        frame = pd.DataFrame({"a": list("yxyxz"), "v": [1, 2, 3, 4, 5]})
+        d = make_source(frame, source_kind, tmp_path)
+        assert_series_equal(d.groupby("a", sort=sort).size(), frame.groupby("a", sort=sort).size())
+
+    @pytest.mark.parametrize("func", ["sum", "nunique", "max", "count"])
+    def test_series_sort_false(self, source_kind, tmp_path, func):
+        frame = pd.DataFrame({"a": list("xxyyxz"), "v": [1, 1, 2, 3, 1, 4]})
+        d = make_source(frame, source_kind, tmp_path)
+        assert_series_equal(
+            getattr(d.groupby("a", sort=False)["v"], func)(),
+            getattr(frame.groupby("a", sort=False)["v"], func)(),
+        )
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(lambda d: d.groupby("a")["v"].quantile(0.25), id="quantile"),
+            pytest.param(lambda d: d.groupby("a")["v"].std(ddof=0), id="std_ddof0"),
+            pytest.param(lambda d: d.groupby("a")["v"].var(ddof=0), id="var_ddof0"),
+        ],
+    )
+    def test_parametrized_function(self, source_kind, tmp_path, chain):
+        frame = pd.DataFrame({"a": list("xxxxyyy"), "v": [1.0, 2.0, 4.0, 8.0, 3.0, 5.0, 9.0]})
+        d = make_source(frame, source_kind, tmp_path)
+        assert_series_equal(chain(d), chain(frame))
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(
+                lambda d: d.groupby(["a", "b"]).agg({"v": "sum"}).groupby("v").size(),
+                id="size_of_aggregated_column",
+            ),
+            pytest.param(lambda d: d.head(3).groupby("a").size(), id="size_after_head"),
+            pytest.param(
+                lambda d: d[d["v"] > 3].groupby("a")["v"].mean(), id="mean_after_filter"
+            ),
+        ],
+    )
+    def test_reads_earlier_operations(self, source_kind, tmp_path, chain):
+        frame = pd.DataFrame(
+            {"a": list("xxyyz"), "b": list("pqppq"), "v": [1, 6, 3, 4, 7]}
+        )
+        d = make_source(frame, source_kind, tmp_path)
+        assert_series_equal(chain(d), chain(frame))
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(lambda d: d.groupby("g")["v"].sum(), id="series"),
+            pytest.param(lambda d: d.groupby("g").agg({"v": "sum"}), id="dict"),
+            pytest.param(lambda d: d.groupby("g").sum(), id="frame"),
+        ],
+    )
+    def test_sum_of_group_without_values_is_zero(self, source_kind, tmp_path, chain):
+        frame = pd.DataFrame(
+            {"g": ["a", "a", "b", "b", "c"], "v": [np.nan, np.nan, 1.0, np.nan, 2.0]}
+        )
+        d = make_source(frame, source_kind, tmp_path)
+        result, expected = chain(d), chain(frame)
+        if isinstance(expected, pd.Series):
+            assert_series_equal(result, expected)
+        else:
+            assert_matches_pandas(result, expected)
 
 
 # ---------------------------------------------------------------------------

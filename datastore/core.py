@@ -1797,11 +1797,19 @@ class DataStore(PandasCompatMixin):
         # Skip if DataFrame already has the correct index (e.g., from set_index(drop=False))
         # In performance mode, skip index preservation entirely
         from .config import is_performance_mode as _is_perf_mode
+        from .lazy_ops import LazyGroupByAgg
 
+        # An aggregation replaces the source rows and their labels
+        aggregated = any(
+            isinstance(op, LazyGroupByAgg)
+            for segment in exec_plan.segments
+            for op in segment.ops
+        )
         if (
             not _is_perf_mode()
             and self._index_info is not None
             and not df.empty
+            and not aggregated
         ):
             if self._index_info.get("is_multiindex"):
                 # Restore MultiIndex
@@ -1995,9 +2003,10 @@ class DataStore(PandasCompatMixin):
                                     has_new_expressions = True
                                     break
 
-                # If we have computed columns or new expressions, execute SQL for correct dtypes
+                # If we have computed columns, new expressions or an
+                # aggregation, execute SQL for correct columns and dtypes
                 # chDB can correctly infer output types even for empty DataFrames
-                if computed_cols or has_new_expressions:
+                if computed_cols or has_new_expressions or plan.groupby_agg:
                     self._logger.debug(
                         "  Empty df has computed columns/expressions, executing SQL for correct dtypes"
                     )
@@ -2011,10 +2020,6 @@ class DataStore(PandasCompatMixin):
                         self._logger.debug(
                             "  Applied column selection to empty df: %s", select_cols
                         )
-                    # For empty groupby results, set group keys as index
-                    # to match pandas behavior (groupby with as_index=True)
-                    if plan.groupby_agg:
-                        df = plan.groupby_agg.set_group_index(df)
                     return df
 
             # If we have a source but no DataFrame yet, load raw data first

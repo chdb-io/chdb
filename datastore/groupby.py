@@ -4,12 +4,8 @@ LazyGroupBy - Lazy GroupBy wrapper for DataStore.
 This implements pandas-like groupby semantics where:
 - df.groupby('col') returns a GroupBy object (not a copy of DataFrame)
 - The GroupBy object references the original DataFrame
-- Aggregation operations execute and checkpoint the ORIGINAL DataFrame
-
-This design ensures that:
-1. When groupby().agg() executes, the original df is checkpointed
-2. Subsequent calls to df.to_df() use the cached result
-3. No redundant computation occurs
+- Aggregations add a LazyGroupByAgg step to a copy of the original's
+  pipeline; the original DataStore is left unchanged
 """
 
 from __future__ import annotations
@@ -33,16 +29,14 @@ class LazyGroupBy:
     Similar to pandas DataFrameGroupBy, this object:
     - Holds a reference to the original DataStore (not a copy)
     - Stores the groupby fields
-    - Provides aggregation methods that operate on the original DataStore
+    - Provides aggregation methods that read the original DataStore's rows
 
     Example:
         >>> df = DataStore.from_dataframe(pd.DataFrame(...))
         >>> df['FamilySize'] = df['SibSp'] + df['Parch'] + 1
         >>>
         >>> grp = df.groupby('FamilySize')  # Returns LazyGroupBy
-        >>> result = grp['Survived'].mean()  # Executes ORIGINAL df
-        >>>
-        >>> df.to_df()  # Uses cached result (no re-execution!)
+        >>> result = grp['Survived'].mean()  # Aggregates df's pipeline
     """
 
     def __init__(

@@ -134,7 +134,7 @@ SHAPES = [
         ),
         [
             'GROUP BY',
-            'sum("v") AS "__agg_v__"',
+            'ifNull(sum("v"),0) AS "__agg_v__"',
             '"__agg_v__" AS "v"',
             'ORDER BY "v" DESC, "__group_pos__" ASC LIMIT 5) AS __subq2__ WHERE "v" > 1000',
         ],

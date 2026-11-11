@@ -24,6 +24,7 @@ import pandas as pd
 from .expressions import (
     Field,
     Expression,
+    Literal,
     Star,
     bind_projection_item,
     is_star_item,
@@ -395,149 +396,6 @@ class _SQLText(Expression):
         return self.sql
 
 
-def rewrite_column_refs_in_expression(expr: Any, rename_map: Dict[str, str]) -> Any:
-    """
-    Recursively rewrite ``Field`` references in an Expression/Condition tree.
-
-    Used inside a single SELECT scope: when an aggregation emits ``SUM(int_col)
-    AS __agg_int_col__``, a HAVING condition on the visible name ``int_col``
-    must reference the temp alias instead.
-
-    The rewrite is structural and immutable: a new tree is returned and the
-    original is not mutated. Subqueries inside ``InCondition`` are not
-    descended into (they have their own column scope).
-
-    Args:
-        expr: A Condition, BinaryCondition, CompoundCondition, NotCondition,
-              UnaryCondition, InCondition, BetweenCondition, LikeCondition,
-              NullSafeCondition, ArithmeticExpression, Field, Literal, or
-              any other Expression-like value. ``None`` returns ``None``.
-        rename_map: Dict mapping ``original_name -> new_name``.
-
-    Returns:
-        A rewritten expression (new instance if anything changed, otherwise
-        the original).
-    """
-    if expr is None or not rename_map:
-        return expr
-
-    from .conditions import (
-        BinaryCondition,
-        CompoundCondition,
-        NotCondition,
-        UnaryCondition,
-        InCondition,
-        BetweenCondition,
-        LikeCondition,
-        NullSafeCondition,
-    )
-    from .expressions import ArithmeticExpression, Literal
-
-    if isinstance(expr, Field):
-        original = expr.name.strip("\"'")
-        if original in rename_map:
-            return expr.with_attrs(name=rename_map[original])
-        return expr
-
-    if isinstance(expr, Literal):
-        return expr
-
-    if isinstance(expr, BinaryCondition):
-        new_left = rewrite_column_refs_in_expression(expr.left, rename_map)
-        new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
-        if new_left is expr.left and new_right is expr.right:
-            return expr
-        return expr.with_attrs(left=new_left, right=new_right)
-
-    if isinstance(expr, CompoundCondition):
-        new_left = rewrite_column_refs_in_expression(expr.left, rename_map)
-        new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
-        if new_left is expr.left and new_right is expr.right:
-            return expr
-        return expr.with_attrs(left=new_left, right=new_right)
-
-    if isinstance(expr, NotCondition):
-        new_inner = rewrite_column_refs_in_expression(expr.condition, rename_map)
-        if new_inner is expr.condition:
-            return expr
-        return expr.with_attrs(condition=new_inner)
-
-    if isinstance(expr, UnaryCondition):
-        new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
-        if new_expr is expr.expression:
-            return expr
-        return expr.with_attrs(expression=new_expr)
-
-    if isinstance(expr, InCondition):
-        # Don't descend into subqueries (different column scope)
-        new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
-        if new_expr is expr.expression:
-            return expr
-        return expr.with_attrs(expression=new_expr)
-
-    if isinstance(expr, BetweenCondition):
-        new_e = rewrite_column_refs_in_expression(expr.expression, rename_map)
-        new_l = rewrite_column_refs_in_expression(expr.lower, rename_map)
-        new_u = rewrite_column_refs_in_expression(expr.upper, rename_map)
-        if (
-            new_e is expr.expression
-            and new_l is expr.lower
-            and new_u is expr.upper
-        ):
-            return expr
-        return expr.with_attrs(expression=new_e, lower=new_l, upper=new_u)
-
-    if isinstance(expr, LikeCondition):
-        new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
-        if new_expr is expr.expression:
-            return expr
-        return expr.with_attrs(expression=new_expr)
-
-    if isinstance(expr, NullSafeCondition):
-        new_inner = rewrite_column_refs_in_expression(expr.condition, rename_map)
-        if new_inner is expr.condition:
-            return expr
-        return expr.with_attrs(condition=new_inner)
-
-    if isinstance(expr, ArithmeticExpression):
-        new_left = rewrite_column_refs_in_expression(expr.left, rename_map)
-        new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
-        if new_left is expr.left and new_right is expr.right:
-            return expr
-        return expr.with_attrs(left=new_left, right=new_right)
-
-    return expr
-
-
-def rewrite_column_refs_in_orderby(
-    orderby_fields: List[Tuple[Any, bool]], rename_map: Dict[str, str]
-) -> List[Tuple[Any, bool]]:
-    """
-    Rewrite Field references in an ORDER BY field list.
-
-    Args:
-        orderby_fields: List of ``(field, ascending)`` tuples
-        rename_map: Dict mapping ``original_name -> new_name``
-
-    Returns:
-        New list with Field references rewritten where applicable.
-    """
-    if not rename_map or not orderby_fields:
-        return orderby_fields
-
-    new_orderby = []
-    for field_obj, asc in orderby_fields:
-        if isinstance(field_obj, Field):
-            rewritten = rewrite_column_refs_in_expression(field_obj, rename_map)
-            new_orderby.append((rewritten, asc))
-        elif isinstance(field_obj, str) and field_obj in rename_map:
-            new_orderby.append((Field(rename_map[field_obj]), asc))
-        else:
-            new_orderby.append((field_obj, asc))
-
-    return new_orderby
-
-
 def layer_computed_columns(
     ops: List[LazyOp], quote_char: str = '"'
 ) -> Dict[str, Expression]:
@@ -651,6 +509,13 @@ def build_groupby_select_fields(
             # last() -> argMax(col, rowNumberInAllBlocks())
             row_num_func = Function('rowNumberInAllBlocks')
             return AggregateFunction('argMax', col_expr, row_num_func)
+        elif func == 'size':
+            # size() counts ALL rows including NULL
+            return AggregateFunction('count', Star())
+        elif func == 'sum' and not is_performance_mode():
+            # pandas sums a group without values to 0 (min_count=0); SQL
+            # returns NULL
+            return Function('ifNull', AggregateFunction('sum', col_expr), Literal(0))
         else:
             sql_func = map_agg_func(func)
             return AggregateFunction(sql_func, col_expr)
@@ -677,7 +542,8 @@ def build_groupby_select_fields(
         ]
     else:
         agg_exprs = [
-            create_agg_expr(func, resolve_column(col)) for _, func, col in outputs
+            create_agg_expr(func, None if col is None else resolve_column(col))
+            for _, func, col in outputs
         ]
     taken = set(reserved_names or ()) | {name for name, _, _ in outputs}
     for expr in groupby_fields + agg_exprs:
@@ -693,15 +559,14 @@ def build_groupby_select_fields(
         emitted_renames[temp_alias] = name
         select_fields.append(agg_expr)
 
-    func = groupby_agg.agg_func
     if (
         not groupby_agg.named_agg
         and not isinstance(groupby_agg.agg_dict, dict)
-        and (func == "size" or (func == "count" and not all_columns))
+        and groupby_agg.agg_func == "count"
+        and not all_columns
     ):
-        # size() counts ALL rows including NULL; without known columns
-        # count() falls back to the same COUNT(*)
-        select_fields.append(AggregateFunction(map_agg_func(func), Star()))
+        # Without known columns count() falls back to COUNT(*)
+        select_fields.append(AggregateFunction("count", Star()))
 
     return groupby_fields, select_fields, emitted_renames
 
@@ -815,39 +680,6 @@ class SQLExecutionEngine:
         )
         return f"LIMIT 1 BY {limit_by_cols}"
 
-    def _split_wheres_by_groupby_position(
-        self, layer_ops: List[LazyOp]
-    ) -> Tuple[List[Any], List[Any]]:
-        """
-        Split WHERE conditions in a layer into pre-aggregation and
-        post-aggregation buckets, using the position of the LazyGroupByAgg
-        op (if any) within the layer.
-
-        - WHEREs before the LazyGroupByAgg act on source rows -> WHERE clause
-        - WHEREs after the LazyGroupByAgg act on aggregation output ->
-          HAVING clause (SQL HAVING runs after GROUP BY)
-
-        Returns:
-            (pre_agg_conditions, post_agg_conditions)
-        """
-        pre_agg: List[Any] = []
-        post_agg: List[Any] = []
-        seen_groupby = False
-        for op in layer_ops:
-            if isinstance(op, LazyGroupByAgg):
-                seen_groupby = True
-                continue
-            if (
-                isinstance(op, LazyRelationalOp)
-                and op.op_type == "WHERE"
-                and op.condition is not None
-            ):
-                if seen_groupby:
-                    post_agg.append(op.condition)
-                else:
-                    pre_agg.append(op.condition)
-        return pre_agg, post_agg
-
     def _build_layer(
         self,
         layer_ops: List[LazyOp],
@@ -932,15 +764,11 @@ class SQLExecutionEngine:
             )
             clauses.orderby_kind = None
 
-        # 1) Split WHEREs by GroupByAgg position (pre-agg -> WHERE, post-agg
-        # -> HAVING). ``_split_wheres_by_groupby_position`` re-reads from
-        # ``layer_ops`` to preserve position.
+        # 1) An aggregation is the last op of its layer, so every WHERE of
+        # the layer filters the aggregation's input rows.
         having_conditions: List[Any] = []
         agg_outer_clauses: Optional[ExtractedClauses] = None
         if groupby_agg_op is not None:
-            pre_wheres, post_wheres = self._split_wheres_by_groupby_position(
-                layer_ops
-            )
             # pandas default ``dropna=True`` excludes NULL group keys; SQL
             # ``GROUP BY`` would group them. Emit ``col IS NOT NULL``
             # filters as pre-agg WHEREs unless the user opted out via
@@ -952,12 +780,9 @@ class SQLExecutionEngine:
                 and getattr(groupby_agg_op, "dropna", True)
                 and groupby_agg_op.groupby_cols
             ):
-                dropna_conditions = [
+                clauses.where_conditions = clauses.where_conditions + [
                     Field(col).notnull() for col in groupby_agg_op.groupby_cols
                 ]
-                pre_wheres = pre_wheres + dropna_conditions
-            clauses.where_conditions = pre_wheres
-            having_conditions = post_wheres
 
         # 2) Build SELECT / GROUP BY / WHERE CASE-WHEN tooling.
         select_fields_for_sql: List[Expression] = sql_select_fields
@@ -1027,7 +852,7 @@ class SQLExecutionEngine:
                 for cond in clauses.where_conditions
             ]
             reserved_names = set(all_cols)
-            scope_conditions = clauses.where_conditions + having_conditions
+            scope_conditions = list(clauses.where_conditions)
             if is_first_layer and self.ds._having_condition is not None:
                 scope_conditions = scope_conditions + [self.ds._having_condition]
             for cond in scope_conditions:
@@ -1042,17 +867,6 @@ class SQLExecutionEngine:
                 all_columns=all_cols,
                 computed_columns=computed_cols,
             )
-
-            # HAVING is evaluated inside the aggregation's SELECT scope, so
-            # it must reference the temp aliases (visible_name -> temp_alias).
-            agg_visible_to_temp = {
-                orig: temp for temp, orig in emitted_renames.items()
-            }
-            if agg_visible_to_temp:
-                having_conditions = [
-                    rewrite_column_refs_in_expression(c, agg_visible_to_temp)
-                    for c in having_conditions
-                ]
 
             from .functions import AggregateFunction, Function, WindowFunction
 
