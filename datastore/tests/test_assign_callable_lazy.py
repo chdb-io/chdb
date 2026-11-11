@@ -612,8 +612,8 @@ class TestSourceIdentity:
         same = DataStore(table="t", database=str(tmp_path / "db1"))
         assert first._source_identity() != second._source_identity()
         assert first._source_identity() == same._source_identity()
-        assert not first._reads_frame(second["a"], rowwise=True)
-        assert first._reads_frame(same["a"], rowwise=True)
+        assert not first._reads_frame(second["a"])
+        assert first._reads_frame(same["a"])
 
     def test_assign_from_table_in_other_database_is_not_inlined(self, tmp_path):
         """chDB opens one database path per process, so each step runs in its
@@ -806,3 +806,99 @@ class TestCrossDataStoreOperandNames:
             assert_datastore_equals_pandas(ds_result, pd_result)
         finally:
             set_cross_datastore_engine(before)
+
+
+class TestOperatorOperandAlignment:
+    """An operand evaluated in pandas stays a Series that pandas aligns by index."""
+
+    @pytest.mark.parametrize(
+        "op",
+        [
+            pytest.param(lambda x, y: x + y, id="add"),
+            pytest.param(lambda x, y: x * y, id="mul"),
+            pytest.param(lambda x, y: y - x, id="rsub"),
+        ],
+    )
+    def test_operand_of_another_datastore_with_fewer_rows(self, op):
+        def chain(cls):
+            left, right = cls({"a": [1, 2]}), cls({"a": [10]})
+            return op(left["a"], right["a"].astype(float))
+
+        assert_series_equal(get_series(chain(DataStore)), chain(pd.DataFrame))
+
+
+class TestValuesAcrossChangedRowsOrColumns:
+    @pytest.mark.parametrize(
+        "make_value",
+        [
+            pytest.param(lambda d: d["a"].diff(), id="diff"),
+            pytest.param(lambda d: d["a"].shift(), id="shift"),
+            pytest.param(lambda d: d["a"].cumsum(), id="cumsum"),
+        ],
+    )
+    def test_window_value_of_frame_before_filter(self, make_value):
+        def chain(d):
+            d = d.assign(a=d["qty"])
+            return d[d["price"] > 1].assign(v=make_value(d))
+
+        assert_datastore_equals_pandas(chain(DataStore(_frame())), chain(_frame()))
+
+    def test_function_of_column_overwritten_since(self):
+        def chain(d):
+            changed = d.assign(a=d["a"] * -2)
+            return changed.assign(o=d["a"].abs())
+
+        data = {"a": [1, -2, 3]}
+        assert_datastore_equals_pandas(chain(DataStore(data)), chain(pd.DataFrame(data)))
+
+
+class TestOverwritesInOneAssign:
+    """All values of one assign() call read the frame before the call."""
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(lambda d: d.assign(b=d["a"] + 1, a=d["a"] * 2), id="reads_later_overwrite"),
+            pytest.param(lambda d: d.assign(a=d["a"] * 2, b=d["a"] + 1), id="reads_earlier_overwrite"),
+            pytest.param(lambda d: d.assign(a=d["b"], b=d["a"]), id="swap"),
+            pytest.param(
+                lambda d: d.assign(b=lambda x: x["a"] + 1, a=lambda x: x["a"] * 2),
+                id="callables",
+            ),
+            pytest.param(
+                lambda d: d.assign(c=d["a"] + d["b"], a=d["b"] * 10, b=d["a"] - 1),
+                id="new_and_overwrites",
+            ),
+        ],
+    )
+    def test_matches_pandas(self, chain, tmp_path, execute_calls):
+        data = pd.DataFrame({"a": [1, 2, 3], "b": [10, 20, 30]})
+        path = str(tmp_path / "overwrites.parquet")
+        data.to_parquet(path)
+        for source in (DataStore(data.copy()), DataStore.from_file(path)):
+            execute_calls.clear()
+            ds_result = chain(source)
+            assert len(execute_calls) == 0
+            assert_datastore_equals_pandas(ds_result, chain(data.copy()))
+
+
+def test_checkpoint_releases_replaced_values():
+    """Executing after each assignment keeps only the current values, as pandas does."""
+    import gc
+    import tracemalloc
+
+    n = 200_000
+    tracemalloc.start()
+    try:
+        ds = DataStore(pd.DataFrame({"i": np.arange(n)}))
+        gc.collect()
+        base = tracemalloc.get_traced_memory()[0]
+        for _ in range(30):
+            ds["x"] = np.random.rand(n)
+            ds.to_df()
+        gc.collect()
+        retained = tracemalloc.get_traced_memory()[0] - base
+    finally:
+        tracemalloc.stop()
+    # one generation of x and the frame (about 3 MB), not 30 (about 48 MB)
+    assert retained < 12 * 2**20

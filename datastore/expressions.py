@@ -62,6 +62,38 @@ class Expression(Node):
     def __init__(self, alias: Optional[str] = None):
         self.alias = alias
 
+    @property
+    def is_row_wise(self) -> bool:
+        """
+        Whether each output row is computed from the same input row only: no
+        window (``OVER``) or aggregate function anywhere in the tree. A value
+        that isn't row-wise depends on which rows it is computed over.
+        """
+        return not any(
+            getattr(node, "is_window", False) or getattr(node, "is_aggregate", False)
+            for node in self.subtree()
+        )
+
+    def subtree(self) -> Iterator["Expression"]:
+        """
+        Every expression node of this tree, including function arguments and
+        window specifications, which ``nodes()`` doesn't descend into.
+        """
+        seen, stack = set(), [self]
+        while stack:
+            node = stack.pop()
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            yield node
+            for value in vars(node).values():
+                items = value if isinstance(value, (list, tuple)) else (value,)
+                for item in items:
+                    if isinstance(item, (list, tuple)):
+                        stack.extend(i for i in item if isinstance(i, Expression))
+                    elif isinstance(item, Expression):
+                        stack.append(item)
+
     def with_attrs(self, **attrs: Any) -> "Expression":
         """Return a shallow copy of this node with ``attrs`` replaced.
 

@@ -2,6 +2,7 @@
 Core DataStore class - main entry point for data operations
 """
 
+import itertools
 import math
 import time
 import weakref
@@ -86,12 +87,54 @@ def _clickhouse_type_null_is_nan(ch_type: str) -> bool:
     return inner.startswith(("Float", "String", "FixedString", "Date"))
 
 
-def _same_lineage(a, b) -> bool:
-    """Whether two ``(source identity, ops)`` lineages are the same pipeline
-    state: equal source identity and the same op objects in order."""
-    return (
-        a[0] == b[0] and len(a[1]) == len(b[1]) and all(x is y for x, y in zip(a[1], b[1]))
-    )
+_PROVENANCE_TOKENS = itertools.count(1)
+
+
+def _token(obj) -> int:
+    """A number naming ``obj``; unlike ``id()`` it is never reused after the
+    object is gone, so lineages can name ops without keeping them alive."""
+    token = obj.__dict__.get("_provenance_token")
+    if token is None:
+        token = obj.__dict__["_provenance_token"] = next(_PROVENANCE_TOKENS)
+    return token
+
+
+_ROW_OPS = frozenset({"WHERE", "ORDER BY", "LIMIT", "OFFSET", "PANDAS_FILTER"})
+
+
+def _op_effect(op) -> tuple:
+    """
+    ``(token, effect)`` of an op in a lineage, where ``effect`` says what it
+    does to columns and rows without holding its data: ``("rows",)``,
+    ``("assign", column)``, ``("select", names, keeps_others)`` or
+    ``("other",)``.
+    """
+    from .expressions import is_star_item, projection_name
+    from .lazy_ops import LazyAssignCallable, LazyColumnAssignment
+
+    cached = op.__dict__.get("_provenance_effect")
+    if cached is not None:
+        return cached
+    effect = ("other",)
+    if isinstance(op, LazyRelationalOp):
+        if op.op_type in _ROW_OPS:
+            effect = ("rows",)
+        elif op.op_type == "SELECT":
+            fields = op.fields or []
+            if any(is_star_item(f) for f in fields):
+                computed = frozenset(projection_name(f) for f in fields if not is_star_item(f))
+                effect = ("select", computed, True)
+            else:
+                plain = frozenset(
+                    f if isinstance(f, str) else f.name
+                    for f in fields
+                    if isinstance(f, str) or (isinstance(f, Field) and not f.alias)
+                )
+                effect = ("select", plain, False)
+    elif isinstance(op, (LazyColumnAssignment, LazyAssignCallable)):
+        effect = ("assign", op.column)
+    cached = op.__dict__["_provenance_effect"] = (_token(op), effect)
+    return cached
 
 
 def _group_key_names(keys) -> set:
@@ -107,7 +150,7 @@ def _columns_read(value) -> Optional[set]:
     from .lazy_result import LazySeries
 
     if isinstance(value, Expression):
-        return {f.name for f in value.find(Field)}
+        return {f.name for f in value.subtree() if isinstance(f, Field)}
     if isinstance(value, LazySeries):
         if value._executor is not None:
             return None
@@ -135,31 +178,35 @@ def _columns_read(value) -> Optional[set]:
     return names
 
 
-def _keeps_read_columns(op, reads: Optional[set], rowwise: bool) -> bool:
+def _keeps_read_columns(effect: tuple, reads: Optional[set], rowwise: bool) -> bool:
     """
-    Whether ``op`` keeps the values of the columns in ``reads`` (``None``:
-    unknown columns) and, unless ``rowwise``, the rows.
+    Whether an op with ``effect`` (see ``_op_effect``) keeps the values of the
+    columns in ``reads`` (``None``: unknown columns) and, unless ``rowwise``,
+    the rows.
     """
-    from .expressions import is_star_item, projection_name
-    from .lazy_ops import LazyAssignCallable, LazyColumnAssignment
-
-    if isinstance(op, LazyRelationalOp):
-        if op.op_type in ("WHERE", "ORDER BY", "LIMIT", "OFFSET", "PANDAS_FILTER"):
-            return rowwise
-        if op.op_type != "SELECT" or reads is None:
-            return False
-        fields = op.fields or []
-        if any(is_star_item(f) for f in fields):
-            return not reads & {projection_name(f) for f in fields if not is_star_item(f)}
-        plain = {
-            f if isinstance(f, str) else f.name
-            for f in fields
-            if isinstance(f, str) or (isinstance(f, Field) and not f.alias)
-        }
-        return reads <= plain
-    if isinstance(op, (LazyColumnAssignment, LazyAssignCallable)):
-        return reads is not None and op.column not in reads
+    kind = effect[0]
+    if kind == "rows":
+        return rowwise
+    if reads is None:
+        return False
+    if kind == "assign":
+        return effect[1] not in reads
+    if kind == "select":
+        names, keeps_others = effect[1], effect[2]
+        return not reads & names if keeps_others else reads <= names
     return False
+
+
+def _is_row_wise(value) -> bool:
+    """Whether a value is computed row by row, so a row of it depends only on
+    the same row of its input (see ``Expression.is_row_wise``)."""
+    from .column_expr import ColumnExpr
+
+    if isinstance(value, ColumnExpr):
+        if value._exec_mode != "expr" or value._expr is None:
+            return False
+        value = value._expr
+    return isinstance(value, Expression) and value.is_row_wise
 
 
 def _is_lazy_value(value) -> bool:
@@ -1345,10 +1392,10 @@ class DataStore(PandasCompatMixin):
 
         ops = self._lazy_ops
         if ops and isinstance(ops[0], LazyDataFrameSource):
-            return ("dataframe", id(ops[0]))
+            return ("dataframe", _token(ops[0]))
         table_function = self._table_function
         if isinstance(table_function, PythonTableFunction):
-            reads = ("python", id(table_function._df))
+            reads = ("python", _token(table_function))
         elif table_function is not None:
             try:
                 reads = ("table_function", table_function.to_sql())
@@ -1359,38 +1406,35 @@ class DataStore(PandasCompatMixin):
         settings = sorted((str(k), repr(v)) for k, v in self.connection_params.items())
         return reads + (self.source_type, self.database, tuple(settings))
 
-    def _lineage(self) -> Tuple[tuple, list]:
+    def _lineage(self) -> Tuple[tuple, tuple]:
         """
-        ``(source identity, ops)``: the pipeline state this DataStore holds.
-        A frozen view keeps the state it was taken at. Rewriting the ops
-        without changing the result (executing and checkpointing to a
-        DataFrame source, turning a DataFrame source into a table function)
-        keeps the lineage of the ops it replaced.
+        ``(source identity, ops)``: the pipeline state this DataStore holds,
+        with each op as its ``_op_effect`` so a lineage names ops without
+        keeping their data alive. A frozen view keeps the state it was taken
+        at. Rewriting the ops without changing the result (executing and
+        checkpointing to a DataFrame source, turning a DataFrame source into
+        a table function) keeps the lineage of the ops it replaced.
         """
         if self._frozen_lineage is not None:
-            identity, ops = self._frozen_lineage
-            return identity, list(ops)
+            return self._frozen_lineage
+        current = tuple(_op_effect(op) for op in self._lazy_ops)
         base = self._lineage_base
         if base is not None:
-            identity, ops, kept, table_function, source_df = base
-            current = self._lazy_ops
+            identity, ops, kept, table_function = base
             if (
-                self._table_function is table_function
-                and self._source_df is source_df
-                and len(current) >= len(kept)
-                and all(a is b for a, b in zip(kept, current))
+                table_function == (_token(self._table_function) if self._table_function else None)
+                and tuple(t for t, _ in current[: len(kept)]) == kept
             ):
-                return identity, list(ops) + current[len(kept) :]
-        return self._source_identity(), list(self._lazy_ops)
+                return identity, ops + current[len(kept) :]
+        return self._source_identity(), current
 
-    def _rewrite_lineage(self, lineage: Tuple[tuple, list]) -> None:
+    def _rewrite_lineage(self, lineage: Tuple[tuple, tuple]) -> None:
         """Record that the current ops stand for ``lineage``."""
         self._lineage_base = (
             lineage[0],
-            tuple(lineage[1]),
-            tuple(self._lazy_ops),
-            self._table_function,
-            self._source_df,
+            lineage[1],
+            tuple(_token(op) for op in self._lazy_ops),
+            _token(self._table_function) if self._table_function else None,
         )
         self._frozen_memo = None
 
@@ -1407,23 +1451,23 @@ class DataStore(PandasCompatMixin):
             return self
         lineage = self._lineage()
         memo = self._frozen_memo
-        if memo is not None and _same_lineage(memo._frozen_lineage, lineage):
+        if memo is not None and memo._frozen_lineage == lineage:
             return memo
         frozen = copy(self)
         frozen._computed_columns = dict(self._computed_columns or {})
-        frozen._frozen_lineage = (lineage[0], tuple(lineage[1]))
+        frozen._frozen_lineage = lineage
         frozen._frozen_origin = weakref.ref(self)
         self._frozen_memo = frozen
         return frozen
 
-    def _reads_frame(self, value, rowwise=False) -> bool:
+    def _reads_frame(self, value) -> bool:
         """
         Whether ``value`` can be read on this frame's rows: it is not taken
         from a DataStore, or the state it was taken from is this frame's
         state, or an earlier state of it whose later ops keep the columns the
-        value reads and, unless it is ``rowwise`` (a row-wise expression,
-        aligned by index), the rows. Otherwise the value is evaluated on its
-        own state and aligned by index, as pandas assigns a Series.
+        value reads and, unless the value is row-wise (``_is_row_wise``), the
+        rows. Otherwise the value is evaluated on its own state and aligned
+        by index, as pandas assigns a Series.
         """
         source = getattr(value, "_datastore", None) if _is_lazy_value(value) else None
         if not isinstance(source, DataStore):
@@ -1432,11 +1476,12 @@ class DataStore(PandasCompatMixin):
         source_identity, ops = source._lineage()
         if source_identity != identity:
             return False
-        if len(ops) > len(frame_ops) or any(a is not b for a, b in zip(ops, frame_ops)):
+        if frame_ops[: len(ops)] != ops:
             return False
         reads = _columns_read(value)
+        rowwise = _is_row_wise(value)
         return all(
-            _keeps_read_columns(op, reads, rowwise) for op in frame_ops[len(ops) :]
+            _keeps_read_columns(effect, reads, rowwise) for _, effect in frame_ops[len(ops) :]
         )
 
     def _null_as_nan_inputs(self, expr) -> bool:
@@ -1595,9 +1640,7 @@ class DataStore(PandasCompatMixin):
                         profiler.log_report()
                     return self._cached_result
                 origin = self._frozen_origin() if self._frozen_origin else None
-                if origin is not None and _same_lineage(
-                    origin._lineage(), self._frozen_lineage
-                ):
+                if origin is not None and origin._lineage() == self._frozen_lineage:
                     # The DataStore this view was taken from still holds its
                     # state: run (and cache, checkpoint) it there.
                     result = origin._execute()
@@ -7744,7 +7787,7 @@ class DataStore(PandasCompatMixin):
                 # exist on these rows, and an ancestor's column may have been
                 # overwritten since; SQL can only reference what the frame
                 # still holds.
-                if not frame._reads_frame(value, rowwise=True):
+                if not frame._reads_frame(value):
                     return False
             elif not isinstance(value, Expression):
                 return False
@@ -7865,15 +7908,35 @@ class DataStore(PandasCompatMixin):
                 expr_map[alias] = LazyColumnAssignment(alias, expr).get_sql_expression()
 
         # All values are evaluated against the frame before this step, so new
-        # columns are selected before any column is overwritten.
+        # columns are selected before any column is overwritten. In one SELECT
+        # a column's name refers to the expression that overwrites it, so an
+        # overwrite that reads another overwritten column is computed under a
+        # hidden name first, with the new columns.
         added = [alias for alias in sql_kwargs if alias not in existing_columns_set]
-        if added:
-            result = result.select("*", *[expr_map[alias] for alias in added])
+        hidden = {}
+        if any(
+            {f.name for f in expr_map[col].find(Field)} & (columns_to_overwrite - {col})
+            for col in columns_to_overwrite
+        ):
+            taken = existing_columns_set | set(added)
+            for col in columns_to_overwrite:
+                name, suffix = f"__{col}__", 1
+                while name in taken:
+                    name, suffix = f"__{col}_{suffix}__", suffix + 1
+                taken.add(name)
+                hidden[col] = name
+        first = [expr_map[alias] for alias in added] + [
+            expr_map[col].with_attrs(alias=name) for col, name in hidden.items()
+        ]
+        if first:
+            result = result.select("*", *first)
         if columns_to_overwrite:
             # Expand '*' and replace columns in-place to preserve order
             result = result.select(
                 *[
-                    expr_map[col] if col in columns_to_overwrite else col
+                    (Field(hidden[col], alias=col) if col in hidden else expr_map[col])
+                    if col in columns_to_overwrite
+                    else col
                     for col in existing_columns + added
                 ]
             )

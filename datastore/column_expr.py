@@ -814,8 +814,12 @@ class ColumnExpr:
         """Execute method mode - call method on source result."""
         from .expressions import Field
 
-        # Execute any ColumnExpr in args or kwargs
-        args = tuple(self._execute_if_needed(arg) for arg in self._method_args)
+        # Execute any ColumnExpr in args or kwargs; an operator's operand
+        # stays a Series, which pandas aligns by index
+        operator = self._method_name.startswith("__") and self._method_name.endswith("__")
+        args = tuple(
+            self._execute_if_needed(arg, as_operand=operator) for arg in self._method_args
+        )
         kwargs = {k: self._execute_if_needed(v) for k, v in self._method_kwargs.items()}
 
         # Handle groupby + agg scenario: df.groupby('col')['value'].agg(['sum', 'mean'])
@@ -1652,11 +1656,12 @@ class ColumnExpr:
         """Execute executor mode - call the custom executor (DEPRECATED)."""
         return self._executor()
 
-    def _execute_if_needed(self, value: Any) -> Any:
-        """Execute ColumnExpr arguments if needed."""
+    def _execute_if_needed(self, value: Any, as_operand: bool = False) -> Any:
+        """Execute ColumnExpr arguments if needed; a single-value Series
+        argument becomes a scalar unless it is an operator's operand."""
         if isinstance(value, ColumnExpr):
             result = value._execute()
-            if isinstance(result, pd.Series) and len(result) == 1:
+            if not as_operand and isinstance(result, pd.Series) and len(result) == 1:
                 return result.iloc[0]
             return result
         return value
@@ -2577,9 +2582,7 @@ class ColumnExpr:
         other_lineage = getattr(other._datastore, "_lineage", None)
         if lineage is None or other_lineage is None:
             return True
-        from .core import _same_lineage
-
-        return not _same_lineage(lineage(), other_lineage())
+        return lineage() != other_lineage()
 
     def _create_cross_datastore_op(
         self, op: str, other: "ColumnExpr", is_comparison: bool = False
