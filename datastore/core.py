@@ -7464,7 +7464,7 @@ class DataStore(PandasCompatMixin):
             self._table_function, PythonTableFunction
         ):
             return None
-        if self._is_subquery or self._has_pending_write():
+        if self._has_pending_write():
             return None
 
         try:
@@ -7543,11 +7543,16 @@ class DataStore(PandasCompatMixin):
         operand._start_from(
             SubqueryTableFunction(
                 sql,
-                alias=self._get_table_alias(),
+                # An explicit subquery alias (as_()) names it in conditions
+                alias=(self._alias if self._is_subquery and self._alias else None)
+                or self._get_table_alias(),
                 source_tables=self._get_all_source_tables(),
                 query_settings=settings,
             )
         )
+        # The subquery source carries the alias; the operand is not wrapped again
+        operand._is_subquery = False
+        operand._alias = None
         return operand
 
     def _start_from(self, table_function) -> None:

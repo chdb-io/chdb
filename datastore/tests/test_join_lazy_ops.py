@@ -239,3 +239,41 @@ def test_to_arrow_of_file_join_then_filter(files):
     table = joined[joined["w"] > 2].to_arrow()
 
     pd.testing.assert_frame_equal(table.to_pandas(), pd_result, check_dtype=False)
+
+
+class TestAliasedSubqueryOperand:
+    """A right side aliased with as_() joins as SQL under its alias."""
+
+    @pytest.fixture
+    def sub(self, files):
+        lp, rp = files
+        r = DataStore.from_file(rp)
+        return lp, r.filter(r["w"] > 2).select("k", "w").as_("sub")
+
+    def test_condition_join(self, sub):
+        lp, sub = sub
+        pd_result = LEFT.merge(RIGHT[RIGHT["w"] > 2], on="k")
+
+        joined = DataStore.from_file(lp).join(sub, on=Field("k", table="l") == Field("k", table="sub"))
+        ds_result = joined.select(Field("k", table="l"), "a", "w")
+
+        assert_joined_equal(ds_result, pd_result)
+
+    def test_column_join_runs_in_sql(self, sub):
+        lp, sub = sub
+        pd_result = LEFT.merge(RIGHT[RIGHT["w"] > 2], on="k")
+
+        ds_result = DataStore.from_file(lp).join(sub, on="k")
+
+        assert_joined_equal(ds_result, pd_result)
+        assert ds_result.to_sql().count("JOIN") == 1
+
+    def test_unchanged_source_condition_join(self, files):
+        lp, rp = files
+        pd_result = LEFT.merge(RIGHT, on="k")
+
+        rr = DataStore.from_file(rp).as_("rr")
+        joined = DataStore.from_file(lp).join(rr, on=Field("k", table="l") == Field("k", table="rr"))
+        ds_result = joined.select(Field("k", table="l"), "a", "w")
+
+        assert_joined_equal(ds_result, pd_result)
