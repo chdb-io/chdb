@@ -1149,7 +1149,7 @@ class SQLExecutionEngine:
                         "min",
                         input_position
                         if input_position is not None
-                        else Function("rowNumberInAllBlocks"),
+                        else RowPosition(),
                         alias=group_position,
                     )
                 select_fields_for_sql = select_fields_for_sql + [position_expr]
@@ -2643,9 +2643,7 @@ class SQLExecutionEngine:
                 row_position = None
                 if is_first and needs_row_position and not layer_orderby:
                     row_position = self._unique_hidden_name("__row_pos__", taken_names)
-                    effective_select_fields.append(
-                        Function("rowNumberInAllBlocks", alias=row_position)
-                    )
+                    effective_select_fields.append(RowPosition(alias=row_position))
                     if not projects:
                         effective_has_assignments = True
                     hidden_columns.append(row_position)

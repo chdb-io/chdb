@@ -327,22 +327,28 @@ class TestColumnNameCollisions:
         _assert_values_equal(ds_result, pd_result)
 
 
+@pytest.fixture
+def executed_sql():
+    """SQL the executions log ("Executing SQL: ...")."""
+    logger = logging.getLogger("datastore")
+    level = logger.level
+    sqls = []
+    handler = logging.Handler()
+    handler.emit = lambda record: sqls.append(record.getMessage())
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    yield sqls
+    logger.removeHandler(handler)
+    logger.setLevel(level)
+
+
+def _data_queries(messages):
+    prefix = "  Executing SQL: "
+    return [m[len(prefix):] for m in messages if m.startswith(prefix)]
+
+
 class TestRowLabelCost:
     """Labels cost only what the operations need (no sort or serial read)."""
-
-    @pytest.fixture
-    def executed_sql(self):
-        """SQL the executions log ("Executing SQL: ...")."""
-        logger = logging.getLogger("datastore")
-        level = logger.level
-        sqls = []
-        handler = logging.Handler()
-        handler.emit = lambda record: sqls.append(record.getMessage())
-        logger.addHandler(handler)
-        logger.setLevel(logging.DEBUG)
-        yield sqls
-        logger.removeHandler(handler)
-        logger.setLevel(level)
 
     @pytest.fixture
     def csv_path(self, tmp_path):
@@ -350,17 +356,13 @@ class TestRowLabelCost:
         SALES.to_csv(path, index=False)
         return path
 
-    def _data_queries(self, messages):
-        prefix = "  Executing SQL: "
-        return [m[len(prefix):] for m in messages if m.startswith(prefix)]
-
     def test_head_reads_no_positions(self, csv_path, executed_sql):
         pd_result = SALES.head(3)
 
         ds_result = DataStore.from_file(csv_path).head(3)
 
         assert_datastore_equals_pandas(ds_result, pd_result)
-        queries = self._data_queries(executed_sql)
+        queries = _data_queries(executed_sql)
         assert queries
         assert all("ORDER BY" not in sql and "_row_number" not in sql for sql in queries)
 
@@ -371,6 +373,62 @@ class TestRowLabelCost:
         ds_result = ds[ds["qty"] > 10].head(2)
 
         assert_datastore_equals_pandas(ds_result, pd_result)
-        queries = self._data_queries(executed_sql)
+        queries = _data_queries(executed_sql)
         assert queries
         assert all("ORDER BY" not in sql for sql in queries)
+
+
+class TestGroupFirstAppearance:
+    """groupby(sort=False) orders the groups by their first row in the file."""
+
+    N = 200_000
+
+    @staticmethod
+    def _spread_keys(n):
+        # A new key every 100 rows: first appearances span the whole file
+        keys = np.random.default_rng(12).permutation(n // 100)
+        return pd.DataFrame({"g": keys[np.arange(n) // 100], "v": np.arange(n)})
+
+    @pytest.mark.parametrize("fmt", ["parquet", "csv", "jsonl"])
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            lambda d: d.groupby("g", sort=False).agg({"v": "sum"}),
+            lambda d: d.head(150_000).groupby("g", sort=False)["v"].sum(),
+        ],
+        ids=["agg", "head_then_agg"],
+    )
+    def test_first_appearance_order(self, tmp_path, fmt, chain):
+        df = self._spread_keys(self.N)
+        path = str(tmp_path / f"spread.{fmt}")
+        _write(df, path, fmt)
+        pd_result = chain(df)
+
+        # Rows read in parallel reach the query threads in varying order
+        for _ in range(5):
+            ds_result = chain(DataStore.from_file(path))
+            assert_datastore_equals_pandas(ds_result, pd_result)
+
+    @pytest.mark.parametrize(
+        "fmt, ordered_read",
+        [("csv", "parallelize_output_from_storages=0"), ("parquet", "_row_number")],
+    )
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            lambda d: d.groupby("region", sort=False).agg({"qty": "sum"}),
+            lambda d: d.head(6).groupby("region", sort=False)["qty"].sum(),
+        ],
+        ids=["agg", "head_then_agg"],
+    )
+    def test_positions_read_from_file(self, tmp_path, executed_sql, fmt, ordered_read, chain):
+        path = str(tmp_path / f"sales.{fmt}")
+        _write(SALES, path, fmt)
+        pd_result = chain(SALES)
+
+        ds_result = chain(DataStore.from_file(path))
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+        queries = _data_queries(executed_sql)
+        assert queries
+        assert all(ordered_read in sql for sql in queries)
