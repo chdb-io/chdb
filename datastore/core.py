@@ -1857,8 +1857,10 @@ class DataStore(PandasCompatMixin):
 
                 self._logger.debug(exec_plan.describe())
 
-            # Execute segments
-            df = pd.DataFrame()
+            # Execute segments. None until a segment has read the source: an
+            # empty DataFrame is a result (a step that kept no rows), which
+            # the next segments run on.
+            df = None
             has_executed_pandas = False
 
             for seg_idx, segment in enumerate(exec_plan.segments):
@@ -1881,6 +1883,9 @@ class DataStore(PandasCompatMixin):
                     ):
                         df = self._execute_pandas_segment(segment, df, profiler)
                         has_executed_pandas = True
+
+            if df is None:
+                df = pd.DataFrame()
 
             self._logger.debug("=" * 70)
             self._logger.debug(
@@ -2121,80 +2126,8 @@ class DataStore(PandasCompatMixin):
 
         else:
             # Subsequent segment: execute on DataFrame via Python() table function
-            if df.empty and not (self._table_function or self.table_name):
-                self._logger.debug("  No data to execute SQL on")
-                # Even for empty DataFrames, apply column selection if present
-                # This ensures df[['a', 'b']] on empty df returns correct columns
-                plan = segment.plan
-                if plan is None:
-                    from .query_planner import QueryPlan
-
-                    plan = QueryPlan(has_sql_source=True)
-                    plan.sql_ops = segment.ops.copy()
-                # Check if there's a SELECT operation for column selection
-                select_cols = None
-                computed_cols = []
-                for op in plan.sql_ops or []:
-                    if hasattr(op, "op_type") and op.op_type == "SELECT":
-                        if hasattr(op, "fields") and op.fields:
-                            select_cols = []
-                            has_star = False
-                            for f in op.fields:
-                                if isinstance(f, str):
-                                    col = f.strip('"')
-                                    if col == "*":
-                                        has_star = True
-                                    else:
-                                        select_cols.append(col)
-                                elif hasattr(f, "alias") and f.alias:
-                                    select_cols.append(f.alias)
-                                elif hasattr(f, "name"):
-                                    select_cols.append(f.name.strip('"'))
-                                # Skip fields without identifiable names
-                            # If '*' was in fields, expand it to all existing columns
-                            if has_star:
-                                select_cols = list(df.columns) + [
-                                    c for c in select_cols if c not in df.columns
-                                ]
-                    # Also check LazyColumnAssignment for computed columns
-                    elif hasattr(op, "column") and hasattr(op, "can_push_to_sql"):
-                        # LazyColumnAssignment
-                        if op.can_push_to_sql():
-                            computed_cols.append(op.column)
-
-                # Check if SELECT has any new expressions (not just column references)
-                # e.g., assign() creates SELECT *, expression AS alias
-                has_new_expressions = False
-                for op in plan.sql_ops or []:
-                    if hasattr(op, "op_type") and op.op_type == "SELECT":
-                        if hasattr(op, "fields") and op.fields:
-                            for f in op.fields:
-                                if not isinstance(f, str):
-                                    # Non-string field = expression (need SQL execution)
-                                    has_new_expressions = True
-                                    break
-
-                # If we have computed columns, new expressions or an
-                # aggregation, execute SQL for correct columns and dtypes
-                # chDB can correctly infer output types even for empty DataFrames
-                if computed_cols or has_new_expressions or plan.groupby_agg:
-                    self._logger.debug(
-                        "  Empty df has computed columns/expressions, executing SQL for correct dtypes"
-                    )
-                    # Fall through to execute SQL below
-                else:
-                    # No computed columns, just apply column selection if present
-                    if select_cols:
-                        existing_cols = [c for c in select_cols if c in df.columns]
-                        if existing_cols:
-                            df = df[existing_cols]
-                        self._logger.debug(
-                            "  Applied column selection to empty df: %s", select_cols
-                        )
-                    return df
-
-            # If we have a source but no DataFrame yet, load raw data first
-            if df.empty and (self._table_function or self.table_name):
+            # Nothing read yet (the first segment ran in pandas): load the source
+            if df is None and (self._table_function or self.table_name):
                 if self._executor is None:
                     self.connect()
                 # Load raw data without any filters
@@ -2215,6 +2148,8 @@ class DataStore(PandasCompatMixin):
                 result = self._executor.execute(load_sql)
                 df = result.to_df()
                 self._logger.debug("  Loaded raw data from source: %s rows", len(df))
+            elif df is None:
+                df = pd.DataFrame()
 
             plan = segment.plan
             if plan is None:
@@ -2247,8 +2182,8 @@ class DataStore(PandasCompatMixin):
         Returns:
             Result DataFrame
         """
-        # If first operation and we have SQL source but no DataFrame, load raw data
-        if df.empty and (self._table_function or self.table_name):
+        # Nothing read yet and a SQL source: load its raw data
+        if df is None and (self._table_function or self.table_name):
             if self._executor is None:
                 self.connect()
             # Load raw data - include JOINs if present
@@ -2292,6 +2227,8 @@ class DataStore(PandasCompatMixin):
             self._logger.debug(
                 "  Loaded raw data from source for Pandas: %s rows", len(df)
             )
+        elif df is None:
+            df = pd.DataFrame()
 
         for i, op in enumerate(segment.ops, 1):
             self._logger.debug(
