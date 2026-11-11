@@ -16,7 +16,9 @@ from datastore import DataStore
 from tests.test_utils import (
     assert_datastore_equals_pandas,
     assert_frame_equal,
+    assert_series_equal,
     get_dataframe,
+    get_series,
 )
 
 
@@ -708,3 +710,99 @@ class TestAssignAfterAggregation:
         ds_result = chain(make_ds())
         assert len(execute_calls) == 0
         assert_datastore_equals_pandas(ds_result, chain(self._frame()))
+
+
+class TestValueKeepsTheStateItWasTakenFrom:
+    """
+    A column value keeps the state of the DataStore it was taken from, as a
+    pandas Series keeps its values: later in-place changes to that DataStore
+    don't change it, wherever it is used.
+    """
+
+    def test_column_read_before_in_place_change(self, execute_calls):
+        def chain(d):
+            c = d["a"].cumsum()
+            d["a"] = d["a"] * 0
+            d["z"] = c
+            return d
+
+        ds_result = chain(DataStore({"a": [1, 2, 3]}))
+        assert len(execute_calls) == 0
+        assert_datastore_equals_pandas(ds_result, chain(pd.DataFrame({"a": [1, 2, 3]})))
+
+    def test_expression_read_before_in_place_change(self):
+        def chain(d):
+            c = d["a"] + 1
+            d["a"] = d["a"] * 10
+            d["z"] = c
+            d["w"] = c * d["a"]
+            return d
+
+        assert_datastore_equals_pandas(
+            chain(DataStore({"a": [1, 2, 3]})), chain(pd.DataFrame({"a": [1, 2, 3]}))
+        )
+
+    @pytest.mark.parametrize("change", ["overwrite", "delete"])
+    def test_materialized_operand_keeps_its_values(self, change):
+        def chain(cls):
+            left, right = cls({"a": [1, 2, 3], "b": [0, 0, 0]}), cls({"a": [10, 20, 30]})
+            a = left["a"]
+            a.tolist()
+            if change == "overwrite":
+                left["a"] = left["a"] * 100
+            else:
+                del left["a"]
+            return a - right["a"]
+
+        assert_series_equal(get_series(chain(DataStore)), chain(pd.DataFrame))
+
+    @pytest.mark.parametrize("has_key", [True, False])
+    def test_grouped_cumcount_of_another_datastore(self, has_key, execute_calls):
+        def chain(cls):
+            left = cls({"x": [1, 2, 3], "g": ["p", "q", "r"]} if has_key else {"x": [1, 2, 3]})
+            right = cls({"g": ["p", "p", "p"]})
+            return left.assign(n=right.groupby("g").cumcount())
+
+        ds_result = chain(DataStore)
+        assert len(execute_calls) == 0
+        assert_datastore_equals_pandas(ds_result, chain(pd.DataFrame))
+
+    def test_grouped_transform_after_key_overwrite(self, execute_calls):
+        def chain(d):
+            total = d.groupby("g")["v"].transform("sum")
+            d["g"] = ["p", "q", "q"]
+            d["t"] = total
+            return d
+
+        data = {"g": ["p", "p", "q"], "v": [1, 2, 3]}
+        ds_result = chain(DataStore(data))
+        assert len(execute_calls) == 0
+        assert_datastore_equals_pandas(ds_result, chain(pd.DataFrame(data)))
+
+    def test_same_frame_expression_stays_in_sql(self, sales_parquet):
+        def chain(d):
+            d["double"] = d["price"] * 2
+            d["total"] = d["double"] * d["qty"]
+            return d
+
+        ds_result = chain(DataStore.from_file(sales_parquet))
+        sql = ds_result.to_sql(execution_format=True)
+        assert '("price"*2) AS "double"' in sql
+        assert_datastore_equals_pandas(ds_result, chain(pd.read_parquet(sales_parquet)))
+
+
+class TestCrossDataStoreOperandNames:
+    @pytest.mark.parametrize("engine", ["auto", "pandas"])
+    def test_alias_names_the_result(self, engine):
+        from datastore.config import get_cross_datastore_engine, set_cross_datastore_engine
+
+        before = get_cross_datastore_engine()
+        set_cross_datastore_engine(engine)
+        try:
+            left, right = DataStore({"a": [1, 2]}), DataStore({"a": [10, 20]})
+            ds_result = (left["a"].as_("total") - right["a"].as_("total")).to_frame()
+            pl, pr = pd.DataFrame({"a": [1, 2]}), pd.DataFrame({"a": [10, 20]})
+            pd_result = (pl["a"].rename("total") - pr["a"].rename("total")).to_frame()
+            assert_datastore_equals_pandas(ds_result, pd_result)
+        finally:
+            set_cross_datastore_engine(before)

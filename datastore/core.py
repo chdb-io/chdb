@@ -4,6 +4,7 @@ Core DataStore class - main entry point for data operations
 
 import math
 import time
+import weakref
 from contextlib import contextmanager
 from datetime import datetime, date
 import pandas as pd
@@ -85,23 +86,47 @@ def _clickhouse_type_null_is_nan(ch_type: str) -> bool:
     return inner.startswith(("Float", "String", "FixedString", "Date"))
 
 
+def _same_lineage(a, b) -> bool:
+    """Whether two ``(source identity, ops)`` lineages are the same pipeline
+    state: equal source identity and the same op objects in order."""
+    return (
+        a[0] == b[0] and len(a[1]) == len(b[1]) and all(x is y for x, y in zip(a[1], b[1]))
+    )
+
+
+def _group_key_names(keys) -> set:
+    return {k.name if isinstance(k, Field) else str(k) for k in keys or ()}
+
+
 def _columns_read(value) -> Optional[set]:
-    """Names of the columns a ColumnExpr or expression reads; None if unknown."""
+    """
+    Names of the columns a value reads, including its group keys; ``None``
+    if unknown.
+    """
     from .column_expr import ColumnExpr
+    from .lazy_result import LazySeries
 
     if isinstance(value, Expression):
-        return {f.name.strip('"') for f in value.find(Field)}
-    if not isinstance(value, ColumnExpr):
-        return None if _is_lazy_value(value) else set()
-    if value._exec_mode == "expr":
-        parts = [value._expr]
-    elif value._exec_mode in ("method", "agg"):
-        parts = [value._source, *value._method_args, *value._method_kwargs.values()]
-    elif value._exec_mode == "op":
-        parts = [value._op_source, *value._op_args, *value._op_kwargs.values()]
+        return {f.name for f in value.find(Field)}
+    if isinstance(value, LazySeries):
+        if value._executor is not None:
+            return None
+        parts = [value._column_expr, *value._args, *value._kwargs.values()]
+        names = _group_key_names(value._op_groupby_cols)
+    elif isinstance(value, ColumnExpr):
+        if value._exec_mode == "expr":
+            parts = [value._expr]
+        elif value._exec_mode in ("method", "agg"):
+            parts = [value._source, *value._method_args, *value._method_kwargs.values()]
+        elif value._exec_mode == "op":
+            parts = [value._op_source, *value._op_args, *value._op_kwargs.values()]
+        else:
+            return None
+        names = _group_key_names(value._groupby_fields) | _group_key_names(
+            value._op_groupby_cols
+        )
     else:
-        return None
-    names = set()
+        return None if _is_lazy_value(value) else set()
     for part in parts:
         part_names = _columns_read(part)
         if part_names is None:
@@ -127,7 +152,7 @@ def _keeps_read_columns(op, reads: Optional[set], rowwise: bool) -> bool:
         if any(is_star_item(f) for f in fields):
             return not reads & {projection_name(f) for f in fields if not is_star_item(f)}
         plain = {
-            f.strip('"') if isinstance(f, str) else f.name.strip('"')
+            f if isinstance(f, str) else f.name
             for f in fields
             if isinstance(f, str) or (isinstance(f, Field) and not f.alias)
         }
@@ -137,18 +162,6 @@ def _keeps_read_columns(op, reads: Optional[set], rowwise: bool) -> bool:
     return False
 
 
-def _value_source(frame: "DataStore", value) -> Optional["DataStore"]:
-    """
-    The DataStore to compute ``value`` on when ``frame`` can't read it (see
-    ``DataStore._reads_frame``): a snapshot of the value's DataStore as it is
-    now, as pandas takes a Series' values when it is assigned. None when the
-    frame reads it.
-    """
-    if frame._reads_frame(value):
-        return None
-    return value._datastore._snapshot()
-
-
 def _is_lazy_value(value) -> bool:
     """Whether ``value`` is an unevaluated expression or lazy result."""
     return isinstance(value, Expression) or hasattr(value, "_execute")
@@ -156,7 +169,7 @@ def _is_lazy_value(value) -> bool:
 
 def _reads_null_as_nan(expr: Expression, kinds: Dict[str, bool]) -> bool:
     """Whether every column ``expr`` reads is True in ``kinds``."""
-    return all(kinds.get(f.name.strip("\"'")) for f in expr.find(Field))
+    return all(kinds.get(f.name) for f in expr.find(Field))
 
 
 def _assigned_null_as_nan(op, kinds: Dict[str, bool]) -> bool:
@@ -167,7 +180,7 @@ def _assigned_null_as_nan(op, kinds: Dict[str, bool]) -> bool:
     from .column_expr import ColumnExpr
 
     value = op.expr
-    if op.source is not None:
+    if not op.reads_frame:
         return False
     if isinstance(value, ColumnExpr):
         if value._exec_mode != "expr" or value._expr is None:
@@ -248,6 +261,12 @@ class DataStore(PandasCompatMixin):
         }
     )
     _MASKED_VALUE = "***"
+
+    # Provenance (see _frozen and _lineage)
+    _frozen_lineage = None  # set on a frozen view: the state it was taken at
+    _frozen_origin = None  # weak reference from a frozen view to its DataStore
+    _frozen_memo = None  # this DataStore's frozen view of its current state
+    _lineage_base = None  # lineage kept when the pipeline's ops are rewritten
 
     def __init__(
         self,
@@ -1277,6 +1296,7 @@ class DataStore(PandasCompatMixin):
         """
         self._cache_version += 1
         self._metadata_memo = {}
+        self._frozen_memo = None
         self._logger.debug("Cache invalidated: version now %d", self._cache_version)
 
     def clear_cache(self):
@@ -1341,38 +1361,72 @@ class DataStore(PandasCompatMixin):
 
     def _lineage(self) -> Tuple[tuple, list]:
         """
-        ``(source identity, ops)`` this pipeline was built from. A DataFrame
-        source that ``_ensure_sql_source`` turned into a table function keeps
-        the identity and the ops it was built from.
+        ``(source identity, ops)``: the pipeline state this DataStore holds.
+        A frozen view keeps the state it was taken at. Rewriting the ops
+        without changing the result (executing and checkpointing to a
+        DataFrame source, turning a DataFrame source into a table function)
+        keeps the lineage of the ops it replaced.
         """
-        lineage = getattr(self._table_function, "_lineage", None)
-        if lineage is not None:
-            identity, ops, kept = lineage
+        if self._frozen_lineage is not None:
+            identity, ops = self._frozen_lineage
+            return identity, list(ops)
+        base = self._lineage_base
+        if base is not None:
+            identity, ops, kept, table_function, source_df = base
             current = self._lazy_ops
-            if len(current) >= len(kept) and all(a is b for a, b in zip(kept, current)):
-                return identity, ops + current[len(kept) :]
-        return self._source_identity(), self._lazy_ops
+            if (
+                self._table_function is table_function
+                and self._source_df is source_df
+                and len(current) >= len(kept)
+                and all(a is b for a, b in zip(kept, current))
+            ):
+                return identity, list(ops) + current[len(kept) :]
+        return self._source_identity(), list(self._lazy_ops)
 
-    def _snapshot(self) -> "DataStore":
-        """This pipeline as it is now; later ops on this DataStore don't change it."""
-        snapshot = copy(self)
-        snapshot._computed_columns = dict(getattr(self, "_computed_columns", None) or {})
-        return snapshot
+    def _rewrite_lineage(self, lineage: Tuple[tuple, list]) -> None:
+        """Record that the current ops stand for ``lineage``."""
+        self._lineage_base = (
+            lineage[0],
+            tuple(lineage[1]),
+            tuple(self._lazy_ops),
+            self._table_function,
+            self._source_df,
+        )
+        self._frozen_memo = None
+
+    def _frozen(self) -> "DataStore":
+        """
+        This DataStore's current state as a DataStore that later in-place
+        changes to this one don't affect, as a pandas Series keeps the values
+        it was taken with. Column values (ColumnExpr, LazySeries) take it when
+        they are created and are always evaluated on it. One view is shared
+        while the state is unchanged; while this DataStore still holds the
+        state, the view runs on it, sharing its cache and checkpoints.
+        """
+        if self._frozen_lineage is not None:
+            return self
+        lineage = self._lineage()
+        memo = self._frozen_memo
+        if memo is not None and _same_lineage(memo._frozen_lineage, lineage):
+            return memo
+        frozen = copy(self)
+        frozen._computed_columns = dict(self._computed_columns or {})
+        frozen._frozen_lineage = (lineage[0], tuple(lineage[1]))
+        frozen._frozen_origin = weakref.ref(self)
+        self._frozen_memo = frozen
+        return frozen
 
     def _reads_frame(self, value, rowwise=False) -> bool:
         """
-        Whether ``value`` gives the values pandas computed for it when read on
-        this frame. True for a value that is not a ColumnExpr or belongs to
-        this frame; for a column of an ancestor (an earlier state of the same
-        pipeline) only when every later op keeps the columns it reads and,
-        unless it is ``rowwise`` (a row-wise expression, aligned by index),
-        keeps the rows. Otherwise the value is computed on its own DataStore,
-        as pandas assigns a Series.
+        Whether ``value`` can be read on this frame's rows: it is not taken
+        from a DataStore, or the state it was taken from is this frame's
+        state, or an earlier state of it whose later ops keep the columns the
+        value reads and, unless it is ``rowwise`` (a row-wise expression,
+        aligned by index), the rows. Otherwise the value is evaluated on its
+        own state and aligned by index, as pandas assigns a Series.
         """
-        from .column_expr import ColumnExpr
-
-        source = value._datastore if isinstance(value, ColumnExpr) else None
-        if not isinstance(source, DataStore) or source is self:
+        source = getattr(value, "_datastore", None) if _is_lazy_value(value) else None
+        if not isinstance(source, DataStore):
             return True
         identity, frame_ops = self._lineage()
         source_identity, ops = source._lineage()
@@ -1540,6 +1594,17 @@ class DataStore(PandasCompatMixin):
                     if is_profiling_enabled():
                         profiler.log_report()
                     return self._cached_result
+                origin = self._frozen_origin() if self._frozen_origin else None
+                if origin is not None and _same_lineage(
+                    origin._lineage(), self._frozen_lineage
+                ):
+                    # The DataStore this view was taken from still holds its
+                    # state: run (and cache, checkpoint) it there.
+                    result = origin._execute()
+                    self._cached_result = result
+                    self._cached_at_version = self._cache_version
+                    self._cache_timestamp = time.time()
+                    return result
 
             self._logger.debug("=" * 70)
             self._logger.debug("Starting execution (version=%d)", self._cache_version)
@@ -1622,8 +1687,12 @@ class DataStore(PandasCompatMixin):
                     needs_checkpoint = (
                         has_executed_pandas or exec_plan.sql_segment_count() > 1
                     )
+                    lineage = self._lineage()
 
-                    if needs_checkpoint:
+                    if self._frozen_lineage is not None:
+                        # A frozen view keeps its ops; its result is cached.
+                        pass
+                    elif needs_checkpoint:
                         from .lazy_ops import LazyDataFrameSource
 
                         # Replace lazy_ops with a single DataFrame source
@@ -1647,6 +1716,7 @@ class DataStore(PandasCompatMixin):
                         # source DataFrame can be garbage collected. This points
                         # to the same object as _cached_result (no extra memory).
                         self._source_df = df
+                        self._rewrite_lineage(lineage)
 
                         self._logger.debug(
                             "Pipeline checkpointed: lazy_ops replaced with DataFrame source"
@@ -1666,6 +1736,7 @@ class DataStore(PandasCompatMixin):
                             self._lazy_ops = [LazyDataFrameSource(df)]
                             self._select_fields = []
                             self._computed_columns = {}
+                            self._rewrite_lineage(lineage)
 
                         self._logger.debug("Pure SQL execution: SQL state preserved")
 
@@ -3271,6 +3342,14 @@ class DataStore(PandasCompatMixin):
         """
         self._logger.debug("Connecting to data source (database=%s)...", self.database)
 
+        origin = self._frozen_origin() if self._frozen_origin else None
+        if origin is not None and self._connection is None:
+            # A frozen view reads through its DataStore's connection.
+            if origin._executor is None:
+                origin.connect(test_connection)
+            self._connection, self._executor = origin._connection, origin._executor
+            return self
+
         if self._connection is None:
             # When using table functions, don't pass table function params to connection
             # Only pass database parameter
@@ -3577,11 +3656,7 @@ class DataStore(PandasCompatMixin):
                     )
                 )
             ]
-            self._table_function._lineage = (
-                lineage_identity,
-                list(lineage_ops),
-                list(self._lazy_ops),
-            )
+            self._rewrite_lineage((lineage_identity, lineage_ops))
             return True
 
         return False
@@ -7311,7 +7386,7 @@ class DataStore(PandasCompatMixin):
             LazyColumnAssignment(
                 name,
                 expr,
-                source=_value_source(self, expr),
+                reads_frame=self._reads_frame(expr),
             )
         )
         # Note: Don't return self - @immutable decorator will return the copy
@@ -7750,7 +7825,7 @@ class DataStore(PandasCompatMixin):
                     # serialized to SQL.
                     value = ColumnExpr(expr=value, datastore=result)
                 op = LazyColumnAssignment(
-                    alias, value, source=_value_source(result, value)
+                    alias, value, reads_frame=result._reads_frame(value)
                 )
             # Later SQL runs on the materialized DataFrame, where computed
             # columns are real columns and must not be expanded again.
@@ -9344,6 +9419,9 @@ class DataStore(PandasCompatMixin):
         # than share/inherit the parent's answers (two children of a common
         # ancestor can otherwise collide on the same version key).
         new_ds._metadata_memo = {}
+        new_ds._frozen_lineage = None
+        new_ds._frozen_origin = None
+        new_ds._frozen_memo = None
 
         # Copy operation history
         if hasattr(self, "_operation_history"):

@@ -94,7 +94,7 @@ class ExpressionEvaluator:
         """
         from .functions import Function, CastFunction
         from .function_executor import function_config
-        from .column_expr import ColumnExpr
+        from .column_expr import ColumnExpr, named_result
         from .lazy_result import LazySeries
 
         # Helper to check if something is a lazy object
@@ -105,7 +105,7 @@ class ExpressionEvaluator:
         if isinstance(expr, ColumnExpr):
             if expr._exec_mode == 'expr' and expr._expr is not None:
                 # Expression mode - unwrap and evaluate
-                return self.evaluate(expr._expr)
+                return named_result(self.evaluate(expr._expr), expr._alias)
             elif expr._exec_mode == 'method' and expr._source is not None:
                 # Method mode - evaluate source and call method
                 # Execute arguments

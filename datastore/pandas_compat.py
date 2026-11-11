@@ -668,7 +668,6 @@ class PandasCompatMixin:
         """
         from .lazy_ops import LazyColumnAssignment
         from .column_expr import ColumnExpr
-        from .core import _value_source
         from .expressions import Expression
 
         if not isinstance(key, str):
@@ -679,14 +678,14 @@ class PandasCompatMixin:
         # Note: We store the raw expression without resolving dependencies here.
         # Resolution happens at SQL generation time in build_groupby_select_fields.
         # This avoids infinite recursion when a column references itself (e.g., ds['a'] = ds['a'] * 2)
-        source = _value_source(self, value)
+        reads_frame = self._reads_frame(value)
         expr = value
         if isinstance(expr, ColumnExpr):
             expr = expr._expr
 
         if not hasattr(self, '_computed_columns') or self._computed_columns is None:
             self._computed_columns = {}
-        if isinstance(expr, Expression) and source is None:
+        if isinstance(expr, Expression) and reads_frame:
             # Track the expression for later SQL generation (no resolution at assignment time)
             self._computed_columns[key] = expr
         else:
@@ -696,7 +695,7 @@ class PandasCompatMixin:
             self._computed_columns = {}
 
         # Record the lazy operation
-        self._add_lazy_op(LazyColumnAssignment(key, value, source=source))
+        self._add_lazy_op(LazyColumnAssignment(key, value, reads_frame=reads_frame))
 
     def __delitem__(self, key):
         """

@@ -302,3 +302,14 @@ class TestChainOfComputedColumns:
         start = time.perf_counter()
         self._chain(DataStore({"c0": [1.0, 2.0]}), 26, how)
         assert time.perf_counter() - start < 5
+
+
+class TestQuotedColumnNames:
+    def test_nullability_of_column_name_with_apostrophes(self):
+        data = {"'n'": pd.array([1, None, 3, 7], dtype="Int64"), "n": [1, 5, 3, 7]}
+
+        def chain(d):
+            d["c"] = d["'n'"] > 2
+            return d
+
+        assert_frame_equal(get_dataframe(chain(DataStore(data))), chain(pd.DataFrame(data)))

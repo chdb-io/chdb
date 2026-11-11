@@ -57,8 +57,10 @@ class LazyCondition:
             condition: The underlying Condition object
             datastore: Reference to the DataStore for execution
         """
+        from .column_expr import frozen_state
+
         self._condition = condition
-        self._datastore = datastore
+        self._datastore = frozen_state(datastore)
         self._cached_result = None
 
     @property
@@ -286,11 +288,13 @@ class LazySeries:
             op_kwargs: Additional kwargs for the operation
             **kwargs: Keyword arguments for the method
         """
+        from .column_expr import frozen_state
+
         self._column_expr = column_expr
         self._method_name = method_name
         self._args = args
         self._executor = executor
-        self._explicit_datastore = datastore
+        self._explicit_datastore = frozen_state(datastore)
         self._kwargs = kwargs
         self._cached_result = None
         # Operation descriptor fields

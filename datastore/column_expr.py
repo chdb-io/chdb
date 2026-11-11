@@ -102,6 +102,28 @@ if TYPE_CHECKING:
 # Sentinel value for detecting if argument was passed
 _MISSING = object()
 
+
+def frozen_state(datastore):
+    """The state ``datastore`` holds now (see ``DataStore._frozen``); other
+    references (e.g. a LazyGroupBy) are kept as they are."""
+    freeze = getattr(datastore, "_frozen", None)
+    return freeze() if freeze is not None else datastore
+
+
+def named_result(result, alias):
+    """
+    A ColumnExpr's evaluated Series as it presents it: named by its alias,
+    or without an internal ``__...`` name such as the evaluator's
+    ``__result__``.
+    """
+    if not isinstance(result, pd.Series):
+        return result
+    if alias is not None:
+        return result.rename(alias)
+    if isinstance(result.name, str) and result.name.startswith("__"):
+        return result.rename(None)
+    return result
+
 _COMPARISON_OPERATORS = frozenset(
     {"__eq__", "__ne__", "__gt__", "__ge__", "__lt__", "__le__"}
 )
@@ -281,9 +303,10 @@ class ColumnExpr:
         self._op_kwargs = op_kwargs or {}
         self._op_groupby_cols = op_groupby_cols or []
 
-        # DataStore reference (from different sources)
+        # DataStore reference (from different sources): the state of the
+        # DataStore at this moment, which later in-place changes don't affect
         if datastore is not None:
-            self._datastore = datastore
+            self._datastore = frozen_state(datastore)
         elif source is not None:
             self._datastore = source._datastore
         else:
@@ -775,16 +798,7 @@ class ColumnExpr:
 
         # Ensure we return a Series with proper index
         if isinstance(result, pd.Series):
-            # Apply alias as series name if set, or explicitly None
-            # This ensures we don't keep evaluator's default name (like __result__)
-            if self._alias is not None:
-                result = result.copy()
-                result.name = self._alias
-            elif isinstance(result.name, str) and result.name.startswith("__"):
-                # Clear internal names like __result__ when no explicit alias
-                result = result.copy()
-                result.name = None
-            return result
+            return named_result(result, self._alias)
         elif isinstance(self._expr, Literal):
             # Literal value - expand to Series
             return pd.Series([result] * len(df), index=df.index)
@@ -2557,7 +2571,15 @@ class ColumnExpr:
             return False
         if other._datastore is None or self._datastore is None:
             return False
-        return other._datastore is not self._datastore
+        if other._datastore is self._datastore:
+            return False
+        lineage = getattr(self._datastore, "_lineage", None)
+        other_lineage = getattr(other._datastore, "_lineage", None)
+        if lineage is None or other_lineage is None:
+            return True
+        from .core import _same_lineage
+
+        return not _same_lineage(lineage(), other_lineage())
 
     def _create_cross_datastore_op(
         self, op: str, other: "ColumnExpr", is_comparison: bool = False
@@ -2584,35 +2606,27 @@ class ColumnExpr:
         """
         from .config import get_cross_datastore_engine, ExecutionEngine
 
-        from .expression_evaluator import ExpressionEvaluator
-
         # Capture references for the closure
         self_expr = self
         other_expr = other
         cross_engine = get_cross_datastore_engine()
-        # Each side is read from its DataStore as it is now, as pandas
-        # computes the operation at once: later ops on either DataStore (e.g.
-        # assigning this result back to one of them) don't change it.
-        sources = {
-            id(expr): (
-                expr._datastore._snapshot()
-                if hasattr(expr._datastore, "_snapshot")
-                else expr._datastore
-            )
-            for expr in (self, other)
-        }
 
         def executor():
             import pandas as pd
 
             def get_series(expr: "ColumnExpr") -> pd.Series:
                 """Get Series from ColumnExpr, using pandas path if configured and possible."""
-                df = sources[id(expr)]._get_df()
-                if cross_engine == ExecutionEngine.PANDAS:
+                if (
+                    cross_engine == ExecutionEngine.PANDAS
+                    and expr._cached_result is None
+                    and expr._exec_mode == "expr"
+                    and isinstance(expr._expr, Field)
+                ):
                     # Try pure pandas path for simple Field expressions
-                    if isinstance(expr._expr, Field) and expr._expr.name in df.columns:
-                        return df[expr._expr.name]
-                return ExpressionEvaluator(df, sources[id(expr)]).evaluate(expr)
+                    df = expr._datastore._get_df()
+                    if expr._expr.name in df.columns:
+                        return named_result(df[expr._expr.name], expr._alias)
+                return expr._execute()
 
             # Get Series based on configured engine
             s1 = get_series(self_expr)
