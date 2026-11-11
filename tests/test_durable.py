@@ -949,6 +949,60 @@ def test_local_and_file_urls_name_the_same_directory():
     _PASSED.append("local: and file:// reach one backend; an unknown scheme is refused")
 
 
+class _RecordingBackend:
+    """Stands in for a cloud backend, so the URL parsing is tested without a
+    provider SDK, credentials or the network."""
+
+    built = []
+
+    def __init__(self, container, prefix, **kwargs):
+        self.container, self.prefix = container, prefix
+        _RecordingBackend.built.append(self)
+
+
+def test_url_carrying_credentials_is_refused_without_repeating_them():
+    # `s3://key:secret@bucket` used to make `key:secret@bucket` the bucket,
+    # which boto3 then quoted in its ParamValidationError. A secret may contain
+    # `/`, which ends the authority at `key:sec` and puts the `@` in the path.
+    from unittest import mock
+    from chdb.durable.backends import azure, gcs, s3
+
+    fragments = ("AKIAIOSFODNN7EXAMPLE", "wJalrXUtn", "FEMIsecret", "my-bucket")
+    refused = [
+        f"{scheme}://{userinfo}@my-bucket/durable"
+        for scheme in ("s3", "gcs", "azure")
+        for userinfo in ("AKIAIOSFODNN7EXAMPLE:wJalrXUtnFEMIsecret",
+                         "AKIAIOSFODNN7EXAMPLE:wJalrXUtn/FEMIsecret",
+                         "AKIAIOSFODNN7EXAMPLE")
+    ] + ["s3://AKIAIOSFODNN7EXAMPLE:wJalrXUtnFEMIsecret@my-bucket",
+         "gs://AKIAIOSFODNN7EXAMPLE:wJalrXUtnFEMIsecret@my-bucket/durable",
+         "az://AKIAIOSFODNN7EXAMPLE:wJalrXUtn/FEMIsecret@my-bucket/durable"]
+
+    _RecordingBackend.built.clear()
+    with mock.patch.object(s3, "S3Backend", _RecordingBackend), \
+            mock.patch.object(gcs, "GCSBackend", _RecordingBackend), \
+            mock.patch.object(azure, "AzureBlobBackend", _RecordingBackend), \
+            mock.patch.dict(os.environ, {"CHDB_DURABLE_AZURE_CONN": "unused"}):
+        for url in refused:
+            for build in (lambda: make_backend(url, "obj"), lambda: cd.Namespace(url)):
+                exc = _expect(ValueError, build)
+                message = f"{exc}\n{exc!r}"
+                assert not [f for f in fragments if f in message], (url, message)
+                assert "must not carry credentials" in message, message
+                assert exc.__cause__ is None and exc.__context__ is None, url
+        assert _RecordingBackend.built == [], "a refused URL reached a backend"
+
+        for url, container, prefix in (
+                ("s3://my-bucket/durable", "my-bucket", "durable/obj"),
+                ("s3://my-bucket/durable/a@b", "my-bucket", "durable/a@b/obj"),
+                ("gcs://my-bucket/durable", "my-bucket", "durable/obj"),
+                ("azure://my-container/durable", "my-container", "durable/obj")):
+            backend = make_backend(url, "obj")
+            assert (backend.container, backend.prefix) == (container, prefix), url
+            cd.Namespace(url)
+    _PASSED.append("a URL carrying credentials is refused, and the error quotes none of it")
+
+
 def test_constructor_validation():
     backend = make_backend("local:" + tempfile.mkdtemp(prefix="dao-ttl-"))
     for bad in (0, -1, float("inf"), float("nan")):
@@ -1014,6 +1068,7 @@ TESTS = [
     test_wal_replay_uses_the_objects_database,
     test_wal_keys_are_unique,
     test_local_and_file_urls_name_the_same_directory,
+    test_url_carrying_credentials_is_refused_without_repeating_them,
     test_constructor_validation,
 ]
 
