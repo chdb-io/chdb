@@ -29,6 +29,7 @@ from .utils import (
     map_agg_func,
     row_position_scope,
     DEFAULT_ROW_POSITION,
+    compose_slice,
 )
 from .exceptions import (
     QueryError,
@@ -8215,7 +8216,7 @@ class DataStore(PandasCompatMixin):
         # Record in lazy ops for correct execution order in explain()
         # Store limit_value for DataFrame execution
         self._add_lazy_op(LazyRelationalOp("LIMIT", str(n), limit_value=n))
-        self._limit_value = n
+        self._take_slice("LIMIT", n)
         return self
 
     @immutable
@@ -8224,7 +8225,16 @@ class DataStore(PandasCompatMixin):
         # Record in lazy ops for correct execution order in explain()
         # Store offset_value for DataFrame execution
         self._add_lazy_op(LazyRelationalOp("OFFSET", str(n), offset_value=n))
-        self._offset_value = n
+        self._take_slice("OFFSET", n)
+
+    def _take_slice(self, op_type: str, n: int) -> None:
+        """
+        Record an ``op_type`` (LIMIT or OFFSET) of ``n`` rows in the flat
+        state, applied to the rows the state selects (``compose_slice``).
+        """
+        self._offset_value, self._limit_value = compose_slice(
+            self._offset_value, self._limit_value, op_type, n
+        )
 
     @immutable
     def distinct(self, subset=None, keep="first") -> "DataStore":
@@ -8835,9 +8845,9 @@ class DataStore(PandasCompatMixin):
             if stop is not None:
                 if start is not None:
                     # ds[start:stop] -> LIMIT (stop-start) OFFSET start
-                    limit_val = stop - start if stop > start else stop
-                    result._offset_value = start
-                    result._limit_value = limit_val
+                    limit_val = max(stop - start, 0)
+                    result._take_slice("OFFSET", start)
+                    result._take_slice("LIMIT", limit_val)
                     result._add_lazy_op(
                         LazyRelationalOp(
                             "OFFSET", f"OFFSET {start}", offset_value=start
@@ -8850,13 +8860,13 @@ class DataStore(PandasCompatMixin):
                     )
                 else:
                     # ds[:stop] -> LIMIT stop
-                    result._limit_value = stop
+                    result._take_slice("LIMIT", stop)
                     result._add_lazy_op(
                         LazyRelationalOp("LIMIT", f"LIMIT {stop}", limit_value=stop)
                     )
             elif start is not None:
                 # ds[start:] -> OFFSET start
-                result._offset_value = start
+                result._take_slice("OFFSET", start)
                 result._add_lazy_op(
                     LazyRelationalOp("OFFSET", f"OFFSET {start}", offset_value=start)
                 )

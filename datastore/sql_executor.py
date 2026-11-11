@@ -51,6 +51,7 @@ from .utils import (
     build_orderby_clause,
     is_stable_sort,
     format_identifier,
+    compose_slice,
     current_row_position_scope,
     row_position_scope,
     row_position_sql,
@@ -339,11 +340,12 @@ def extract_clauses_from_ops(
                 else:
                     result.orderby_fields.append((f, asc))
 
-        elif op.op_type == "LIMIT":
-            result.limit_value = op.limit_value
-
-        elif op.op_type == "OFFSET":
-            result.offset_value = op.offset_value
+        elif op.op_type in ("LIMIT", "OFFSET"):
+            n = op.limit_value if op.op_type == "LIMIT" else op.offset_value
+            if n is not None:
+                result.offset_value, result.limit_value = compose_slice(
+                    result.offset_value, result.limit_value, op.op_type, n
+                )
 
         elif op.op_type == "SELECT":
             # Handle empty column selection (fields=[]) - return empty DataFrame
@@ -721,12 +723,12 @@ def _plan_aggregates(plan) -> bool:
 def _plan_row_offset(plan) -> int:
     """
     Position of the first row of a plan that only offsets and limits the
-    source rows: the sum of its OFFSETs (a LIMIT only trims the end).
+    source rows: the sum of the OFFSETs its layers' SQL applies, each to
+    the rows of the layer below (a LIMIT only trims the end).
     """
     return sum(
-        op.offset_value or 0
-        for op in _plan_ops(plan)
-        if isinstance(op, LazyRelationalOp) and op.op_type == "OFFSET"
+        extract_clauses_from_ops(layer).offset_value or 0
+        for layer in (plan.layers or [plan.sql_ops])
     )
 
 

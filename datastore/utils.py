@@ -217,6 +217,23 @@ def dataframe_sql(expr, quote_char: str = '"') -> str:
         return expr.to_sql(quote_char=quote_char)
 
 
+def compose_slice(offset, limit, op_type: str, n: int):
+    """
+    ``(offset, limit)`` of the rows an ``op_type`` (``"OFFSET"`` or
+    ``"LIMIT"``) of ``n`` keeps from the rows ``OFFSET offset LIMIT limit``
+    selects. Each applies to the previous result, as ``df.iloc[n:]`` and
+    ``df.head(n)`` do, so any chain of offsets and limits is one slice.
+    ``None`` means no offset or no limit.
+    """
+    if op_type == "OFFSET":
+        offset = (offset or 0) + n
+        if limit is not None:
+            limit = max(limit - n, 0)
+    elif op_type == "LIMIT":
+        limit = n if limit is None else min(limit, n)
+    return offset, limit
+
+
 # Sort kinds that guarantee stability (matching pandas behavior)
 STABLE_SORT_KINDS = ('stable', 'mergesort')
 
