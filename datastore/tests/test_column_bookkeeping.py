@@ -6,6 +6,7 @@ each class names the issue it covers.
 
 import itertools
 
+import chdb
 import pandas as pd
 import pytest
 
@@ -132,6 +133,59 @@ class TestWhereMaskColumns:
             pd_drop.mask(pd_drop["qty"] > 5, -1),
         )
 
+
+class TestToSqlRendersPipeline:
+    """#715: the default to_sql() renders the same plan as execution."""
+
+    @staticmethod
+    def _run(sql):
+        return chdb.query(sql, "DataFrame")
+
+    @staticmethod
+    def _assert_rows(got: pd.DataFrame, expected: pd.DataFrame):
+        assert list(got.columns) == list(expected.columns)
+        assert got.values.tolist() == expected.values.tolist()
+
+    @pytest.fixture
+    def path(self, tmp_path):
+        p = str(tmp_path / "t.parquet")
+        pd.DataFrame(
+            {"region": ["n", "s", "n"], "price": [1, 2, 4], "qty": [4, 5, 6]}
+        ).to_parquet(p)
+        return p
+
+    def test_repeated_assign_after_selection(self, path):
+        df = pd.read_parquet(path)
+        d = DataStore.from_file(path)[["region", "price"]]
+        d = d.assign(price=d["price"] * 2)
+        d = d.assign(price=d["price"] + 1)
+        e = df[["region", "price"]]
+        e = e.assign(price=e["price"] * 2)
+        e = e.assign(price=e["price"] + 1)
+        assert len(d) == 3
+        assert_datastore_equals_pandas(d, e)
+        self._assert_rows(self._run(d.to_sql()), e)
+        assert d.to_sql().startswith(d.to_sql(execution_format=True) + " SETTINGS ")
+
+    def test_setitem(self, path):
+        df = pd.read_parquet(path)
+        ds = DataStore.from_file(path)
+        ds["price"] = ds["price"] * 2
+        df["price"] = df["price"] * 2
+        self._assert_rows(self._run(ds.to_sql()), df)
+
+    def test_loc_filter(self, path):
+        df = pd.read_parquet(path)
+        ds = DataStore.from_file(path)
+        ds = ds.loc[ds["price"] > 1]
+        self._assert_rows(self._run(ds.to_sql()), df.loc[df["price"] > 1])
+
+    def test_sort_head(self, path):
+        df = pd.read_parquet(path)
+        ds = DataStore.from_file(path).sort_values("price", ascending=False).head(2)
+        self._assert_rows(
+            self._run(ds.to_sql()), df.sort_values("price", ascending=False).head(2)
+        )
 
 class TestAssignReadsInputColumns:
     """#717: every assign() value is computed from the frame before the call."""

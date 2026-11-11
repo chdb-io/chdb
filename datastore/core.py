@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .case_when import CaseWhenBuilder
     from .query_planner import ExecutionSegment, QueryPlan
 
-from .expressions import Field, Expression, Literal, Star
+from .expressions import Field, Expression, Literal, Star, bind_projection_item
 from .conditions import Condition
 from .utils import (
     immutable,
@@ -2204,10 +2204,19 @@ class DataStore(PandasCompatMixin):
         # Only generate SQL if we have a SQL source
         if not (self._table_function or self.table_name):
             return None
-
-        # No lazy ops means use traditional SQL generation
-        if not self._lazy_ops:
+        result = self._plan_build_result()
+        if result is None:
             return self._generate_select_sql(self.quote_char)
+        return result.sql
+
+    def _plan_build_result(self) -> Optional["SQLBuildResult"]:
+        """
+        SQL of the lazy-op plan's first step against the source, built as
+        ``_execute()`` builds it; None without a SQL source or lazy ops, or
+        when the first step runs in pandas.
+        """
+        if not (self._table_function or self.table_name) or not self._lazy_ops:
+            return None
 
         from .query_planner import QueryPlanner
 
@@ -2218,9 +2227,10 @@ class DataStore(PandasCompatMixin):
         # - First segment is SQL: return that segment's SQL.
         # - First segment is Pandas (cost-aware planner, e.g. ORDER BY
         #   without LIMIT): the executor first materializes data via a
-        #   plain ``SELECT * FROM source``, so return that. Returning a
-        #   later SQL-on-DataFrame segment would be misleading - its
-        #   FROM is ``Python(__df__)``, not the original source.
+        #   plain ``SELECT * FROM source``, so return None and let the
+        #   caller render that. Returning a later SQL-on-DataFrame segment
+        #   would be misleading - its FROM is ``Python(__df__)``, not the
+        #   original source.
         # - No segments / single Pandas-only segment: same fallback.
         planner = QueryPlanner()
         schema = self.schema() or {}
@@ -2239,11 +2249,10 @@ class DataStore(PandasCompatMixin):
             or not first_segment.is_sql()
             or first_segment.plan is None
         ):
-            return self._generate_select_sql(self.quote_char)
+            return None
 
         sql_engine = SQLExecutionEngine(self)
-        result = sql_engine.build_sql_from_plan(first_segment.plan, schema)
-        return result.sql
+        return sql_engine.build_sql_from_plan(first_segment.plan, schema)
 
     def _get_table_source(self) -> str:
         """Get the table source for SQL generation."""
@@ -5580,6 +5589,49 @@ class DataStore(PandasCompatMixin):
         same_server = self._is_all_same_remote_server(target_host)
         return self._writeback_select_sql(same_server)
 
+    def _flat_sql_renders_pipeline(self) -> bool:
+        """
+        Whether the flat ``_generate_select_sql()`` renders the lazy ops, so
+        ``to_sql()`` shows it: no lazy ops, or only ops the query builder
+        records in the flat state (select, filter, sort, limit, offset,
+        distinct) whose selects the planner computes in one SQL layer.
+        Anything else (column assignments, a filter recorded only as an op
+        such as ``loc[cond]``, a select reading or overwriting a column an
+        earlier select computes) is rendered from the plan.
+        """
+        from .lazy_ops import LazyDistinct
+        from .query_planner import QueryPlanner
+
+        ops = self._lazy_ops
+        if not ops:
+            return True
+        recorded = {
+            "SELECT": bool(self._select_fields) or self._select_star,
+            "WHERE": self._where_condition is not None,
+            "ORDER BY": bool(self._orderby_fields),
+            "LIMIT": self._limit_value is not None,
+            "OFFSET": self._offset_value is not None,
+        }
+        conditions = []
+        selects = []
+        for op in ops:
+            if isinstance(op, LazyDistinct) and self._distinct:
+                continue
+            if not (isinstance(op, LazyRelationalOp) and recorded.get(op.op_type)):
+                return False
+            if op.op_type == "WHERE":
+                conditions.append(op.condition)
+            elif op.op_type == "SELECT":
+                selects.append(op)
+        if conditions:
+            folded = conditions[0]
+            for condition in conditions[1:]:
+                folded = folded & condition
+            q = self.quote_char
+            if folded.to_sql(quote_char=q) != self._where_condition.to_sql(quote_char=q):
+                return False
+        return len(QueryPlanner()._build_layers(selects)) <= 1
+
     def _canonical_writeback_sql(self) -> str:
         """``remote(source, ...)``-form SELECT that reproduces ``_execute()``,
         used as the cross-server writeback body, the base for
@@ -6728,7 +6780,8 @@ class DataStore(PandasCompatMixin):
             elif isinstance(field, ColumnExpr):
                 field = field._expr
 
-            self._select_fields.append(field)
+            # A field named like a selected one replaces it in place.
+            bind_projection_item(self._select_fields, field)
 
         return self
 
@@ -9041,7 +9094,11 @@ class DataStore(PandasCompatMixin):
                              preservation logic). When the plan has later
                              stages (pandas ops, or SQL run on the
                              intermediate DataFrame), those are not included.
-                             If False (default), returns clean semantic SQL.
+                             If False (default), returns the same SQL with
+                             the SETTINGS _execute() adds, except for a
+                             pipeline the flat query-builder SQL renders
+                             (select / filter / sort / limit calls), which
+                             keeps that clean form.
 
         Returns:
             SQL query string
@@ -9056,16 +9113,16 @@ class DataStore(PandasCompatMixin):
             sql = self._generate_update_sql(quote_char)
         elif self._insert_columns:
             sql = self._generate_insert_sql(quote_char)
-        elif (
-            (execution_format or self._has_lazy_aggregation())
-            and self._lazy_ops
-            and (self._table_function or self.table_name)
-        ):
-            # Use unified SQL generation for lazy operations
-            # This returns the exact SQL that _execute() would run
-            sql = self._build_execution_sql()
-            if sql is None:
+        elif execution_format or not self._flat_sql_renders_pipeline():
+            # The lazy-op plan as _execute() runs it; the default form also
+            # carries the SETTINGS _execute() adds.
+            result = self._plan_build_result()
+            if result is None:
                 sql = self._generate_select_sql(quote_char)
+            elif execution_format or result.has_settings:
+                sql = result.sql
+            else:
+                sql = self._append_format_settings(result.sql)
         else:
             sql = self._generate_select_sql(quote_char)
 
@@ -9076,13 +9133,6 @@ class DataStore(PandasCompatMixin):
                 sql = f"{sql} AS {format_identifier(self._alias, quote_char)}"
 
         return sql
-
-    def _has_lazy_aggregation(self) -> bool:
-        """Whether a groupby aggregation is among the lazy ops; the flat
-        query-builder state does not record it, so to_sql() renders the plan."""
-        from .lazy_ops import LazyGroupByAgg
-
-        return any(isinstance(op, LazyGroupByAgg) for op in self._lazy_ops)
 
     def _generate_select_sql(self, quote_char: str) -> str:
         """Generate SELECT SQL."""
