@@ -240,6 +240,26 @@ def _is_row_wise(value) -> bool:
     return isinstance(value, Expression) and value.is_row_wise
 
 
+def _label_source_rows(df: pd.DataFrame, build_result) -> pd.DataFrame:
+    """
+    Label the rows of ``df``, the result of ``build_result``'s SQL, with
+    their source positions, as pandas labels the rows it reads from a file
+    (see ``SQLExecutionEngine.build_sql_from_plan``).
+    """
+    column = build_result.row_label_column
+    if column is not None and column in df.columns:
+        labels = df[column].to_numpy(dtype=np.int64)
+        df = df.drop(columns=[column])
+        df.index = pd.Index(labels)
+        if not build_result.rows_sorted and not df.index.is_monotonic_increasing:
+            # Unsorted rows are in source order
+            df = df.sort_index(kind="stable")
+    elif build_result.row_label_start:
+        start = build_result.row_label_start
+        df.index = pd.RangeIndex(start, start + len(df))
+    return df
+
+
 def _is_lazy_value(value) -> bool:
     """Whether ``value`` is an unevaluated expression or lazy result."""
     return isinstance(value, Expression) or hasattr(value, "_execute")
@@ -2018,7 +2038,7 @@ class DataStore(PandasCompatMixin):
                 plan = QueryPlan(has_sql_source=True)
                 plan.sql_ops = segment.ops.copy()
 
-            sql_engine = SQLExecutionEngine(self)
+            sql_engine = SQLExecutionEngine(self, row_labels=True)
             build_result = sql_engine.build_sql_from_plan(
                 plan, schema, for_execution=True
             )
@@ -2080,7 +2100,7 @@ class DataStore(PandasCompatMixin):
                     result = self._executor.execute(sql)
 
                 with profiler.step("Result to DataFrame"):
-                    df = result.to_df()
+                    df = _label_source_rows(result.to_df(), build_result)
                     df = self._postprocess_sql_result(df, plan)
 
             self._logger.debug("  SQL returned DataFrame with shape: %s", df.shape)
@@ -4052,6 +4072,13 @@ class DataStore(PandasCompatMixin):
         self._logger.debug("Generated SQL for execution")
 
         try:
+            # Rows read from a file keep their file positions, as in to_df()
+            build_result = self._labelled_query()
+            if build_result is not None:
+                df = self._executor.execute(build_result.sql).to_df()
+                return QueryResult(
+                    data=_label_source_rows(df, build_result), output_format="Dataframe"
+                )
             result = self._executor.execute(sql)
             self._logger.debug("Query executed successfully")
             return result
@@ -4215,13 +4242,15 @@ class DataStore(PandasCompatMixin):
         # regular columns.
         return self._executor.query_arrow(sql)
 
-    def _single_sql_query(self) -> Optional[SQLBuildResult]:
+    def _single_sql_query(self, row_labels: bool = False) -> Optional[SQLBuildResult]:
         """
         Return the ``SQLBuildResult`` iff the entire pipeline collapses to ONE
         first-segment SQL query against the original source (so the query result
         is the *final* result); return ``None`` otherwise. Mirrors the segment
         planning done in :meth:`_execute`. The SQL is a single SELECT with at
         most one SETTINGS clause, so it can also be embedded as a subquery.
+        With ``row_labels`` it is the query ``_execute()`` runs, whose result
+        rows ``_label_source_rows`` labels.
         """
         from .query_planner import QueryPlanner
 
@@ -4246,11 +4275,50 @@ class DataStore(PandasCompatMixin):
         if not (seg.is_sql() and seg.is_first_segment and seg.plan is not None):
             return None
 
-        build_result = SQLExecutionEngine(self).build_sql_from_plan(seg.plan, schema)
+        build_result = SQLExecutionEngine(self, row_labels=row_labels).build_sql_from_plan(
+            seg.plan, schema
+        )
         if not build_result.has_settings:
             build_result.sql = self._append_format_settings(build_result.sql)
             build_result.has_settings = True
         return build_result
+
+    def _labelled_query(self) -> Optional[SQLBuildResult]:
+        """
+        The query ``_execute()`` runs for this pipeline when it labels the
+        rows it reads from a file by their positions there; None when the
+        pipeline isn't one SQL query over a file or doesn't relabel its rows.
+        """
+        if not getattr(self._table_function, "reads_files", False) or not self._lazy_ops:
+            return None
+        build_result = self._single_sql_query(row_labels=True)
+        if build_result is None or not (
+            build_result.row_label_column or build_result.row_label_start
+        ):
+            return None
+        return build_result
+
+    def _source_row_labels(self) -> Optional[pd.Index]:
+        """
+        The row labels of this pipeline's result when they are file
+        positions (see ``_labelled_query``), read without materializing the
+        rows; None otherwise.
+        """
+        build_result = self._labelled_query()
+        if build_result is None:
+            return None
+        if self._executor is None:
+            self.connect()
+        if build_result.row_label_column is None:
+            start = build_result.row_label_start
+            return pd.RangeIndex(start, start + self.count_rows())
+        column = format_identifier(build_result.row_label_column, self.quote_char)
+        sql = f"SELECT {column} FROM ({build_result.sql})"
+        settings = self._table_function.row_position_query_settings()
+        if settings:
+            sql = f"{sql} SETTINGS {', '.join(settings)}"
+        labels = self._executor.execute(sql).to_df()
+        return _label_source_rows(labels, build_result).index
 
     def _pipeline_sql(self) -> Optional[str]:
         """

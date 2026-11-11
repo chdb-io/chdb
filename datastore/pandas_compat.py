@@ -3119,6 +3119,10 @@ class PandasCompatMixin:
         # labels (it is NOT reset to a contiguous RangeIndex), so the shortcut
         # would return the wrong labels -- it must fall back to full execution.
         # Custom/group indexes fall back too.
+        #
+        # Rows read from a file keep their file positions as labels, so a
+        # filtered, deduplicated or offset file pipeline is not labelled
+        # 0..n-1 either: its labels are read without the rows.
         has_order_by = bool(self._orderby_fields) or any(
             isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY"
             for op in (self._lazy_ops or [])
@@ -3131,7 +3135,12 @@ class PandasCompatMixin:
             and self._cached_result is None
         ):
             try:
-                return pd.RangeIndex(start=0, stop=self.count_rows(), step=1)
+                reads_file = getattr(self._table_function, "reads_files", False)
+                if not reads_file or self._single_sql_query() is not None:
+                    labels = self._source_row_labels() if reads_file else None
+                    if labels is not None:
+                        return labels
+                    return pd.RangeIndex(start=0, stop=self.count_rows(), step=1)
             except Exception:
                 pass
         return self._get_df().index

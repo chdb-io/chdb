@@ -5,9 +5,11 @@ This module provides Python wrappers for ClickHouse table functions,
 supporting various data sources with their specific capabilities and settings.
 """
 
-from typing import Dict, Any
+import os
+from typing import Dict, Any, List, Optional
 from abc import ABC, abstractmethod
 from .exceptions import DataStoreError
+from .utils import format_identifier
 
 
 class TableFunction(ABC):
@@ -16,6 +18,42 @@ class TableFunction(ABC):
 
     Each table function wraps a ClickHouse table function like file(), s3(), etc.
     """
+
+    # Whether the source reads files (local or object storage). pandas labels
+    # the rows it reads from a file by their position; database tables and
+    # generated rows have no such labels, and results from them get a fresh
+    # RangeIndex.
+    reads_files = False
+
+    # Formats whose rows have positions in the file (see row_position_source):
+    # Parquet, whose reader numbers its rows, and formats read row by row.
+    # ORC prunes stripes by filters; Arrow, Native and Values are not
+    # verified, so their rows have no positions.
+    _POSITION_FORMATS = (
+        "parquet",
+        "avro",
+        "tskv",
+        "json",
+        "jsonl",
+        "ndjson",
+        "jsonlines",
+        "jsoneachrow",
+        "jsoncompacteachrow",
+        "csv",
+        "csvwithnames",
+        "csvwithnamesandtypes",
+        "tsv",
+        "tsvwithnames",
+        "tsvwithnamesandtypes",
+        "tabseparated",
+        "tabseparatedwithnames",
+        "tabseparatedwithnamesandtypes",
+        "customseparated",
+        "customseparatedwithnames",
+        "customseparatedwithnamesandtypes",
+        "rowbinarywithnamesandtypes",
+    )
+    _COMPRESSION_SUFFIXES = (".gz", ".gzip", ".zst", ".zstd", ".bz2", ".xz", ".lz4", ".br", ".deflate")
 
     def __init__(self, **kwargs):
         """Initialize table function with parameters."""
@@ -96,6 +134,94 @@ class TableFunction(ABC):
         """
         return False
 
+    def _row_number_format(self) -> Optional[str]:
+        """
+        The (lower-case) format this file source is read in, given or, as
+        ClickHouse detects it when omitted, from the file name extension
+        after a compression suffix; None when unknown or not a file source.
+        """
+        if not self.reads_files:
+            return None
+        format_name = self.params.get("format")
+        if not format_name:
+            from .uri_parser import _infer_format_from_path
+
+            location = str(
+                self.params.get("path") or self.params.get("url") or self.params.get("uri") or ""
+            ).split("?")[0]
+            stem, ext = os.path.splitext(location)
+            if ext.lower() in self._COMPRESSION_SUFFIXES:
+                location = stem
+            format_name = _infer_format_from_path(location)
+        return format_name.lower() if format_name else None
+
+    def has_row_positions(self, columns: List[str]) -> bool:
+        """
+        Whether the rows read from this source have positions in the file,
+        which pandas labels them by. ``columns`` are the source's columns.
+
+        Only single files in ``_POSITION_FORMATS`` qualify; the rows of a
+        glob are not numbered across its files. A Parquet column named
+        ``_row_number`` hides the reader's virtual column, so such a file
+        has no positions either.
+        """
+        location = " ".join(
+            str(self.params.get(key) or "") for key in ("path", "url", "uri")
+        )
+        format_name = self._row_number_format()
+        return (
+            format_name in self._POSITION_FORMATS
+            and not (format_name == "parquet" and "_row_number" in columns)
+            and not any(char in location for char in "*?{")
+        )
+
+    def _file_order_settings(self) -> List[str]:
+        """Settings under which this file source returns rows in file order."""
+        if self._row_number_format() == "parquet":
+            return ["input_format_parquet_preserve_order=1"]
+        # Rows are parsed in order but spread over threads after the read
+        return ["parallelize_output_from_storages=0"]
+
+    def ordered_source(self, quote_char: str = '"') -> str:
+        """SQL reading this file source with its rows in file order."""
+        settings = ", ".join(self._file_order_settings())
+        return f"(SELECT * FROM {self.to_sql(quote_char)} SETTINGS {settings})"
+
+    def row_position_source(self, column: str, quote_char: str = '"') -> str:
+        """
+        SQL reading this source in file order with each row's position in
+        the file as ``column`` (the source must have row positions).
+
+        Parquet takes the position from the reader's ``_row_number``: chDB
+        moves outer filters into the Parquet reader (PREWHERE, row-group
+        pruning), past any function the subquery computes. Other formats
+        number the rows of their single ordered stream with
+        ``rowNumberInAllBlocks()``, which the query must evaluate before
+        any filter, sort or limit (``row_position_query_settings``); their
+        ``_row_number`` is wrong for a header file under parallel parsing.
+        """
+        name = format_identifier(column, quote_char)
+        settings = self._file_order_settings()
+        if self._row_number_format() == "parquet":
+            position = "_row_number"
+        else:
+            position = "rowNumberInAllBlocks()"
+        return (
+            f"(SELECT *, {position} AS {name} "
+            f"FROM {self.to_sql(quote_char)} SETTINGS {', '.join(settings)})"
+        )
+
+    def row_position_query_settings(self) -> List[str]:
+        """
+        Settings the query reading ``row_position_source`` needs: plan
+        optimizations would evaluate ``rowNumberInAllBlocks()`` after a
+        sort and limit above it (query_plan_execute_functions_after_sorting)
+        or after other steps they move past it.
+        """
+        if self._row_number_format() == "parquet":
+            return []
+        return ["query_plan_enable_optimizations=0"]
+
 
 class SubqueryTableFunction(TableFunction):
     """
@@ -143,6 +269,8 @@ class FileTableFunction(TableFunction):
         >>> tf.to_sql()
         "file('data.parquet')"
     """
+
+    reads_files = True
 
     @property
     def can_read(self) -> bool:
@@ -245,6 +373,8 @@ class UrlTableFunction(TableFunction):
         "url('https://api.example.com/data', 'JSONEachRow', 'auto', headers('Authorization'='Bearer xxx'))"
     """
 
+    reads_files = True
+
     @property
     def can_read(self) -> bool:
         return True
@@ -340,6 +470,8 @@ class S3TableFunction(TableFunction):
         ...                      format="CSV")
     """
 
+    reads_files = True
+
     @property
     def can_read(self) -> bool:
         return True
@@ -425,6 +557,8 @@ class AzureBlobStorageTableFunction(TableFunction):
         compression: Optional compression method
     """
 
+    reads_files = True
+
     @property
     def can_read(self) -> bool:
         return True
@@ -481,6 +615,8 @@ class GcsTableFunction(TableFunction):
         nosign: Use anonymous access
     """
 
+    reads_files = True
+
     @property
     def can_read(self) -> bool:
         return True
@@ -534,6 +670,8 @@ class HdfsTableFunction(TableFunction):
         structure: Optional table structure
         compression: Optional compression method
     """
+
+    reads_files = True
 
     @property
     def can_read(self) -> bool:

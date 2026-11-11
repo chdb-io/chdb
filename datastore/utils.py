@@ -6,7 +6,9 @@ particular subsystem. SQL-specific utilities are in sql_executor.py.
 """
 
 from typing import TypeVar, Callable
+from contextlib import contextmanager
 from copy import copy
+import contextvars
 
 __all__ = [
     'immutable',
@@ -153,10 +155,48 @@ def format_identifier(name: str, quote_char: str = '"') -> str:
 # ========== Sort Stability Constants and Functions ==========
 # These ensure DataStore sort matches pandas stable sort (kind='stable') behavior
 
+# Position of a row in a source without its own row positions (database
+# tables, generated rows): the order the rows reach the query.
+DEFAULT_ROW_POSITION = "rowNumberInAllBlocks()"
+
 # Tie-breaker for stable sort to preserve original row order when sort keys have duplicates.
-# For Python() table function: connection.py replaces this with _row_id at execution time
-# For file sources (Parquet, CSV): rowNumberInAllBlocks() works correctly as-is
-STABLE_SORT_TIEBREAKER = "rowNumberInAllBlocks() ASC"
+STABLE_SORT_TIEBREAKER = f"{DEFAULT_ROW_POSITION} ASC"
+
+
+class RowPositionScope:
+    """
+    The SQL for a row's position in the source of the query being built:
+    ``_row_id`` for a DataFrame source, the file reader's position for a
+    file (see ``TableFunction.row_position_source``), ``DEFAULT_ROW_POSITION``
+    otherwise. ``used`` records whether the built SQL read it.
+    """
+
+    def __init__(self, sql: str):
+        self.sql = sql
+        self.used = False
+
+
+_row_position_scope = contextvars.ContextVar("row_position_scope", default=None)
+
+
+def row_position_sql() -> str:
+    """SQL for a row's position in its source, in the query being built."""
+    scope = _row_position_scope.get()
+    if scope is None:
+        return DEFAULT_ROW_POSITION
+    scope.used = True
+    return scope.sql
+
+
+@contextmanager
+def row_position_scope(sql: str):
+    """Build SQL in which a row's source position is ``sql``."""
+    scope = RowPositionScope(sql)
+    token = _row_position_scope.set(scope)
+    try:
+        yield scope
+    finally:
+        _row_position_scope.reset(token)
 
 # Sort kinds that guarantee stability (matching pandas behavior)
 STABLE_SORT_KINDS = ('stable', 'mergesort')
@@ -205,7 +245,7 @@ def build_orderby_clause(orderby_fields: list, quote_char: str = '"', stable: bo
     from .config import is_performance_mode
 
     if stable and not is_performance_mode():
-        order_parts.append(STABLE_SORT_TIEBREAKER)
+        order_parts.append(f"{row_position_sql()} ASC")
 
     return ', '.join(order_parts)
 

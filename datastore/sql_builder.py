@@ -38,6 +38,7 @@ from typing import List, Optional, Tuple, Union, Set, Any
 from copy import copy
 
 from .expressions import Expression, Field
+from .utils import row_position_sql
 from .conditions import Condition, CompoundCondition, BinaryCondition, NotCondition
 from .conditions import InCondition, BetweenCondition, UnaryCondition
 
@@ -134,8 +135,8 @@ class SQLLayer:
             orderby_clause = self._build_orderby_clause(quote_char)
             parts.append(orderby_clause)
         elif self.preserve_row_order and not self.groupby_fields:
-            # Preserve original row order using rowNumberInAllBlocks()
-            parts.append("ORDER BY rowNumberInAllBlocks()")
+            # Preserve original row order by source position
+            parts.append(f"ORDER BY {row_position_sql()}")
 
         # === LIMIT / OFFSET ===
         if self.limit_value is not None:
