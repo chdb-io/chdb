@@ -369,3 +369,36 @@ class TestCombiningMasksOfDifferentStates:
         assert_datastore_equals_pandas(
             d[~(a & b) | d["b"].isin([10, 20])], e[~(pa & pb) | e["b"].isin([10, 20])]
         )
+
+
+class TestToSqlWithoutReachingTheSource:
+    """to_sql() renders the pipeline when the source can't be reached."""
+
+    @staticmethod
+    def _unreachable():
+        return [
+            DataStore.from_file("/nonexistent/chdb-ds-test/missing.parquet"),
+            DataStore.from_clickhouse(
+                host="127.0.0.1:1", database="db", table="t", user="u", password="p"
+            ),
+        ]
+
+    @pytest.mark.parametrize(
+        "chain, rendered",
+        [
+            (lambda d: d.assign(c=d["a"] + 1), '("a"+1) AS "c"'),
+            (lambda d: d.select("a", "b").assign(a=d["a"] + 1), 'SELECT ("a"+1) AS "a", "b"'),
+            (lambda d: d.head(3)[d["a"] > 1], 'LIMIT 3) AS __subq1__ WHERE "a" > 1'),
+            (lambda d: d.select("a", "b").select("b"), 'SELECT "b" FROM'),
+            (lambda d: d.select("a").filter(d.a > 1), 'WHERE "a" > 1'),
+        ],
+        ids=["assign", "overwrite_after_projection", "head_then_filter", "select_twice", "builder"],
+    )
+    def test_renders(self, chain, rendered):
+        for ds in self._unreachable():
+            assert rendered in chain(ds).to_sql()
+
+    def test_execution_still_needs_the_source(self):
+        for ds in self._unreachable():
+            with pytest.raises(Exception):
+                ds.assign(c=ds["a"] + 1).to_pandas()

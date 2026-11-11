@@ -2352,10 +2352,20 @@ class DataStore(PandasCompatMixin):
         """
         ``(execution plan, schema)``: the lazy ops split into SQL and pandas
         steps as ``_execute()`` splits them for this SQL source.
+
+        When the source's schema can't be discovered (the source is
+        unreachable), the plan is made with an unknown schema, as the planner
+        supports: explicit projections still name their columns, and a ``*``
+        is left unexpanded. SQL can then still be rendered; running it
+        reports the source's error.
         """
         from .query_planner import QueryPlanner
 
-        schema = self.schema() or {}
+        try:
+            schema = self.schema() or {}
+        except (ConnectionError, ExecutionError) as e:
+            self._logger.debug("Planning with an unknown schema: %s", e)
+            schema = {}
         local_source = self._source_df is not None or isinstance(
             self._table_function, PythonTableFunction
         )
@@ -3909,6 +3919,21 @@ class DataStore(PandasCompatMixin):
             columns = op.transform_columns(columns)
 
         return columns
+
+    def _known_current_columns(self) -> List[str]:
+        """
+        ``_get_current_columns()`` as far as it is known without reaching
+        the source: when the source is unreachable, only the columns the
+        lazy ops name (an explicit projection, assigned columns).
+        """
+        try:
+            return self._get_current_columns()
+        except (ConnectionError, ExecutionError) as e:
+            self._logger.debug("Source columns unknown: %s", e)
+            columns: List[str] = []
+            for op in self._lazy_ops:
+                columns = op.transform_columns(columns)
+            return columns
 
     def _get_all_column_names(self) -> List[str]:
         """
@@ -7965,7 +7990,7 @@ class DataStore(PandasCompatMixin):
                     # In one SELECT, ClickHouse resolves an overwritten
                     # column's name to its new alias, so the callable can't
                     # share a SELECT with a pending overwrite.
-                    if set(sql_kwargs) & set(result._get_current_columns()):
+                    if set(sql_kwargs) & set(result._known_current_columns()):
                         result, sql_kwargs = frame, {}
                 func = value
                 try:
@@ -8028,8 +8053,9 @@ class DataStore(PandasCompatMixin):
         result._ensure_sql_source()
 
         # Columns after the pending lazy ops (selection, drop, rename,
-        # earlier assigns), not the source's columns
-        existing_columns = result._get_current_columns()
+        # earlier assigns), not the source's columns. Of an unreachable
+        # source only the named ones are known: the others are kept by *.
+        existing_columns = result._known_current_columns()
         existing_columns_set = set(existing_columns)
         columns_to_overwrite = set(sql_kwargs) & existing_columns_set
 
