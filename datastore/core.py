@@ -3730,6 +3730,9 @@ class DataStore(PandasCompatMixin):
         For file table functions, extracts filename without extension.
         For other table functions, uses table name or a generic name.
         """
+        alias = getattr(self._table_function, "alias", None)
+        if alias:
+            return alias
         if self._table_function and hasattr(self._table_function, "params"):
             # Try to get a meaningful alias from path
             path = self._table_function.params.get("path")
@@ -6028,6 +6031,7 @@ class DataStore(PandasCompatMixin):
         """
         tables: set = set()
         if self._table_function:
+            tables.update(getattr(self._table_function, "source_tables", ()))
             db = self._table_function.params.get("database", "default")
             tbl = self._table_function.params.get("table")
             if tbl:
@@ -7516,10 +7520,18 @@ class DataStore(PandasCompatMixin):
         # Determine execution path based on source type
         has_sql_source = bool(self._table_function or self.table_name)
         other_has_sql_source = bool(other._table_function or other.table_name)
+        # The right side joins with all its lazy ops, as they are now
+        both_sql = has_sql_source and other_has_sql_source
+        right = other._join_operand() if both_sql else None
 
-        if has_sql_source and other_has_sql_source:
+        if right is not None:
             # Both sides have SQL sources - use SQL JOIN only
-            self._joins.append((other, join_type, join_condition))
+            self._joins.append((right, join_type, join_condition))
+        elif both_sql and not (pandas_on or (pandas_left_on and pandas_right_on)):
+            raise QueryError(
+                "join() on a condition needs the right DataStore to run as one "
+                "SQL query; join on column names instead"
+            )
         else:
             # At least one side is DataFrame-only - use LazyJoin for pandas merge
             self._add_lazy_op(
@@ -7564,25 +7576,7 @@ class DataStore(PandasCompatMixin):
             from .table_functions import SubqueryTableFunction
 
             # Both pipelines are inside union_sql; the copy starts over from it.
-            self._table_function = SubqueryTableFunction(union_sql)
-            self._lazy_ops = []
-            self._computed_columns = {}
-            self._schema = None
-            self._index_info = None
-            self._metadata_memo = {}
-            self._cached_result = None
-            self._cached_at_version = -1
-            self._select_fields = []
-            self._where_condition = None
-            self._joins = []
-            self._groupby_fields = []
-            self._having_condition = None
-            self._orderby_fields = []
-            self._limit_value = None
-            self._offset_value = None
-            self._distinct = False
-            self._distinct_subset = None
-            self._select_star = False
+            self._start_from(SubqueryTableFunction(union_sql))
             return  # @immutable returns the copy
 
         # Add LazyUnion operation - pass the DataStore/DataFrame directly
@@ -7646,12 +7640,10 @@ class DataStore(PandasCompatMixin):
             f"ORDER BY {side_alias}, {row_alias}"
         )
 
-    def _union_operand_sql(self):
+    def _operand_sql(self) -> Optional[str]:
         """
-        Return ``(sql, columns)`` for using this DataStore as a union operand,
-        where ``sql`` yields its complete result and ``columns`` lists
-        ``(column name, type)`` in order; the type ignores ``Nullable``, which
-        UNION ALL reconciles without a type change. Return ``None`` when the
+        SQL yielding this DataStore's complete result, for reading it as a
+        subquery operand of a union or a join. Return ``None`` when the
         result needs pandas execution or post-processing.
         """
         if not (self._table_function or self.table_name):
@@ -7671,17 +7663,30 @@ class DataStore(PandasCompatMixin):
 
         try:
             build_result = self._single_sql_query()
-        except Exception as e:  # planning / SQL-build issue -> LazyUnion
-            self._logger.debug("union SQL operand unavailable: %s", e)
+        except Exception as e:  # planning / SQL-build issue -> pandas path
+            self._logger.debug("SQL operand unavailable: %s", e)
             return None
         # GroupBy results carry their keys in the index after post-processing.
         if build_result is None or build_result.groupby_agg is not None:
+            return None
+        return build_result.sql
+
+    def _union_operand_sql(self):
+        """
+        Return ``(sql, columns)`` for using this DataStore as a union operand,
+        where ``sql`` yields its complete result and ``columns`` lists
+        ``(column name, type)`` in order; the type ignores ``Nullable``, which
+        UNION ALL reconciles without a type change. Return ``None`` when the
+        result needs pandas execution or post-processing.
+        """
+        sql = self._operand_sql()
+        if sql is None:
             return None
 
         try:
             if self._executor is None:
                 self.connect()
-            rows = self._executor.execute(f"DESCRIBE ({build_result.sql})").rows
+            rows = self._executor.execute(f"DESCRIBE ({sql})").rows
         except Exception as e:  # invalid side SQL -> LazyUnion raises at execution
             self._logger.debug("union SQL operand schema unavailable: %s", e)
             return None
@@ -7690,7 +7695,59 @@ class DataStore(PandasCompatMixin):
             if col_type.startswith("Nullable(") and col_type.endswith(")"):
                 col_type = col_type[len("Nullable("):-1]
             columns.append((name, col_type))
-        return build_result.sql, columns
+        return sql, columns
+
+    def _join_operand(self) -> Optional["DataStore"]:
+        """
+        This DataStore as it is now, for the right side of a SQL JOIN: a
+        DataStore reading its complete pipeline as a subquery under the same
+        table alias, or its frozen view (``_frozen``) when it reads its
+        source unchanged; later in-place changes to it don't reach the join.
+        Return ``None`` when the pipeline needs pandas execution; the join
+        then runs in pandas.
+        """
+        if not self._lazy_ops and not self._joins:
+            return self._frozen()
+        sql = self._operand_sql()
+        if sql is None:
+            return None
+        from .table_functions import SubqueryTableFunction
+
+        # A copy: the frozen view is shared with values taken from this state
+        operand = copy(self)
+        operand._start_from(
+            SubqueryTableFunction(
+                sql,
+                alias=self._get_table_alias(),
+                source_tables=self._get_all_source_tables(),
+            )
+        )
+        return operand
+
+    def _start_from(self, table_function) -> None:
+        """
+        Make ``table_function`` this DataStore's source, with no lazy ops or
+        SQL state on top of it (it already holds the pipeline's result).
+        """
+        self._table_function = table_function
+        self._lazy_ops = []
+        self._computed_columns = {}
+        self._schema = None
+        self._index_info = None
+        self._metadata_memo = {}
+        self._cached_result = None
+        self._cached_at_version = -1
+        self._select_fields = []
+        self._where_condition = None
+        self._joins = []
+        self._groupby_fields = []
+        self._having_condition = None
+        self._orderby_fields = []
+        self._limit_value = None
+        self._offset_value = None
+        self._distinct = False
+        self._distinct_subset = None
+        self._select_star = False
 
     @immutable
     def with_column(self, name: str, expr: Union[Expression, Any]) -> "DataStore":

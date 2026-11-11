@@ -227,12 +227,17 @@ class SubqueryTableFunction(TableFunction):
     """
     Wraps a raw SQL subquery as a table source.
 
-    Used for UNION ALL and other composite SQL expressions.
+    Used for UNION ALL and other composite SQL expressions, and for the right
+    side of a JOIN whose pipeline has lazy ops. ``alias`` is the table alias
+    JOIN clauses and conditions use for it; ``source_tables`` lists the
+    ``(database, table)`` pairs the subquery reads.
     """
 
-    def __init__(self, sql: str):
+    def __init__(self, sql: str, alias: Optional[str] = None, source_tables=()):
         super().__init__()
         self._sql = sql
+        self.alias = alias
+        self.source_tables = frozenset(source_tables)
 
     @property
     def can_read(self) -> bool:
