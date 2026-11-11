@@ -3867,8 +3867,9 @@ class DataStore(PandasCompatMixin):
             if pd.api.types.is_numeric_dtype(dtypes[col])
         ]
 
+        # Without numeric columns pandas describes the others (count, unique, top, freq), which the pandas path does.
         if not numeric_cols:
-            return self._wrap_result(pd.DataFrame(), "describe()")
+            return None
 
         # Default percentiles (matching pandas behavior)
         if percentiles is None:
