@@ -11,6 +11,8 @@ import sys
 import os
 import threading
 import importlib
+import atexit
+import weakref
 
 _this_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -85,6 +87,39 @@ if sys.version_info[:2] >= (3, 7):
     conn.close()
 else:
     raise NotImplementedError("Python 3.6 or lower version is not supported")
+
+
+# chdb-core up to 26.9 tears down an engine still open at process exit during
+# C++ static destruction, after the thread pools it needs are destroyed (heap
+# corruption and SIGABRT on macOS, chdb-io/chdb-core#254). Python's atexit
+# handlers run before that, so close whatever is still open there. Every
+# engine connection, including chdb.connect(), Session and DataStore, is
+# created through _chdb.connect. Not needed once chdb-core >= 26.11 is required.
+_open_connections = weakref.WeakSet()
+_open_connections_lock = threading.Lock()
+_engine_connect = _chdb.connect
+
+
+def _connect_and_track(*args, **kwargs):
+    conn = _engine_connect(*args, **kwargs)
+    with _open_connections_lock:
+        _open_connections.add(conn)
+    return conn
+
+
+def _close_open_connections():
+    with _open_connections_lock:
+        conns = list(_open_connections)
+        _open_connections.clear()
+    for conn in conns:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+_chdb.connect = _connect_and_track
+atexit.register(_close_open_connections)
 
 chdb_version = tuple(__version__.split("."))
 
