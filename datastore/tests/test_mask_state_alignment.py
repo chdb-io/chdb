@@ -289,3 +289,38 @@ class TestMaskOfColumnProjectedOutEarlier:
         # the filter's layer reads only b.
         ds = DataStore(table="t")
         assert '"a" > 2' not in self._chain(ds).to_sql()
+
+
+class TestExecuteReturnsWhatToPandasReturns:
+    """execute() returns the pipeline's result, also when it isn't one query."""
+
+    @staticmethod
+    def _rows(result):
+        return [list(row) for row in result.rows]
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            lambda d: d.select("a")[::2].limit(2),
+            lambda d: d.sql("a > 2"),
+            lambda d: d.sql("SELECT 1 AS one"),
+            lambda d: d.select("a", "b").filter(d.a > 1).sort("b").limit(2),
+            lambda d: d,
+        ],
+        ids=["pandas_step_between_sql_steps", "sql_filter", "sql_without_from", "one_query", "source"],
+    )
+    def test_execute(self, source, chain):
+        d = chain(source(_frame()))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            assert self._rows(d.execute()) == d.to_pandas().values.tolist()
+
+    def test_pandas_step_between_sql_steps_matches_pandas(self, source):
+        df = _frame()
+        d = source(df).select("a")[::2].limit(2)
+        assert self._rows(d.execute()) == df[["a"]].iloc[::2].head(2).values.tolist()
+
+    def test_to_sql_of_pipeline_continuing_in_pandas_is_its_first_step(self, tmp_path):
+        ds = DataStore.from_file(_write(_frame(), tmp_path))
+        first_step = ds.select("a").to_sql(execution_format=True)
+        assert ds.select("a")[::2].limit(2).to_sql(execution_format=True) == first_step

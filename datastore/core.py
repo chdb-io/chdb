@@ -2387,8 +2387,6 @@ class DataStore(PandasCompatMixin):
         if not (self._table_function or self.table_name) or not self._lazy_ops:
             return None
 
-        from .query_planner import QueryPlanner
-
         # Use QueryPlanner segmented planning (same as _execute). This
         # method models "the SQL ``_execute()`` would issue against the
         # original source" - i.e. the FIRST step the executor runs.
@@ -2401,17 +2399,7 @@ class DataStore(PandasCompatMixin):
         #   would be misleading - its FROM is ``Python(__df__)``, not the
         #   original source.
         # - No segments / single Pandas-only segment: same fallback.
-        planner = QueryPlanner()
-        schema = self.schema() or {}
-        local_source = self._source_df is not None or isinstance(
-            self._table_function, PythonTableFunction
-        )
-        exec_plan = planner.plan_segments(
-            self._lazy_ops,
-            has_sql_source=True,
-            schema=schema,
-            local_source=local_source,
-        )
+        exec_plan, schema = self._plan_segments()
         first_segment = exec_plan.segments[0] if exec_plan.segments else None
         if (
             first_segment is None
@@ -2422,6 +2410,48 @@ class DataStore(PandasCompatMixin):
 
         sql_engine = SQLExecutionEngine(self)
         return sql_engine.build_sql_from_plan(first_segment.plan, schema)
+
+    def _plan_segments(self):
+        """
+        ``(execution plan, schema)``: the lazy ops split into SQL and pandas
+        steps as ``_execute()`` splits them for this SQL source.
+        """
+        from .query_planner import QueryPlanner
+
+        schema = self.schema() or {}
+        local_source = self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        )
+        exec_plan = QueryPlanner().plan_segments(
+            self._lazy_ops,
+            has_sql_source=True,
+            schema=schema,
+            local_source=local_source,
+        )
+        return exec_plan, schema
+
+    def _runs_as_one_query(self) -> bool:
+        """
+        Whether ``to_sql()`` is the whole pipeline: a write statement, no
+        lazy ops, a pipeline the flat query-builder SQL renders, or one the
+        planner runs as a single SQL step against this SQL source. Otherwise
+        the pipeline reads a DataFrame or continues in pandas after its
+        first SQL step.
+        """
+        if self._delete_flag or self._update_fields or self._insert_columns:
+            return True
+        if not self._lazy_ops:
+            return True
+        if not (self._table_function or self.table_name):
+            return False
+        if self._flat_sql_renders_pipeline():
+            return True
+        segments = self._plan_segments()[0].segments
+        return (
+            len(segments) == 1
+            and segments[0].is_sql()
+            and segments[0].plan is not None
+        )
 
     def _get_table_source(self) -> str:
         """Get the table source for SQL generation."""
@@ -4023,12 +4053,20 @@ class DataStore(PandasCompatMixin):
         """
         Execute the query and return results.
 
+        A pipeline that runs as one SQL query runs ``to_sql()``. One that
+        doesn't (it reads a DataFrame, or continues in pandas after its first
+        SQL step, so ``to_sql()`` is only that step) runs as ``to_pandas()``
+        runs it. Either way the result holds what ``to_pandas()`` returns.
+
         Returns:
             QueryResult object with data and metadata
         """
         self._logger.debug("=" * 70)
         self._logger.debug("DataStore.execute() called")
         self._logger.debug("=" * 70)
+
+        if not self._runs_as_one_query():
+            return QueryResult(data=self.to_pandas(), output_format="Dataframe")
 
         # Ensure we're connected
         if self._executor is None:
@@ -9264,7 +9302,14 @@ class DataStore(PandasCompatMixin):
         execution_format: bool = False,
     ) -> str:
         """
-        Generate SQL query.
+        Generate SQL query: the SQL DataStore sends to the source.
+
+        For a pipeline that runs as one SQL query this is that query, and it
+        returns what ``to_pandas()`` returns. A pipeline with a pandas step
+        between SQL steps (e.g. ``ds.select('a')[::2].limit(2)``) can't be
+        one query: its SQL is the first step only, run on the source before
+        the pandas steps and the SQL steps on their result. ``explain()``
+        shows every step, and ``execute()`` runs the whole pipeline.
 
         Args:
             quote_char: Quote character for identifiers
