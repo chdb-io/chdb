@@ -2914,8 +2914,8 @@ class SQLExecutionEngine:
         """
         Assemble SQL query from given components.
 
-        This is the core SQL assembly method, moved from DataStore._build_sql_from_state
-        to centralize SQL building logic.
+        This is the core SQL assembly method that centralizes SQL building
+        logic.
 
         Args:
             select_fields: Fields to select

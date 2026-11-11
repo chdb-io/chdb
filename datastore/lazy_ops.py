@@ -2464,8 +2464,6 @@ class LazyWhere(LazyOp):
             return False  # Would cause NO_COMMON_TYPE
 
         # Case 3: Int 'other' + String column - handled by Variant type
-        # The SQL query MUST include ORDER BY rowNumberInAllBlocks() to preserve row order
-        # when using Variant type. This is handled in _build_sql_from_state.
 
         # Case 4: Numeric 'other' + Bool column -> ALWAYS fall back to Pandas
         # SQL CASE WHEN converts numeric values to bool (0->false, 1->true),
