@@ -4082,8 +4082,6 @@ class DataStore(PandasCompatMixin):
             or self._insert_columns
         ):
             return None
-        if self._flat_sql_reproduces_pipeline():
-            return self.to_sql()
         try:
             build_result = self._single_sql_query()
         except Exception as e:  # planning / SQL-build issue -> execution
@@ -5571,58 +5569,6 @@ class DataStore(PandasCompatMixin):
         same_server = self._is_all_same_remote_server(target_host)
         return self._writeback_select_sql(same_server)
 
-    def _flat_sql_reproduces_pipeline(self) -> bool:
-        """Whether the flat ``_generate_select_sql()`` renders this pipeline,
-        so writeback should emit it instead of the execution SQL.
-
-        The execution SQL (``_single_sql_query``) is normally what we want —
-        it reproduces ``_execute()``'s exact semantics: lazy-op ordering
-        (e.g. ``head()`` before ``filter()`` → LIMIT before WHERE), column
-        projections, and ``LazyGroupByAgg`` (``groupby().sum()``), none of
-        which the flat SQL renders (it emits a bare ``SELECT * FROM source``).
-
-        The one exception is a SQL-style ``groupby().agg(alias=col(...)...)``:
-        ``_execute()`` runs it as a ``LazySQLQuery`` over the first segment's
-        result, and that first segment wrongly picks up the store's
-        ``GROUP BY`` (``SELECT * ... GROUP BY``), so the pipeline cannot run
-        as one SQL query. ``agg()`` also writes the aggregation into
-        ``_select_fields`` / ``_groupby_fields``, so the flat SQL renders it,
-        but only under two conditions this checks:
-
-        - the aggregation is the last lazy op — the flat SQL has no place for
-          ops applied to the aggregated result;
-        - every earlier op is a filter folded into ``_where_condition`` — the
-          only earlier state the flat SQL renders in pipeline order (WHERE
-          runs before GROUP BY). Filters recorded without updating
-          ``_where_condition`` (e.g. ``loc[cond]``), assignments, sorts and
-          limits are not rendered, or not in pipeline order.
-
-        Any other ``LazySQLQuery`` (``ds.sql(...)``, ``run_sql``) carries its
-        query only in the op, which the flat SQL does not render at all.
-        """
-        from .lazy_ops import LazySQLQuery
-
-        if not self._lazy_ops:
-            return False
-        *preceding, last = self._lazy_ops
-        if not (isinstance(last, LazySQLQuery) and last.mirrors_select_state):
-            return False
-
-        conditions = []
-        for op in preceding:
-            if not (isinstance(op, LazyRelationalOp) and op.op_type == "WHERE"):
-                return False
-            conditions.append(op.condition)
-        if not conditions:
-            return self._where_condition is None
-        if self._where_condition is None:
-            return False
-        folded = conditions[0]
-        for condition in conditions[1:]:
-            folded = folded & condition
-        q = self.quote_char
-        return folded.to_sql(quote_char=q) == self._where_condition.to_sql(quote_char=q)
-
     def _canonical_writeback_sql(self) -> str:
         """``remote(source, ...)``-form SELECT that reproduces ``_execute()``,
         used as the cross-server writeback body, the base for
@@ -5633,8 +5579,6 @@ class DataStore(PandasCompatMixin):
         Only valid for pipelines ``_is_fully_sql_pushable`` accepts: the SQL is
         the single query ``_execute()`` would run, from the same plan that
         check inspected."""
-        if self._flat_sql_reproduces_pipeline():
-            return self.to_sql()
         build_result = self._single_sql_query()
         if build_result is None:
             raise ExecutionError(
@@ -5850,11 +5794,6 @@ class DataStore(PandasCompatMixin):
         segment on the intermediate result, and no single SELECT reproduces
         such a plan.
 
-        The one exception is a SQL-style ``groupby().agg()`` whose flat SQL
-        renders the whole pipeline (see ``_flat_sql_reproduces_pipeline``):
-        ``_execute()`` splits it into a segment plus a ``LazySQLQuery``, yet
-        the flat SQL is a single equivalent query.
-
         Local sources (``from_df`` / ``Python(df)`` table functions) are never
         pushable: the target server cannot read this process's DataFrame.
 
@@ -5870,9 +5809,6 @@ class DataStore(PandasCompatMixin):
             return False
 
         if not self._lazy_ops:
-            return True
-
-        if self._flat_sql_reproduces_pipeline():
             return True
 
         return self._single_sql_query() is not None
@@ -7485,6 +7421,7 @@ class DataStore(PandasCompatMixin):
         from .column_expr import ColumnExpr
         from .lazy_result import LazySeries
         from .lazy_ops import LazyColumnAssignment
+        from .pandas_col_compat import is_pandas_col_expression
         from copy import copy
         import uuid
 
@@ -7499,6 +7436,9 @@ class DataStore(PandasCompatMixin):
 
             if isinstance(f, str):
                 return Field(f)
+            elif is_pandas_col_expression(f):
+                # pandas rejects df.groupby(pd.col(...)) the same way
+                raise TypeError("boolean value of an expression is ambiguous")
             elif isinstance(f, ColumnExpr):
                 # ColumnExpr like ds['date'].dt.year
                 # Check if it's a simple Field reference - use directly
@@ -7600,7 +7540,7 @@ class DataStore(PandasCompatMixin):
         """
         from .column_expr import ColumnExpr
         from .functions import AggregateFunction
-        from .lazy_ops import LazySQLQuery
+        from .lazy_ops import LazyGroupByAgg
         from .pandas_col_compat import (
             PandasFallbackExpr,
             is_pandas_col_expression,
@@ -7639,79 +7579,57 @@ class DataStore(PandasCompatMixin):
 
         if has_sql_agg or (func is None and kwargs and not args):
             # SQL-style aggregation: agg(alias=col("x").sum(), ...)
-            # Build list of select fields: groupby fields + aggregate expressions
-            select_fields = []
-
-            # First, add groupby fields
-            for gf in self._groupby_fields:
-                select_fields.append(gf)
-                if gf not in self._select_fields:
-                    self._select_fields.append(gf)
-
-            # Add aggregate expressions with aliases
-            for alias, expr in kwargs.items():
-                if isinstance(expr, ColumnExpr):
-                    # Unwrap ColumnExpr to get underlying expression
-                    expr = expr._expr
-                if isinstance(expr, Expression):
-                    # Set alias on the expression
-                    expr_with_alias = copy(expr)
-                    expr_with_alias.alias = alias
-                    select_fields.append(expr_with_alias)
-                    self._select_fields.append(expr_with_alias)
-                else:
-                    # Provide helpful error message for common mistakes
-                    import numpy as np
-
-                    if isinstance(expr, (int, float, np.integer, np.floating)):
-                        raise QueryError(
-                            f"Invalid aggregate expression for '{alias}': got scalar value {type(expr).__name__}. "
-                            f"Did you mean to use col('{alias}').mean() or col('{alias}').sum() instead of ds['{alias}'].mean()? "
-                            f"Use col() from datastore.expressions for SQL aggregations in agg()."
-                        )
-                    elif isinstance(expr, pd.Series):
-                        raise QueryError(
-                            f"Invalid aggregate expression for '{alias}': got pandas Series. "
-                            f"Did you mean to use col('{alias}').mean() instead of ds.groupby(...)['col'].mean()? "
-                            f"Use col() from datastore.expressions for SQL aggregations in agg()."
-                        )
-                    else:
-                        raise QueryError(
-                            f"Invalid aggregate expression for '{alias}': "
-                            f"expected Expression, got {type(expr).__name__}. "
-                            f"Use col() from datastore.expressions for SQL aggregations."
-                        )
-
-            # Build complete SQL query with GROUP BY
-            select_parts = []
-            for f in select_fields:
-                if hasattr(f, "alias") and f.alias:
-                    select_parts.append(f'{f.to_sql()} AS "{f.alias}"')
-                else:
-                    select_parts.append(f.to_sql())
-
-            select_clause = ", ".join(select_parts)
-
-            # Build GROUP BY clause
-            groupby_parts = [gf.to_sql() for gf in self._groupby_fields]
-            groupby_clause = ", ".join(groupby_parts) if groupby_parts else ""
-
-            # Build full SQL
-            if groupby_clause:
-                full_sql = (
-                    f"SELECT {select_clause} FROM __df__ GROUP BY {groupby_clause}"
+            keys = [
+                gf.name if isinstance(gf, Field) else str(gf)
+                for gf in self._groupby_fields
+            ]
+            self._groupby_fields = []
+            self._add_lazy_op(
+                LazyGroupByAgg(
+                    groupby_cols=keys, expr_agg=self._sql_aggregate_exprs(kwargs)
                 )
-            else:
-                full_sql = f"SELECT {select_clause} FROM __df__"
-
-            # Use LazySQLQuery for proper execution
-            self._add_lazy_op(LazySQLQuery(full_sql, mirrors_select_state=True))
-
+            )
             return self
         else:
             # Pandas-style aggregation: agg({'col': 'func'}) or agg('sum')
             # Delegate to parent class (PandasCompatMixin)
             return super().agg(func, axis, *args, **kwargs)
+
+    @staticmethod
+    def _sql_aggregate_exprs(kwargs: dict) -> Dict[str, Expression]:
+        """``{alias: aggregate expression}`` of a SQL-style ``agg(alias=...)``."""
+        from .column_expr import ColumnExpr
+
+        exprs = {}
+        for alias, expr in kwargs.items():
+            if isinstance(expr, ColumnExpr):
+                # Unwrap ColumnExpr to get underlying expression
+                expr = expr._expr
+            if isinstance(expr, Expression):
+                exprs[alias] = expr
+                continue
+            # Provide helpful error message for common mistakes
+            import numpy as np
+
+            if isinstance(expr, (int, float, np.integer, np.floating)):
+                raise QueryError(
+                    f"Invalid aggregate expression for '{alias}': got scalar value {type(expr).__name__}. "
+                    f"Did you mean to use col('{alias}').mean() or col('{alias}').sum() instead of ds['{alias}'].mean()? "
+                    f"Use col() from datastore.expressions for SQL aggregations in agg()."
+                )
+            elif isinstance(expr, pd.Series):
+                raise QueryError(
+                    f"Invalid aggregate expression for '{alias}': got pandas Series. "
+                    f"Did you mean to use col('{alias}').mean() instead of ds.groupby(...)['col'].mean()? "
+                    f"Use col() from datastore.expressions for SQL aggregations in agg()."
+                )
+            else:
+                raise QueryError(
+                    f"Invalid aggregate expression for '{alias}': "
+                    f"expected Expression, got {type(expr).__name__}. "
+                    f"Use col() from datastore.expressions for SQL aggregations."
+                )
+        return exprs
 
     @immutable
     def assign(self, **kwargs) -> "DataStore":

@@ -370,9 +370,9 @@ class LazyGroupBy:
 
         if has_sql_agg:
             # SQL-style aggregation: agg(alias=col("x").sum(), ...)
-            # Set groupby fields on original datastore and delegate
-            self._datastore._groupby_fields = self._groupby_fields.copy()
-            return self._datastore.agg(func, **kwargs)
+            return self._create_lazy_agg_datastore(
+                expr_agg=self._datastore._sql_aggregate_exprs(kwargs)
+            )
 
         # Check for pandas named aggregation: agg(alias=('col', 'func'))
         # This is when kwargs contains tuples of (column, aggfunc)
@@ -702,8 +702,10 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        # Create a shallow copy of the datastore
+        # Create a shallow copy of the datastore; the aggregation op carries
+        # the group keys, so no store-level GROUP BY remains.
         new_ds = copy(self._datastore)
+        new_ds._groupby_fields = []
 
         # Add the lazy groupby aggregation operation
         # Pass sort, as_index, and selected_columns parameters from LazyGroupBy to LazyGroupByAgg

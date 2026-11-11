@@ -1251,6 +1251,7 @@ class LazyGroupByAgg(LazyOp):
         ds.groupby('category').mean()  # Returns DataStore with LazyGroupByAgg
         ds.groupby('category').agg({'value': 'sum'})
         ds.groupby('category').agg(total=('value', 'sum'))  # Named aggregation
+        ds.groupby('category').agg(total=col('value').sum())  # SQL expression
     """
 
     def __init__(
@@ -1264,6 +1265,7 @@ class LazyGroupByAgg(LazyOp):
         dropna: bool = True,
         single_column_agg: bool = False,
         selected_columns: List[str] = None,
+        expr_agg: dict = None,
         **kwargs,
     ):
         """
@@ -1281,6 +1283,8 @@ class LazyGroupByAgg(LazyOp):
             single_column_agg: If True, this agg was called on a single column via
                                ColumnExpr.agg(['funcs']), which in pandas returns flat column names
             selected_columns: List of column names to aggregate (None = all columns).
+            expr_agg: Dict of SQL aggregate expressions {alias: expr}
+                (``agg(total=col('v').sum())``); they only run in SQL.
             **kwargs: Additional arguments passed to aggregation function
         """
         super().__init__()
@@ -1288,6 +1292,7 @@ class LazyGroupByAgg(LazyOp):
         self.agg_func = agg_func
         self.agg_dict = agg_dict
         self.named_agg = named_agg
+        self.expr_agg = expr_agg
         self.sort = sort
         self.as_index = as_index
         self.dropna = dropna
@@ -1339,7 +1344,11 @@ class LazyGroupByAgg(LazyOp):
         return result
 
     def describe(self) -> str:
-        if self.named_agg:
+        if self.expr_agg:
+            func_str = ", ".join(
+                f"{alias}={expr.to_sql()}" for alias, expr in self.expr_agg.items()
+            )
+        elif self.named_agg:
             func_str = str(self.named_agg)
         elif self.agg_dict:
             func_str = str(self.agg_dict)
@@ -1368,8 +1377,11 @@ class LazyGroupByAgg(LazyOp):
 
         ``size()`` and the column-less ``count()`` fallback emit an unnamed
         ``count(*)`` and are not listed. ``all_columns`` is only needed when
-        one function is applied to every non-key column.
+        one function is applied to every non-key column. SQL expression
+        aggregates have neither a function name nor a source column.
         """
+        if self.expr_agg:
+            return [(alias, None, None) for alias in self.expr_agg]
         if self.named_agg:
             return [(alias, func, col) for alias, (col, func) in self.named_agg.items()]
         if isinstance(self.agg_dict, dict):
@@ -1406,6 +1418,8 @@ class LazyGroupByAgg(LazyOp):
         - an aggregate output named like a group key: pandas keeps the key in
           the index, but a SQL result cannot hold two columns with one name
         """
+        if self.expr_agg:
+            return True
         # List format agg (e.g., agg(['sum', 'mean'])) needs pandas
         if self.agg_dict is not None and isinstance(self.agg_dict, list):
             return False
@@ -1491,7 +1505,6 @@ class LazySQLQuery(LazyOp):
         query: str,
         df_alias: str = "__df__",
         is_raw_query: bool = False,
-        mirrors_select_state: bool = False,
     ):
         """
         Args:
@@ -1502,17 +1515,11 @@ class LazySQLQuery(LazyOp):
                    - Raw SQL: "SELECT * FROM file('data.csv', 'CSVWithNames')" (when is_raw_query=True)
             df_alias: Alias for the DataFrame in the query (default: '__df__')
             is_raw_query: If True, execute the query directly without a DataFrame
-            mirrors_select_state: True when the query was built by
-                ``DataStore.agg()`` from the store's own ``_select_fields`` /
-                ``_groupby_fields``, which it also updated — so the store's
-                flat SELECT renders the same aggregation (relied on by
-                writeback, see ``DataStore._flat_sql_reproduces_pipeline``).
         """
         super().__init__()
         self.original_query = query.strip()
         self.df_alias = df_alias
         self.is_raw_query = is_raw_query
-        self.mirrors_select_state = mirrors_select_state
 
         # Process the query to determine if it needs boilerplate (only for non-raw queries)
         if is_raw_query:

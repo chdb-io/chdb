@@ -12,6 +12,7 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 from datastore import DataStore
+from datastore.expressions import col
 from tests.test_utils import assert_datastore_equals_pandas
 
 
@@ -179,6 +180,47 @@ class TestSecondGroupby:
 
         assert_matches_pandas(
             chain(make_source(TWO_KEYS, source_kind, tmp_path)), chain(TWO_KEYS)
+        )
+
+
+class TestSqlStyleAggregation:
+    """agg(name=col(...).sum()) gives pandas' named-aggregation result."""
+
+    FRAME = pd.DataFrame({"g": ["b", "c", "a", "b", "a"], "amount": [1, 6, 3, 2, 5]})
+
+    def test_after_filter(self, source_kind, tmp_path):
+        d = make_source(self.FRAME, source_kind, tmp_path)
+        d = d[d["amount"] > 1]
+        ds_result = d.groupby("g").agg(total=col("amount").sum())
+        frame = self.FRAME[self.FRAME["amount"] > 1]
+        assert_matches_pandas(ds_result, frame.groupby("g").agg(total=("amount", "sum")))
+
+    def test_sort_false_then_sort(self, source_kind, tmp_path):
+        d = make_source(self.FRAME, source_kind, tmp_path)
+        ds_result = (
+            d.groupby("g", sort=False)
+            .agg(total=col("amount").sum(), n=col("amount").count())
+            .sort_values("n", kind="stable")
+        )
+        expected = (
+            self.FRAME.groupby("g", sort=False)
+            .agg(total=("amount", "sum"), n=("amount", "count"))
+            .sort_values("n", kind="stable")
+        )
+        assert_matches_pandas(ds_result, expected)
+
+    def test_filter_on_aggregate(self, source_kind, tmp_path):
+        agg = make_source(self.FRAME, source_kind, tmp_path).groupby("g").agg(
+            total=col("amount").sum()
+        )
+        expected = self.FRAME.groupby("g").agg(total=("amount", "sum"))
+        assert_matches_pandas(agg[agg["total"] > 5], expected[expected["total"] > 5])
+
+    def test_source_store_keeps_no_group_by(self, source_kind, tmp_path):
+        d = make_source(self.FRAME, source_kind, tmp_path)
+        d.groupby("g").agg(total=col("amount").sum())
+        assert_datastore_equals_pandas(
+            d[d["amount"] > 2], self.FRAME[self.FRAME["amount"] > 2]
         )
 
 

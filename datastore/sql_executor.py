@@ -669,7 +669,15 @@ def build_groupby_select_fields(
     select_fields = list(groupby_fields)  # Include group keys
 
     outputs = groupby_agg.aggregate_outputs(all_columns)
-    agg_exprs = [create_agg_expr(func, resolve_column(col)) for _, func, col in outputs]
+    if groupby_agg.expr_agg:
+        agg_exprs = [
+            resolve_computed_references(expr, computed_columns).with_attrs(alias=None)
+            for expr in groupby_agg.expr_agg.values()
+        ]
+    else:
+        agg_exprs = [
+            create_agg_expr(func, resolve_column(col)) for _, func, col in outputs
+        ]
     taken = set(reserved_names or ()) | {name for name, _, _ in outputs}
     for expr in groupby_fields + agg_exprs:
         taken |= _referenced_identifiers(expr)
@@ -1000,6 +1008,8 @@ class SQLExecutionEngine:
                 all_cols = list(groupby_agg_op.agg_dict.keys())
             elif groupby_agg_op.selected_columns:
                 all_cols = list(groupby_agg_op.selected_columns)
+            elif groupby_agg_op.expr_agg:
+                all_cols = []
             else:
                 all_cols = (
                     self.ds._get_all_column_names()
@@ -1142,7 +1152,7 @@ class SQLExecutionEngine:
                 having_conditions,
                 preserved_orderby,
                 preserved_orderby_kind,
-                add_row_order_fallback=is_first_layer,
+                add_row_order_fallback=is_first_layer and groupby_agg_op is None,
                 include_star=include_star,
                 where_temp_alias_columns=(
                     where_temp_alias_columns if where_needs_temp_alias else None
