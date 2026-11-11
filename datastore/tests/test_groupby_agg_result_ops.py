@@ -13,7 +13,7 @@ from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 from datastore import DataStore
 from datastore.expressions import col
-from tests.test_utils import assert_datastore_equals_pandas
+from tests.test_utils import assert_datastore_equals_pandas, assert_series_equal
 
 
 def assert_matches_pandas(ds_result, expected):
@@ -181,6 +181,13 @@ class TestSecondGroupby:
         assert_matches_pandas(
             chain(make_source(TWO_KEYS, source_kind, tmp_path)), chain(TWO_KEYS)
         )
+
+
+class TestNuniqueDtype:
+    def test_series_nunique_is_int64(self, source_kind, tmp_path):
+        frame = pd.DataFrame({"g": ["a", "b", "a", "a"], "v": [1, 2, 1, 3]})
+        ds_result = make_source(frame, source_kind, tmp_path).groupby("g")["v"].nunique()
+        assert_series_equal(ds_result, frame.groupby("g")["v"].nunique())
 
 
 class TestSqlStyleAggregation:

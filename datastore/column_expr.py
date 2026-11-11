@@ -1280,6 +1280,7 @@ class ColumnExpr:
         from .config import get_execution_engine, ExecutionEngine, is_performance_mode
         from .expressions import Field
         from .executor import get_executor
+        from .functions import Function
 
         # In performance mode, use single-SQL path via LazyGroupByAgg injection
         if is_performance_mode():
@@ -1440,9 +1441,12 @@ class ColumnExpr:
                     # ClickHouse natively skips NULL in aggregations
                     agg_sql = f"{self._agg_func_name}({col_expr_sql})"
 
-                # Wrap count in toInt64() to match pandas dtype (int64 instead of uint64)
+                # Counting aggregates return UInt64; pandas returns int64
                 # In performance mode, skip -- let SQL return native dtype
-                if self._agg_func_name == "count" and not is_performance_mode():
+                if (
+                    self._agg_func_name.lower() in Function._UINT64_FUNCTIONS
+                    and not is_performance_mode()
+                ):
                     agg_sql = f"toInt64({agg_sql})"
 
                 # Add ORDER BY if sort=True (pandas default behavior)
@@ -1728,6 +1732,7 @@ class ColumnExpr:
             pd.Series: Aggregated values with groupby column(s) as index
         """
         from .config import get_execution_engine, ExecutionEngine
+        from .functions import Function
 
         pandas_agg_func = pandas_agg_func or agg_func_name
 
@@ -1777,8 +1782,8 @@ class ColumnExpr:
             else:
                 agg_sql = f"{agg_func_name}({col_expr_sql})"
 
-            # Wrap count in toInt64() to match pandas dtype (int64 instead of uint64)
-            if agg_func_name == "count":
+            # Counting aggregates return UInt64; pandas returns int64
+            if agg_func_name.lower() in Function._UINT64_FUNCTIONS:
                 agg_sql = f"toInt64({agg_sql})"
 
             sql = f"SELECT {groupby_sql}, {agg_sql} AS __agg_result__ FROM __df__ GROUP BY {groupby_sql}"
