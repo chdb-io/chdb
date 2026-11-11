@@ -263,3 +263,29 @@ class TestNullableBooleanMask:
 
         df = self._frame()
         assert_datastore_equals_pandas(chain(source(df)), chain(df))
+
+
+class TestMaskOfColumnProjectedOutEarlier:
+    """A filter reads the columns entering its SQL layer, not only those of
+    the nearest select()."""
+
+    @staticmethod
+    def _chain(d):
+        if isinstance(d, pd.DataFrame):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                e = d[["b"]].iloc[:3].iloc[1:][["b"]]
+                return e[d["a"] > 2]
+        return d.select("b").limit(3).offset(1).select("b").filter(d.a > 2)
+
+    def test_mask_of_column_dropped_by_earlier_projection(self, source, request):
+        if source.kind == "file":
+            request.applymarker(NEEDS_FILE_ROW_LABELS)
+        df = pd.DataFrame({"a": [1, 2, 3, 4, 5, 6], "b": [60, 50, 40, 30, 20, 10]})
+        assert_datastore_equals_pandas(self._chain(source(df)), self._chain(df))
+
+    def test_no_sql_filter_on_a_dropped_column(self):
+        # Even with the source's schema unknown, the projections tell that
+        # the filter's layer reads only b.
+        ds = DataStore(table="t")
+        assert '"a" > 2' not in self._chain(ds).to_sql()

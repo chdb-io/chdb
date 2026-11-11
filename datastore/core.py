@@ -1555,31 +1555,33 @@ class DataStore(PandasCompatMixin):
                     _keeps_read_columns(effect, reads, rowwise=True, values_only=True)
                     for effect in later
                 )
-                and self._reads_available(reads, later, where_clause)
+                and self._reads_available(reads, later, mask, where_clause)
             ):
                 return None
             # A column its own state doesn't have is a name for the frame's
             # column (nat.add_prefix('col_').filter(nat.col_age > 25)).
+            if reads is None:
+                return None
             try:
                 own_columns = set(source._get_current_columns())
             except Exception:
-                return None
-            if reads is None or not reads <= own_columns:
+                own_columns = None
+            if own_columns and not reads <= own_columns:
                 return None
         if later is not None and all(_keeps_rows(effect) for effect in later):
             return "position"
         return "index"
 
     def _reads_available(
-        self, reads: Optional[set], later: list, where_clause: bool
+        self, reads: Optional[set], later: list, mask, where_clause: bool
     ) -> bool:
         """
         Whether the frame can read the columns in ``reads`` where it applies
-        a mask, given the ``later`` effects since the mask's state. A later
+        ``mask``, given the ``later`` effects since the mask's state. A later
         projection or drop may leave them out; a ``where_clause`` (a filter)
-        still reads the columns a select() projection leaves out when the
-        planner puts the filter in the projection's SQL layer, as SQL filters
-        the projection's input (``ds.select('a').filter(ds.c > 10)``).
+        reads the columns entering its SQL layer, which include the ones a
+        select() projection in that layer leaves out, as SQL filters the
+        projection's input (``ds.select('a').filter(ds.c > 10)``).
         """
         removes = [
             effect
@@ -1588,49 +1590,62 @@ class DataStore(PandasCompatMixin):
         ]
         if not removes:
             return True
-        if (
-            where_clause
-            and all(effect[0] == "select" for effect in removes)
-            and self._filters_in_projection_layer()
-        ):
-            return True
         if reads is None:
             return False
+        if where_clause and all(effect[0] == "select" for effect in removes):
+            return self._filter_reads(reads, mask)
         try:
             return reads <= set(self._get_current_columns())
         except Exception:
             return False
 
-    def _filters_in_projection_layer(self) -> bool:
+    def _filter_reads(self, reads: set, mask) -> bool:
         """
-        Whether a filter added now runs in the SQL layer of this pipeline's
-        last explicit projection, so it can read the columns the projection
-        leaves out: only filters follow the projection, and the planner puts
-        a filter in its layer.
+        Whether a filter by ``mask`` added now reads the columns in
+        ``reads``: they enter the SQL layer the planner puts it in, which is
+        the source's columns for the first layer and the columns the earlier
+        layers output otherwise (an earlier projection may have left them
+        out). Only filters may follow the pipeline's last projection: another
+        op (a sort or limit) may run in pandas, on the projected rows.
         """
         from .expressions import is_star_item
+        from .lazy_result import LazyCondition
         from .query_planner import QueryPlanner
 
+        def projects(op):
+            return (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "SELECT"
+                and op.fields
+                and not any(is_star_item(f) for f in op.fields)
+            )
+
         ops = list(self._lazy_ops)
-        last = next(
-            (
-                i
-                for i in range(len(ops) - 1, -1, -1)
-                if isinstance(ops[i], LazyRelationalOp)
-                and ops[i].op_type == "SELECT"
-                and ops[i].fields
-                and not any(is_star_item(f) for f in ops[i].fields)
-            ),
-            None,
-        )
+        last = next((i for i in range(len(ops) - 1, -1, -1) if projects(ops[i])), None)
         if last is None or not all(
             isinstance(op, LazyRelationalOp) and op.op_type == "WHERE"
             for op in ops[last + 1 :]
         ):
             return False
-        probe = LazyRelationalOp("WHERE", "probe")
+        condition = mask.condition if isinstance(mask, LazyCondition) else mask._expr
+        probe = LazyRelationalOp("WHERE", "probe", condition=condition)
         layers = QueryPlanner()._build_layers(ops + [probe])
-        return any(op is ops[last] for op in layers[-1])
+        before = [op for layer in layers[:-1] for op in layer]
+        if not before:
+            return True
+        try:
+            columns = (
+                list(self._source_df.columns)
+                if self._source_df is not None
+                else list(self._get_all_column_names())
+            )
+        except Exception:
+            columns = []
+        known = bool(columns)
+        for op in before:
+            known = known or projects(op)
+            columns = op.transform_columns(columns)
+        return known and reads <= set(columns)
 
     def _ops_after(self, state: "DataStore") -> Optional[list]:
         """
