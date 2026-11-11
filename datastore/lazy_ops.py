@@ -1383,6 +1383,11 @@ class LazyGroupByAgg(LazyOp):
         outputs = {name for name, _, _ in self.aggregate_outputs()}
         return [f"__key_{key}__" if key in outputs else key for key in self.groupby_cols]
 
+    def hidden_key_columns(self) -> List[str]:
+        """Key columns under a hidden name; only execution reads them, to
+        build the group index."""
+        return [c for k, c in zip(self.groupby_cols, self.key_columns()) if c != k]
+
     def run_on(self, datastore: "DataStore") -> pd.DataFrame:
         """The aggregation of ``datastore``'s rows, indexed by the group keys
         unless ``as_index=False`` (also in performance mode)."""

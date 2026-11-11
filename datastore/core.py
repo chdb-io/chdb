@@ -1884,7 +1884,9 @@ class DataStore(PandasCompatMixin):
                 plan.sql_ops = segment.ops.copy()
 
             sql_engine = SQLExecutionEngine(self)
-            build_result = sql_engine.build_sql_from_plan(plan, schema)
+            build_result = sql_engine.build_sql_from_plan(
+                plan, schema, for_execution=True
+            )
             sql = build_result.sql
 
             # Append format settings if present (e.g., input_format_parquet_preserve_order)

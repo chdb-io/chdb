@@ -748,6 +748,7 @@ class SQLExecutionEngine:
         expose_group_position: bool = False,
         input_position: Optional[Expression] = None,
         orderby_tiebreak: Optional[List[Tuple[Any, bool]]] = None,
+        keep_hidden_keys: bool = True,
     ) -> "LayerBuildResult":
         """
         Build SQL for a single nested-subquery layer (unified entry point).
@@ -800,6 +801,9 @@ class SQLExecutionEngine:
                 the first appearance of a group is its smallest position.
             orderby_tiebreak: Sort keys appended to this layer's ORDER BY so
                 ties keep the input's order (a stable sort).
+            keep_hidden_keys: Whether the aggregation outputs its hidden key
+                columns (``LazyGroupByAgg.hidden_key_columns``), which only
+                execution reads to build the group index.
 
         Returns:
             LayerBuildResult containing the SQL text and every temp alias
@@ -958,11 +962,12 @@ class SQLExecutionEngine:
             preserved_orderby = None
             preserved_orderby_kind = None
 
-            # A key whose name an output takes is dropped with as_index=False
+            # A key whose name an output takes is dropped with as_index=False,
+            # and from results read outside execution
             dropped_keys = (
                 set()
-                if groupby_agg_op.as_index
-                else set(key_columns) - set(groupby_agg_op.groupby_cols)
+                if groupby_agg_op.as_index and keep_hidden_keys
+                else set(groupby_agg_op.hidden_key_columns())
             )
             # ORDER BY / LIMIT / OFFSET bind to user-visible names, so they
             # move to the outer projection that renames the temp aliases.
@@ -1696,7 +1701,10 @@ class SQLExecutionEngine:
         return " ".join(outer_parts)
 
     def build_sql_from_plan(
-        self, plan: "QueryPlan", schema: Dict[str, str] = None
+        self,
+        plan: "QueryPlan",
+        schema: Dict[str, str] = None,
+        for_execution: bool = False,
     ) -> SQLBuildResult:
         """
         Build SQL from a QueryPlan.
@@ -1707,6 +1715,10 @@ class SQLExecutionEngine:
         Args:
             plan: QueryPlan from QueryPlanner
             schema: Column schema for type-aware SQL building
+            for_execution: True for the SQL _execute() runs, which also
+                outputs the hidden group key columns it builds the index
+                from. Every other reader (to_sql(), writeback, views, schema
+                probes) gets the result columns only.
 
         Returns:
             SQLBuildResult containing the SQL string and metadata
@@ -1757,6 +1769,7 @@ class SQLExecutionEngine:
             schema,
             has_column_assignments,
             source_columns=source_columns,
+            keep_hidden_keys=for_execution,
         )
 
         return SQLBuildResult(sql=sql, groupby_agg=groupby_agg_op)
@@ -2098,6 +2111,7 @@ class SQLExecutionEngine:
         has_column_assignments: bool,
         first_layer_from_source: Optional[str] = None,
         source_columns: Optional[List[str]] = None,
+        keep_hidden_keys: bool = True,
     ) -> str:
         """
         Build SQL by chaining ``_build_layer`` calls, one per nested
@@ -2126,6 +2140,9 @@ class SQLExecutionEngine:
                 ``_build_layer`` derives FROM from ``self.ds``.
             source_columns: Columns of the layer 0 source, if known; used to
                 overwrite inherited columns in place.
+            keep_hidden_keys: Whether the last layer outputs the hidden group
+                key columns (``LazyGroupByAgg.hidden_key_columns``); only
+                execution reads them.
 
         Returns:
             The full nested SQL string.
@@ -2150,6 +2167,9 @@ class SQLExecutionEngine:
         taken_names: set = set(source_columns or [])
         last_idx = len(layers) - 1
         index_keys: List[str] = []
+        # Index keys under a hidden name; outside execution the result leaves
+        # them out
+        hidden_keys: List[str] = []
         aggs = [self._extract_special_ops_from_layer(l)[0] for l in layers]
         first_agg_idx = next(
             (i for i, agg in enumerate(aggs) if agg is not None), None
@@ -2236,7 +2256,10 @@ class SQLExecutionEngine:
                         hidden_columns.append(f.name)
                 projected = {projection_name(f) for f in effective_select_fields}
                 effective_select_fields.extend(
-                    Field(key) for key in index_keys if key not in projected
+                    Field(key)
+                    for key in index_keys
+                    if key not in projected
+                    and (keep_hidden_keys or not is_last or key not in hidden_keys)
                 )
 
             sort_position = None
@@ -2271,8 +2294,12 @@ class SQLExecutionEngine:
                 hidden_columns.append(row_position)
 
             star_except = None
-            if is_last and not projects and hidden_columns:
-                star_except = list(hidden_columns)
+            if is_last and not projects and not layer_has_agg:
+                excluded = list(hidden_columns)
+                if not keep_hidden_keys:
+                    excluded += [key for key in hidden_keys if key not in excluded]
+                if excluded:
+                    star_except = excluded
                 hidden_columns = []
 
             result = self._build_layer(
@@ -2291,6 +2318,7 @@ class SQLExecutionEngine:
                 expose_group_position=not is_last,
                 input_position=input_position,
                 orderby_tiebreak=orderby_tiebreak,
+                keep_hidden_keys=keep_hidden_keys or not is_last,
             )
             sql = result.sql
             alias_renames.update(result.renames_introduced)
@@ -2301,6 +2329,9 @@ class SQLExecutionEngine:
                 )
                 preserved_orderby_kind = None
                 index_keys = layer_agg.key_columns() if layer_agg.as_index else []
+                hidden_keys = (
+                    layer_agg.hidden_key_columns() if layer_agg.as_index else []
+                )
             elif sort_position is not None:
                 preserved_orderby = [(Field(sort_position), True)]
                 preserved_orderby_kind = None

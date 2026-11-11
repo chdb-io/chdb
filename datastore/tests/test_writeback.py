@@ -2185,3 +2185,73 @@ def _count_or_zero(table: str, db: str, srv: _Server) -> int:
         return _count(table, db=db, srv=srv)
     except Exception:
         return 0
+
+
+# ============================================================================
+# A group key moved to a hidden column is not written
+# ============================================================================
+
+
+class TestHiddenGroupKeyNotWritten:
+    """groupby('city').agg(city=...) keeps the key under a hidden name only
+    to build the index; written tables and views get pandas' columns."""
+
+    CHAINS = {
+        "named": lambda d: d.groupby("city").agg(city=("amount", "sum")),
+        "expression_then_filter": lambda d: (lambda a: a[a["city"] > 400])(
+            d.groupby("city").agg(city=col("amount").sum())
+        ),
+        "dict_two_outputs": lambda d: d.groupby("city", sort=False).agg(
+            {"city": "count", "amount": "sum"}
+        ),
+    }
+    PANDAS_CHAINS = {
+        "expression_then_filter": lambda d: (lambda a: a[a["city"] > 400])(
+            d.groupby("city").agg(city=("amount", "sum"))
+        ),
+    }
+
+    def _expected(self, name):
+        source = _select_all("wb_source", order_by="city, amount")
+        chain = self.PANDAS_CHAINS.get(name, self.CHAINS[name])
+        return chain(source).reset_index(drop=True)
+
+    @pytest.mark.parametrize("name", list(CHAINS))
+    def test_server_side_to_clickhouse(self, source_table, name):
+        target = f"wb_hidden_key_{name}"
+        _drop(target)
+        try:
+            ds = self.CHAINS[name](_make_ds(source_table))
+            assert ds._is_fully_sql_pushable()
+            ds.to_clickhouse(f"{DATABASE}.{target}")
+            expected = self._expected(name)
+            assert [c for c, _ in _columns(target)] == list(expected.columns)
+            _assert_written(target, expected, list(expected.columns))
+        finally:
+            _drop(target)
+
+    @pytest.mark.parametrize("name", list(CHAINS))
+    def test_local_dataframe_to_clickhouse(self, source_table, name):
+        target = f"wb_hidden_key_local_{name}"
+        _drop(target)
+        try:
+            source = _select_all(source_table, order_by="city, amount")
+            self.CHAINS[name](DataStore(source)).to_clickhouse(
+                f"{DATABASE}.{target}", host=HOST, user=USER, password=PASSWORD
+            )
+            expected = self._expected(name)
+            assert [c for c, _ in _columns(target)] == list(expected.columns)
+            _assert_written(target, expected, list(expected.columns))
+        finally:
+            _drop(target)
+
+    def test_view(self, source_table):
+        view = "wb_hidden_key_view"
+        _drop_view(view)
+        try:
+            self.CHAINS["named"](_make_ds(source_table)).create_view(f"{DATABASE}.{view}")
+            expected = self._expected("named")
+            assert [c for c, _ in _columns(view)] == list(expected.columns)
+            _assert_written(view, expected, list(expected.columns))
+        finally:
+            _drop_view(view)

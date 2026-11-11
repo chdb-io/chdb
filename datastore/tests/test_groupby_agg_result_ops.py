@@ -6,6 +6,7 @@ keys, ordered by key (``sort=True``) or by first appearance (``sort=False``),
 and every later operation reads those rows, as in pandas.
 """
 
+import chdb
 import numpy as np
 import pandas as pd
 import pytest
@@ -457,6 +458,46 @@ class TestMinCount:
         frame = pd.DataFrame({"g": ["a", "a", "b"], "v": [2, 3, 5]})
         d = make_source(frame, source_kind, tmp_path)
         assert_series_equal(d.groupby("g")["v"].prod(), frame.groupby("g")["v"].prod())
+
+
+class TestHiddenColumnsStayInternal:
+    """A key moved to a hidden column when an output takes its name is not
+    an output column of to_sql() or of the frame."""
+
+    FRAME = pd.DataFrame({"city": ["b", "a", "b"], "amount": [1, 6, 3]})
+
+    @pytest.mark.parametrize(
+        "chain, pandas_chain",
+        [
+            pytest.param(
+                lambda d: d.groupby("city").agg(city=("amount", "sum")), None, id="named"
+            ),
+            pytest.param(
+                lambda d: (lambda a: a[a["city"] > 3])(
+                    d.groupby("city").agg(city=col("amount").sum())
+                ),
+                lambda d: (lambda a: a[a["city"] > 3])(
+                    d.groupby("city").agg(city=("amount", "sum"))
+                ),
+                id="expression_then_filter",
+            ),
+            pytest.param(
+                lambda d: d.groupby("city", sort=False).agg({"city": "count", "amount": "sum"})[
+                    ["amount"]
+                ],
+                None,
+                id="dict_then_select",
+            ),
+        ],
+    )
+    def test_to_sql_and_columns(self, tmp_path, chain, pandas_chain):
+        path = str(tmp_path / "src.parquet")
+        self.FRAME.to_parquet(path)
+        result = chain(DataStore.from_file(path))
+        expected = (pandas_chain or chain)(self.FRAME)
+        sql_columns = list(chdb.query(result.to_sql(), "DataFrame").columns)
+        assert sql_columns == list(expected.columns)
+        assert_matches_pandas(result, expected)
 
 
 # ---------------------------------------------------------------------------
