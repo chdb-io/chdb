@@ -3643,6 +3643,14 @@ class DataStore(PandasCompatMixin):
                     df_to_use = df_to_use[existing_cols]
                     self._source_df = df_to_use
 
+            # The schema lists the columns of the DataFrame the table function
+            # reads (an index reset below stays out, as it isn't a column).
+            known_types = self._schema or {}
+            self._schema = {
+                col: known_types.get(col, str(dtype))
+                for col, dtype in df_to_use.dtypes.items()
+            }
+
             # Preserve index info if DataFrame has a custom index
             # A custom index is one with a name (from set_index()) or a MultiIndex
             has_custom_index = (
@@ -7498,36 +7506,14 @@ class DataStore(PandasCompatMixin):
             else:
                 groupby_fields.append(process_field(field))
 
-        # Extract selected columns from prior LazyRelationalOp(SELECT) operations
-        # This ensures that df[['col1', 'col2']].groupby('col1').mean() only aggregates
-        # the explicitly selected columns, not all columns from the source
-        selected_columns = None
-        for op in reversed(target_ds._lazy_ops):
-            if (
-                isinstance(op, LazyRelationalOp)
-                and op.op_type == "SELECT"
-                and op.fields
-            ):
-                # Found a SELECT operation - extract column names
-                selected_columns = []
-                for f in op.fields:
-                    if isinstance(f, str) and f != "*":
-                        selected_columns.append(f)
-                    elif isinstance(f, Field):
-                        selected_columns.append(f.name)
-                # If SELECT * or no explicit columns, don't override
-                if not selected_columns:
-                    selected_columns = None
-                break
-
-        # Return a GroupBy wrapper that references target_ds
+        # The aggregation reads the columns target_ds has after its lazy ops
+        # (a projection, assignments); only groupby(...)[cols] selects some.
         return LazyGroupBy(
             target_ds,
             groupby_fields,
             sort=sort,
             as_index=as_index,
             dropna=dropna,
-            selected_columns=selected_columns,
         )
 
     @immutable

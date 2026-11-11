@@ -234,52 +234,34 @@ class TestGroupByColumnSelectionFromFile:
 
 
 class TestSelectedColumnsPassthrough:
-    """Tests to verify that selected_columns is correctly passed through the lazy op chain."""
+    """The aggregation reads the columns the frame has after its lazy ops."""
 
-    def test_selected_columns_extracted_from_lazy_ops(self):
-        """Verify that groupby() correctly extracts selected_columns from prior LazyRelationalOp."""
-        from datastore.lazy_ops import LazyRelationalOp
-
+    def test_aggregation_reads_columns_after_selection(self):
+        """The planned output of the aggregation lists only the selected columns."""
         data = {'a': [1, 1, 2], 'b': [10, 20, 30], 'c': ['x', 'y', 'z']}
         ds = DataStore(data)
 
-        # Select specific columns
-        selected = ds[['a', 'b']]
-
-        # Verify LazyRelationalOp(SELECT) was created
-        select_ops = [op for op in selected._lazy_ops if isinstance(op, LazyRelationalOp) and op.op_type == 'SELECT']
-        assert len(select_ops) == 1
-        assert len(select_ops[0].fields) == 2
-
-        # Create groupby
-        grouped = selected.groupby(['a'])
-
-        # Verify selected_columns was extracted
-        assert grouped._selected_columns is not None
-        assert 'a' in grouped._selected_columns
-        assert 'b' in grouped._selected_columns
-        assert 'c' not in grouped._selected_columns
-
-    def test_selected_columns_passed_to_lazy_groupby_agg(self):
-        """Verify that selected_columns is passed to LazyGroupByAgg."""
-        from datastore.lazy_ops import LazyGroupByAgg
-
-        data = {'a': [1, 1, 2], 'b': [10, 20, 30], 'c': ['x', 'y', 'z']}
-        ds = DataStore(data)
-
-        # Apply the full pattern
         result = ds[['a', 'b']].groupby(['a']).mean()
 
-        # Find LazyGroupByAgg in lazy ops
-        groupby_agg_ops = [op for op in result._lazy_ops if isinstance(op, LazyGroupByAgg)]
-        assert len(groupby_agg_ops) == 1
+        # Group keys, then the aggregated columns, before keys move to the index
+        assert result._get_current_columns() == ['a', 'b']
+        pd_result = pd.DataFrame(data)[['a', 'b']].groupby(['a']).mean()
+        assert_datastore_equals_pandas(result, pd_result)
 
-        # Verify selected_columns is set
-        agg_op = groupby_agg_ops[0]
-        assert agg_op.selected_columns is not None
-        assert 'a' in agg_op.selected_columns
-        assert 'b' in agg_op.selected_columns
-        assert 'c' not in agg_op.selected_columns
+    def test_aggregation_reads_columns_assigned_after_selection(self):
+        """A column assigned after the selection is aggregated too."""
+        data = {'a': [1, 1, 2], 'b': [10, 20, 30], 'c': ['x', 'y', 'z']}
+        ds = DataStore(data)
+        df = pd.DataFrame(data)
+
+        selected = ds[['a', 'b']]
+        selected['d'] = selected['b'] * 2
+        result = selected.groupby(['a']).mean()
+
+        pd_selected = df[['a', 'b']].copy()
+        pd_selected['d'] = pd_selected['b'] * 2
+        assert result._get_current_columns() == ['a', 'b', 'd']
+        assert_datastore_equals_pandas(result, pd_selected.groupby(['a']).mean())
 
     def test_groupby_cols_filtered_from_aggregation(self):
         """Verify that groupby columns are not aggregated (only non-groupby selected columns)."""

@@ -807,6 +807,7 @@ class SQLExecutionEngine:
         input_position: Optional[Expression] = None,
         orderby_tiebreak: Optional[List[Tuple[Any, bool]]] = None,
         keep_hidden_keys: bool = True,
+        input_columns: Optional[List[str]] = None,
     ) -> "LayerBuildResult":
         """
         Build SQL for a single nested-subquery layer (unified entry point).
@@ -862,6 +863,9 @@ class SQLExecutionEngine:
             keep_hidden_keys: Whether the aggregation outputs its hidden key
                 columns (``LazyGroupByAgg.hidden_key_columns``), which only
                 execution reads to build the group index.
+            input_columns: Columns the layer reads, in order, if known. The
+                CASE WHEN of a where/mask and an aggregation over every
+                column cover the columns entering that op.
 
         Returns:
             LayerBuildResult containing the SQL text and every temp alias
@@ -910,7 +914,13 @@ class SQLExecutionEngine:
         if where_ops:
             # LazyWhere/LazyMask CASE WHEN: emit a temp-alias SELECT over
             # every column then rename back on the outer wrapper.
-            all_columns = self.ds._get_all_column_names() if is_first_layer else []
+            all_columns = self._columns_entering(
+                layer_ops, input_columns, (LazyWhere, LazyMask)
+            )
+            if all_columns is None:
+                all_columns = (
+                    self.ds._get_all_column_names() if is_first_layer else []
+                )
             if not all_columns and not is_first_layer:
                 # Wrapper-layer CASE WHEN falls back to schema-driven cols if
                 # the source-bound helper has no schema (rare path).
@@ -934,28 +944,35 @@ class SQLExecutionEngine:
                     where_needs_subquery = True
 
         if groupby_agg_op is not None:
-            # Determine target columns for aggregation (priority: explicit
-            # SELECT in clauses > caller-supplied select fields > agg spec >
-            # source schema).
-            if clauses.select_fields:
-                all_cols = self._infer_column_names(clauses.select_fields)
-            elif sql_select_fields:
-                all_cols = self._infer_column_names(sql_select_fields)
-            elif (
-                groupby_agg_op.agg_dict is not None
-                and isinstance(groupby_agg_op.agg_dict, dict)
-            ):
-                all_cols = list(groupby_agg_op.agg_dict.keys())
-            elif groupby_agg_op.selected_columns:
-                all_cols = list(groupby_agg_op.selected_columns)
-            elif groupby_agg_op.expr_agg:
+            # Determine target columns for aggregation: none for SQL
+            # expression aggregates, which name their own outputs; the columns
+            # the aggregation reads when the layer's input is known; otherwise
+            # (priority) explicit SELECT in clauses > caller-supplied select
+            # fields > agg spec > source schema.
+            if groupby_agg_op.expr_agg:
                 all_cols = []
             else:
-                all_cols = (
-                    self.ds._get_all_column_names()
-                    if hasattr(self.ds, "_get_all_column_names")
-                    else None
-                ) or []
+                all_cols = self._columns_entering(
+                    layer_ops, input_columns, LazyGroupByAgg
+                )
+            if all_cols is None:
+                if clauses.select_fields:
+                    all_cols = self._infer_column_names(clauses.select_fields)
+                elif sql_select_fields:
+                    all_cols = self._infer_column_names(sql_select_fields)
+                elif (
+                    groupby_agg_op.agg_dict is not None
+                    and isinstance(groupby_agg_op.agg_dict, dict)
+                ):
+                    all_cols = list(groupby_agg_op.agg_dict.keys())
+                elif groupby_agg_op.selected_columns:
+                    all_cols = list(groupby_agg_op.selected_columns)
+                else:
+                    all_cols = (
+                        self.ds._get_all_column_names()
+                        if hasattr(self.ds, "_get_all_column_names")
+                        else None
+                    ) or []
 
             computed_cols = layer_computed_columns(layer_ops, self.quote_char)
             # The pre-aggregation WHERE filters the layer's input rows, where
@@ -1800,10 +1817,12 @@ class SQLExecutionEngine:
         # SQLBuilder is needed when:
         # 1. Multiple assignments to the same column (override scenario)
         # 2. Computed column is referenced in subsequent operations (WHERE, ORDER BY)
-        # Skip SQLBuilder if there is a groupby operation (SQLBuilder does not support GROUP BY yet)
+        # Skip SQLBuilder if there is a groupby or where/mask operation
+        # (SQLBuilder renders neither GROUP BY nor the CASE WHEN of where/mask)
         if (
             column_assignments
             and not groupby_agg_op
+            and not where_ops
             and self._needs_sql_builder(plan.sql_ops, column_assignments, schema)
         ):
             sql = self._build_sql_with_builder(plan, schema)
@@ -2162,6 +2181,20 @@ class SQLExecutionEngine:
             columns = op.transform_columns(columns)
         return columns
 
+    @staticmethod
+    def _columns_entering(
+        layer_ops: List[LazyOp], input_columns: Optional[List[str]], op_types
+    ) -> Optional[List[str]]:
+        """Columns entering the layer's first op of ``op_types``, if known."""
+        if input_columns is None:
+            return None
+        columns = list(input_columns)
+        for op in layer_ops:
+            if isinstance(op, op_types):
+                break
+            columns = op.transform_columns(columns)
+        return columns
+
     def _build_layered_sql(
         self,
         layers: List[List[LazyOp]],
@@ -2279,6 +2312,7 @@ class SQLExecutionEngine:
                 layer_sql_select_fields,
                 layer_has_column_assignments,
             ) = self._collect_select_fields_from_sql_ops(layer_ops, input_columns)
+            layer_input_columns = input_columns
             input_columns = self._layer_output_columns(layer_ops, input_columns)
             if is_first and first_layer_from_source is None:
                 effective_select_fields = sql_select_fields
@@ -2383,6 +2417,7 @@ class SQLExecutionEngine:
                 input_position=input_position,
                 orderby_tiebreak=orderby_tiebreak,
                 keep_hidden_keys=keep_hidden_keys or not is_last,
+                input_columns=layer_input_columns,
             )
             sql = result.sql
             alias_renames.update(result.renames_introduced)
