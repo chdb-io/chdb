@@ -156,6 +156,18 @@ class TestJoinCarriesRightLazyOps:
 
         assert_joined_equal(ds_result, pd_result)
 
+    @pytest.mark.parametrize("column", ["w", "k"])
+    def test_right_changed_after_join(self, sides, column):
+        # A join run in pandas reads the right side as it was at join()
+        make_left, make_right = sides
+        pd_result = LEFT.merge(RIGHT, on="k")
+
+        r = make_right()
+        ds_result = make_left().join(r, on="k")
+        r[column] = r[column] * 100
+
+        assert_joined_equal(ds_result, pd_result)
+
     def test_right_pipeline_needs_pandas(self, sides):
         make_left, make_right = sides
         pr = RIGHT.copy()

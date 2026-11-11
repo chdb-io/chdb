@@ -242,6 +242,15 @@ def _is_row_wise(value) -> bool:
     return isinstance(value, Expression) and value.is_row_wise
 
 
+def _operand_state(other):
+    """
+    The other operand of a join or union run in pandas, as it is now: a
+    DataStore's frozen view (later in-place changes to the DataStore don't
+    reach the result), or the given DataFrame.
+    """
+    return other._frozen() if isinstance(other, DataStore) else other
+
+
 def _label_source_rows(df: pd.DataFrame, build_result) -> pd.DataFrame:
     """
     Label the rows of ``df``, the result of ``build_result``'s SQL, with
@@ -7306,10 +7315,11 @@ class DataStore(PandasCompatMixin):
                 "SQL query; join on column names instead"
             )
         else:
-            # At least one side is DataFrame-only - use LazyJoin for pandas merge
+            # At least one side is DataFrame-only - use LazyJoin for pandas
+            # merge, with the right side as it is now
             self._add_lazy_op(
                 LazyJoin(
-                    right=other,
+                    right=_operand_state(other),
                     on=pandas_on,
                     how=how.lower(),
                     left_on=pandas_left_on,
@@ -7353,9 +7363,9 @@ class DataStore(PandasCompatMixin):
             self._start_from(SubqueryTableFunction(union_sql, query_settings=settings))
             return  # @immutable returns the copy
 
-        # Add LazyUnion operation - pass the DataStore/DataFrame directly
+        # Add LazyUnion operation with the other side as it is now
         # Execution is deferred until needed
-        self._add_lazy_op(LazyUnion(other=other, all=all))
+        self._add_lazy_op(LazyUnion(other=_operand_state(other), all=all))
         # Note: Don't return self - @immutable decorator will return the copy
 
     def _build_union_all_sql(self, other) -> Optional[Tuple[str, List[str]]]:
