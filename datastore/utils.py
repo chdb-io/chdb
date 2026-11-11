@@ -168,12 +168,16 @@ class RowPositionScope:
     The SQL for a row's position in the source of the query being built:
     ``_row_id`` for a DataFrame source, the file reader's position for a
     file (see ``TableFunction.row_position_source``), ``DEFAULT_ROW_POSITION``
-    otherwise. ``used`` records whether the built SQL read it.
+    otherwise. ``uses`` counts how often the built SQL read it.
     """
 
     def __init__(self, sql: str):
         self.sql = sql
-        self.used = False
+        self.uses = 0
+
+    @property
+    def used(self) -> bool:
+        return self.uses > 0
 
 
 _row_position_scope = contextvars.ContextVar("row_position_scope", default=None)
@@ -184,8 +188,13 @@ def row_position_sql() -> str:
     scope = _row_position_scope.get()
     if scope is None:
         return DEFAULT_ROW_POSITION
-    scope.used = True
+    scope.uses += 1
     return scope.sql
+
+
+def current_row_position_scope() -> "RowPositionScope":
+    """The row position scope SQL is being built in, or None."""
+    return _row_position_scope.get()
 
 
 @contextmanager
@@ -197,6 +206,16 @@ def row_position_scope(sql: str):
         yield scope
     finally:
         _row_position_scope.reset(token)
+
+
+def dataframe_sql(expr, quote_char: str = '"') -> str:
+    """
+    SQL for ``expr`` evaluated on a DataFrame through Python(), where a
+    row's source position is the DataFrame's virtual ``_row_id`` column.
+    """
+    with row_position_scope("_row_id"):
+        return expr.to_sql(quote_char=quote_char)
+
 
 # Sort kinds that guarantee stability (matching pandas behavior)
 STABLE_SORT_KINDS = ('stable', 'mergesort')

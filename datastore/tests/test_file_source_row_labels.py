@@ -163,6 +163,30 @@ class TestFileSourceRowLabels:
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
+    def test_offset_limit(self, make_source):
+        pd_result = SALES.iloc[2:5]
+
+        ds_result = make_source(SALES).offset(2).limit(3)
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            lambda d: d.head(5)[["region", "qty"]].groupby("region").first(),
+            lambda d: d.tail(5)[["region", "qty"]].groupby("region").last(),
+            lambda d: d.head(5)[["region", "qty"]].groupby("region", sort=False).first(),
+            lambda d: d[d["qty"] > 5][["region", "price"]].head(4).groupby("region").last(),
+        ],
+        ids=["head_first", "tail_last", "head_first_unsorted", "filter_head_last"],
+    )
+    def test_projection_then_first_last(self, make_source, chain):
+        pd_result = chain(SALES)
+
+        ds_result = chain(make_source(SALES))
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
     def test_filtered_series_labels(self, make_source):
         pd_result = SALES[SALES["qty"] > 10]["price"]
 

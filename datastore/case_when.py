@@ -26,7 +26,7 @@ import pandas as pd
 
 from .expressions import Expression, Literal
 from .conditions import Condition
-from .utils import format_identifier
+from .utils import dataframe_sql, format_identifier
 from .config import get_logger
 
 if TYPE_CHECKING:
@@ -216,7 +216,7 @@ class CaseWhenExpr(Expression):
             return self._evaluate_via_pandas(df)
 
         # Generate SQL for the CASE WHEN expression
-        sql_expr = self.to_sql(quote_char='"')
+        sql_expr = dataframe_sql(self)
         _logger.debug("[CaseWhenExpr] SQL: %s", sql_expr)
 
         try:

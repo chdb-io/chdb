@@ -28,6 +28,7 @@ from .conditions import (
     LikeCondition,
 )
 from .config import get_logger
+from .utils import dataframe_sql
 
 if TYPE_CHECKING:
     from .core import DataStore
@@ -755,7 +756,7 @@ class ExpressionEvaluator:
             self._logger.debug("[ExprEval] Source has timezone info, using pandas for '%s'", expr.property_name)
             return self._evaluate_datetime_property_pandas(expr)
 
-        source_sql = expr.source_expr.to_sql(quote_char='"')
+        source_sql = dataframe_sql(expr.source_expr)
 
         ch_func = DateTimePropertyExpr.CHDB_FUNCTION_MAP.get(expr.property_name)
         if not ch_func:
@@ -859,7 +860,7 @@ class ExpressionEvaluator:
             self._logger.debug("[ExprEval] No chDB mapping for method '%s', using pandas", expr.method_name)
             return self._evaluate_datetime_method_pandas(expr)
 
-        source_sql = expr.source_expr.to_sql(quote_char='"')
+        source_sql = dataframe_sql(expr.source_expr)
 
         # For floor/ceil/round/normalize, need to handle timezone properly
         # Use toTimezone(..., 'UTC') to ensure correct results matching pandas
@@ -962,7 +963,7 @@ class ExpressionEvaluator:
         """Evaluate isocalendar component using chDB SQL function."""
         from .expressions import IsoCalendarComponentExpr
 
-        source_sql = expr.source_expr.to_sql(quote_char='"')
+        source_sql = dataframe_sql(expr.source_expr)
 
         ch_func = IsoCalendarComponentExpr.CHDB_FUNCTION_MAP.get(expr.component)
         if not ch_func:
@@ -1144,7 +1145,7 @@ class ExpressionEvaluator:
         from .executor import get_executor
 
         # Build the SQL expression
-        sql_expr = expr.to_sql(quote_char='"')
+        sql_expr = dataframe_sql(expr)
         self._logger.debug("[ExprEval] chDB executing: %s", sql_expr)
 
         # Get original column's null mask for restoration

@@ -377,11 +377,6 @@ class Connection:
         if f"Python({df_name})" not in sql:
             processed_sql = sql.replace(df_name, f"Python({df_name})")
 
-        # Replace rowNumberInAllBlocks() with _row_id for Python() table function
-        # rowNumberInAllBlocks() is non-deterministic with Python() table function
-        # but _row_id is a built-in deterministic virtual column in chDB v4.0.0b5+
-        processed_sql = processed_sql.replace("rowNumberInAllBlocks()", "_row_id")
-
         processed_sql, need_row_id_in_result = self._carry_row_column(
             processed_sql, "_row_id", preserve_order
         )
@@ -1035,7 +1030,9 @@ class Connection:
         rows than the input and index alignment is skipped.
 
         Args:
-            expr_sql: SQL expression to evaluate (e.g., "CAST(value AS Float64)")
+            expr_sql: SQL expression to evaluate (e.g., "CAST(value AS Float64)"),
+                rendered with ``utils.dataframe_sql`` so a row's position is
+                ``_row_id``
             df: DataFrame to operate on
             result_column: Name for the result column (default: '__result__')
 
@@ -1075,10 +1072,7 @@ class Connection:
             # (don't assume ORDER BY _row_id returns exact 0,1,2... order due to
             # potential parallel execution in chDB)
             __df__ = df_to_use  # noqa: F841
-            # Replace rowNumberInAllBlocks() with _row_id for window function ordering
-            # This ensures window functions use the original DataFrame row order
-            expr_sql_fixed = expr_sql.replace("rowNumberInAllBlocks()", "_row_id")
-            query = f"SELECT {expr_sql_fixed} AS {result_column}, _row_id FROM Python(__df__) ORDER BY _row_id"
+            query = f"SELECT {expr_sql} AS {result_column}, _row_id FROM Python(__df__) ORDER BY _row_id"
 
         self._log_query(query, "Expression")
 

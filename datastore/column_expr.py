@@ -18,7 +18,7 @@ import pandas as pd
 
 from .expressions import Expression, Field, ArithmeticExpression, Literal, Node, RowPosition
 from .lazy_result import LazySeries, LazyCondition
-from .utils import immutable
+from .utils import dataframe_sql, immutable
 from .exceptions import ImmutableError
 
 
@@ -1490,8 +1490,7 @@ class ColumnExpr:
         from .executor import get_executor
 
         executor = get_executor()
-        sql_expr = self._expr.to_sql(quote_char='"')
-        return executor.execute_expression(sql_expr, df)
+        return executor.execute_expression(dataframe_sql(self._expr), df)
 
     def _get_column_name(self) -> str:
         """Get the column name for this expression."""
@@ -6035,8 +6034,7 @@ class ColumnExprStringAccessor:
         # Use executor.execute_expression which preserves row order
         # using _row_id virtual column and ORDER BY clause
         executor = get_executor()
-        sql_expr = col_expr.to_sql(quote_char='"')
-        return executor.execute_expression(sql_expr, df)
+        return executor.execute_expression(dataframe_sql(col_expr), df)
 
     def cat(self, others=None, sep=None, na_rep=None, join="left"):
         """
