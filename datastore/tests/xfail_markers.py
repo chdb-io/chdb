@@ -613,10 +613,13 @@ def limit_groupby_series_param(func):
     return func
 
 
-# NOTE: Simple alias cases work but complex chains with groupby still have issues
-chdb_alias_shadows_column_in_where = pytest.mark.xfail(
-    reason="chDB: In complex chains with groupby, SELECT alias may still shadow original column"
-)
+# FIXED: the planner no longer puts an overwrite in the SQL layer of an earlier
+# WHERE that reads the column, so the alias cannot shadow it in GROUP BY chains
+
+
+def chdb_alias_shadows_column_in_where(func):
+    """No-op decorator for previously failing test that is now fixed."""
+    return func
 
 
 # FIXED 2026-01-14: __invert__ (~) operator for entire DataFrame now implemented

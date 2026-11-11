@@ -1474,7 +1474,7 @@ class DataStore(PandasCompatMixin):
             sql = build_result.sql
 
             # Append format settings if present (e.g., input_format_parquet_preserve_order)
-            if self._format_settings:
+            if self._format_settings and not build_result.has_settings:
                 settings_parts = []
                 for key, value in self._format_settings.items():
                     if isinstance(value, str):
@@ -3170,116 +3170,15 @@ class DataStore(PandasCompatMixin):
         Recursively resolve computed column references in an expression.
 
         When a computed column (created via assign()) is referenced in another
-        expression, this method expands it to the original expression.
-
-        This enables chained assigns like:
-            ds = ds.assign(years_since_signup=2024 - ds['signup_year'])
-            ds = ds.assign(purchase_per_year=ds['amount'] / ds['years_since_signup'])
-
-        Without this resolution, the second assign would reference 'years_since_signup'
-        as a simple Field, which doesn't exist in the source data.
-
-        Args:
-            expr: Expression to resolve
-            _visited: Internal set to track visited column names and prevent infinite recursion
-                     when a computed column references itself (e.g., a = a + 1, then a = a * 2)
-
-        Returns:
-            Expression with all computed column references expanded
+        expression, this method expands it to the original expression, so
+        consumers that need source-relative expressions (``_computed_columns``)
+        can use it. See :func:`resolve_computed_references`.
         """
-        from .expressions import Field, ArithmeticExpression, Literal
-        from .functions import Function
-        from copy import copy
+        from .expressions import resolve_computed_references
 
-        if expr is None:
-            return None
-
-        # Initialize visited set on first call
-        if _visited is None:
-            _visited = set()
-
-        # If it's a Field that references a computed column, expand it
-        if isinstance(expr, Field):
-            col_name = expr.name.strip("\"'")  # Remove quotes if present
-            if (
-                hasattr(self, "_computed_columns")
-                and col_name in self._computed_columns
-            ):
-                # Check for circular reference to prevent infinite recursion
-                # This happens when overwriting a column: a = a + 1, then a = a * 2
-                # In this case, we should NOT expand the reference - just use the Field as-is
-                if col_name in _visited:
-                    return expr
-                # Mark this column as being visited
-                _visited.add(col_name)
-                try:
-                    # Recursively resolve the computed column's expression
-                    resolved = self._resolve_expr_dependencies(
-                        self._computed_columns[col_name], _visited
-                    )
-                    # Preserve any alias from the original Field
-                    if expr.alias:
-                        resolved = copy(resolved)
-                        resolved.alias = expr.alias
-                    return resolved
-                finally:
-                    # Remove from visited after processing (allow re-visiting in different branches)
-                    _visited.discard(col_name)
-            return expr
-
-        # For ArithmeticExpression, recursively resolve left and right
-        if isinstance(expr, ArithmeticExpression):
-            resolved_left = self._resolve_expr_dependencies(expr.left, _visited)
-            resolved_right = self._resolve_expr_dependencies(expr.right, _visited)
-            # Only create new expression if something changed
-            if resolved_left is expr.left and resolved_right is expr.right:
-                return expr
-            result = ArithmeticExpression(
-                expr.operator, resolved_left, resolved_right, expr.alias
-            )
-            return result
-
-        # For Function, recursively resolve all arguments
-        if isinstance(expr, Function):
-            resolved_args = [
-                self._resolve_expr_dependencies(arg, _visited) for arg in expr.args
-            ]
-            # Only create new function if something changed
-            if all(r is o for r, o in zip(resolved_args, expr.args)):
-                return expr
-            result = Function(
-                expr.name,
-                *resolved_args,
-                alias=expr.alias,
-                pandas_name=getattr(expr, "pandas_name", None),
-                pandas_kwargs=getattr(expr, "pandas_kwargs", {}),
-            )
-            return result
-
-        # For BinaryCondition (e.g., x > 5, a = b), resolve both sides
-        from .conditions import BinaryCondition, CompoundCondition
-
-        if isinstance(expr, BinaryCondition):
-            resolved_left = self._resolve_expr_dependencies(expr.left, _visited)
-            resolved_right = self._resolve_expr_dependencies(expr.right, _visited)
-            if resolved_left is expr.left and resolved_right is expr.right:
-                return expr
-            result = BinaryCondition(
-                expr.operator, resolved_left, resolved_right, expr.alias
-            )
-            return result
-
-        # For CompoundCondition (AND, OR), resolve both sides
-        if isinstance(expr, CompoundCondition):
-            resolved_left = self._resolve_expr_dependencies(expr.left, _visited)
-            resolved_right = self._resolve_expr_dependencies(expr.right, _visited)
-            if resolved_left is expr.left and resolved_right is expr.right:
-                return expr
-            result = CompoundCondition(expr.operator, resolved_left, resolved_right)
-            return result
-
-        # For Literal and other types, return as-is
-        return expr
+        return resolve_computed_references(
+            expr, getattr(self, "_computed_columns", None) or {}, _visited
+        )
 
     def _ensure_sql_source(self) -> bool:
         """
@@ -3428,10 +3327,8 @@ class DataStore(PandasCompatMixin):
         # Start with source DataFrame columns
         if self._source_df is not None:
             columns = list(self._source_df.columns)
-        elif self._schema:
-            columns = list(self._schema.keys())
         else:
-            columns = []
+            columns = list(self._get_all_column_names())
 
         # Apply column transformations from lazy ops
         for op in self._lazy_ops:
@@ -3682,12 +3579,14 @@ class DataStore(PandasCompatMixin):
             return None
 
         try:
-            sql, alias_renames = self._single_sql_query()
+            build_result = self._single_sql_query()
         except Exception as e:  # planning / SQL-build issue -> fall back to pandas
             self._logger.debug("to_arrow native path unavailable, using pandas: %s", e)
             return None
-        if sql is None:
+        if build_result is None:
             return None
+        sql = build_result.sql
+        alias_renames = build_result.alias_renames
 
         if self._executor is None:
             self.connect()
@@ -3712,18 +3611,22 @@ class DataStore(PandasCompatMixin):
                 )
         return table
 
-    def _single_sql_query(self):
+    def _single_sql_query(self) -> Optional[SQLBuildResult]:
         """
-        Return ``(sql, alias_renames)`` iff the entire pipeline collapses to ONE
+        Return the ``SQLBuildResult`` iff the entire pipeline collapses to ONE
         first-segment SQL query against the original source (so the query result
-        is the *final* result); return ``(None, None)`` otherwise. Mirrors the
-        segment planning done in :meth:`_execute`.
+        is the *final* result); return ``None`` otherwise. Mirrors the segment
+        planning done in :meth:`_execute`. The SQL is a single SELECT with at
+        most one SETTINGS clause, so it can also be embedded as a subquery.
         """
         from .query_planner import QueryPlanner
 
         if not self._lazy_ops:
-            # Plain ``SELECT * FROM source`` — fully pushable, no aliases.
-            return self._append_format_settings(self.to_sql(execution_format=True)), {}
+            # Plain ``SELECT * FROM source`` — fully pushable, no aliases. The
+            # flat SQL already carries the format settings.
+            return SQLBuildResult(
+                sql=self.to_sql(execution_format=True), has_settings=True
+            )
 
         schema = self.schema()
         planner = QueryPlanner()
@@ -3734,16 +3637,63 @@ class DataStore(PandasCompatMixin):
             local_source=False,  # non-Python source (excluded in _try_native_arrow)
         )
         if len(exec_plan.segments) != 1:
-            return None, None
+            return None
         seg = exec_plan.segments[0]
         if not (seg.is_sql() and seg.is_first_segment and seg.plan is not None):
-            return None, None
+            return None
 
         build_result = SQLExecutionEngine(self).build_sql_from_plan(seg.plan, schema)
-        return (
-            self._append_format_settings(build_result.sql),
-            build_result.alias_renames or {},
-        )
+        if not build_result.has_settings:
+            build_result.sql = self._append_format_settings(build_result.sql)
+            build_result.has_settings = True
+        return build_result
+
+    def _pipeline_sql(self) -> Optional[str]:
+        """
+        SQL that yields this pipeline's final result, for internal queries
+        that wrap it (row counts, schema probes, describe(), sample(), ...).
+
+        It is the query ``_execute()`` runs, so every lazy op is applied in
+        order. Return ``None`` when the pipeline does not run as one SQL query
+        against a ClickHouse source, or when its result needs post-processing
+        (group keys moved to the index, temp aliases renamed back); callers
+        then fall back to execution.
+        """
+        memo = self._meta_memo()
+        key = ("pipeline_sql", self._cache_version)
+        if key not in memo:
+            memo[key] = self._build_pipeline_sql()
+        return memo[key]
+
+    def _build_pipeline_sql(self) -> Optional[str]:
+        if not (self._table_function or self.table_name):
+            return None
+        # DataFrame sources rely on query_df's row-order handling in _execute.
+        if self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        ):
+            return None
+        if (
+            self._is_subquery
+            or self._delete_flag
+            or self._update_fields
+            or self._insert_columns
+        ):
+            return None
+        if self._flat_sql_reproduces_pipeline():
+            return self.to_sql()
+        try:
+            build_result = self._single_sql_query()
+        except Exception as e:  # planning / SQL-build issue -> execution
+            self._logger.debug("pipeline SQL unavailable: %s", e)
+            return None
+        if (
+            build_result is None
+            or build_result.groupby_agg is not None
+            or build_result.alias_renames
+        ):
+            return None
+        return build_result.sql
 
     def _append_format_settings(self, sql: Optional[str]) -> Optional[str]:
         """Append ``SETTINGS ...`` from ``self._format_settings`` (parity with
@@ -3883,7 +3833,9 @@ class DataStore(PandasCompatMixin):
         # SQL optimization: compute statistics via SQL aggregates (no full data load)
         if include is None and exclude is None and self._can_use_sql_no_load():
             try:
-                return self._sql_describe(percentiles=percentiles)
+                result = self._sql_describe(percentiles=percentiles)
+                if result is not None:
+                    return result
             except Exception as e:
                 self._logger.info(
                     "describe() SQL optimization failed, falling back to pandas: %s", e
@@ -3898,9 +3850,14 @@ class DataStore(PandasCompatMixin):
         return self._wrap_result(result_df, "describe()")
 
     def _sql_describe(self, percentiles=None):
-        """Compute describe() statistics via SQL aggregates (no full data load)."""
+        """Compute describe() statistics via SQL aggregates (no full data load).
+
+        Returns ``None`` when the pipeline does not run as one SQL query.
+        """
+        subquery_sql = self._pipeline_sql()
+        if subquery_sql is None:
+            return None
         probe_df = self._probe_schema()
-        subquery_sql = self.to_sql()
         dtypes = probe_df.dtypes
 
         # Find numeric columns
@@ -4116,14 +4073,17 @@ class DataStore(PandasCompatMixin):
             and self._can_use_sql_no_load()
         ):
             try:
+                result = None
                 if n is not None:
-                    return self._sql_sample(int(n))
+                    result = self._sql_sample(int(n))
                 elif frac is not None and 0 < frac <= 1:
                     total = self.count_rows()
                     actual_n = int(round(total * frac))
                     if actual_n < 1:
                         actual_n = 1
-                    return self._sql_sample(actual_n)
+                    result = self._sql_sample(actual_n)
+                if result is not None:
+                    return result
             except Exception as e:
                 self._logger.info(
                     "sample() SQL optimization failed, falling back to pandas: %s", e
@@ -4143,10 +4103,15 @@ class DataStore(PandasCompatMixin):
         return self._wrap_result(result_df, sample_desc)
 
     def _sql_sample(self, n):
-        """Sample n rows using SQL ORDER BY rand() LIMIT n (no full data load)."""
+        """Sample n rows using SQL ORDER BY rand() LIMIT n (no full data load).
+
+        Returns ``None`` when the pipeline does not run as one SQL query.
+        """
+        subquery_sql = self._pipeline_sql()
+        if subquery_sql is None:
+            return None
         if self._executor is None:
             self.connect()
-        subquery_sql = self.to_sql()
         sample_sql = f"SELECT * FROM ({subquery_sql}) ORDER BY rand() LIMIT {n}"
         self._logger.debug("sample() SQL: %s", sample_sql)
         result = self._executor.execute(sample_sql)
@@ -4204,11 +4169,8 @@ class DataStore(PandasCompatMixin):
             schema = self.schema()
             if schema:
                 return pd.Index(schema.keys())
-        # When we have computed columns from assign() on a SQL source with no
-        # column-reducing ops (selections/filters), derive column names from
-        # schema + computed columns without materialization.
-        # Skip when there are column-reducing lazy ops (e.g., df[['a','b']])
-        # since _get_all_column_names() returns source columns, not selected ones.
+        # When we have computed columns from assign() on a SQL source, derive
+        # column names from the schema and the lazy ops without materialization.
         if (
             self._computed_columns
             and (self._table_function is not None or self.table_name is not None)
@@ -4218,20 +4180,12 @@ class DataStore(PandasCompatMixin):
             and self._source_df is None
         ):
             try:
-                base_cols = list(self._get_all_column_names())
-                computed_cols = [
-                    c for c in self._computed_columns if c not in base_cols
-                ]
-                return pd.Index(base_cols + computed_cols)
+                return pd.Index(self._get_current_columns())
             except Exception:
                 pass
         # SQL-pushdownable pipeline: probe the output schema with LIMIT 0 instead
-        # of materializing the full result. The probe reflects to_sql() (source +
-        # filters / ORDER BY / LIMIT). Column-altering lazy ops (select / rename /
-        # drop / assign) are applied post-SQL and are NOT in the probe SQL, so we
-        # only trust the probe when the lazy ops don't change the column set
-        # (transform_columns is the identity); otherwise we fall through to
-        # execution for correctness.
+        # of materializing the full result. The probe runs the pipeline's
+        # execution SQL, so it has the columns execution returns.
         #
         # Remote sources are excluded: _probe_schema() wraps the pipeline in a
         # nested subquery (SELECT * FROM (...) LIMIT 0), which chDB HANGS on for
@@ -4243,12 +4197,9 @@ class DataStore(PandasCompatMixin):
             and not self._is_remote_source()
         ):
             try:
-                probe_cols = list(self._probe_schema().columns)
-                cols = probe_cols
-                for op in (self._lazy_ops or []):
-                    cols = op.transform_columns(cols)
-                if cols == probe_cols:
-                    return pd.Index(probe_cols)
+                probe = self._probe_schema()
+                if probe is not None:
+                    return pd.Index(probe.columns)
             except Exception:
                 pass
         return self._get_df().columns
@@ -4295,24 +4246,24 @@ class DataStore(PandasCompatMixin):
             self._cached_result = None
             self._cached_at_version = -1
 
-    def _build_count_subquery(self) -> str:
-        """Build a subquery SQL suitable for COUNT operations.
+    def _build_count_subquery(self) -> Optional[str]:
+        """Build the SQL of this pipeline's rows for COUNT operations, or
+        ``None`` when the pipeline does not run as one SQL query.
 
-        Strips ORDER BY (unnecessary for counting and expensive on remote
-        servers) and clears LIMIT/OFFSET so the count covers all rows.
+        Sorts are dropped (they don't change the row count and are expensive
+        on remote servers) unless a LIMIT or OFFSET picks rows by them.
         """
         from copy import copy
 
+        def is_op(op, *op_types):
+            return isinstance(op, LazyRelationalOp) and op.op_type in op_types
+
         count_base = copy(self)
-        count_base._lazy_ops = [
-            op
-            for op in count_base._lazy_ops
-            if not (isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY")
-        ]
-        count_base._orderby_fields = []
-        count_base._limit_value = None
-        count_base._offset_value = None
-        return count_base.to_sql()
+        if not any(is_op(op, "LIMIT", "OFFSET") for op in self._lazy_ops):
+            count_base._lazy_ops = [
+                op for op in self._lazy_ops if not is_op(op, "ORDER BY")
+            ]
+        return count_base._pipeline_sql()
 
     def _meta_memo(self) -> dict:
         """Per-pipeline memo for metadata probes/counts, keyed by _cache_version.
@@ -4330,7 +4281,7 @@ class DataStore(PandasCompatMixin):
             self.__dict__["_metadata_memo"] = memo
         return memo
 
-    def _probe_schema(self, limit: int = 0) -> pd.DataFrame:
+    def _probe_schema(self, limit: int = 0) -> Optional[pd.DataFrame]:
         """Return a (near-)empty DataFrame with the pipeline's columns and dtypes.
 
         Executes ``SELECT * FROM (subquery) LIMIT {limit}`` -- lightweight because
@@ -4347,15 +4298,20 @@ class DataStore(PandasCompatMixin):
         carries both correct column names and reliable dtypes, so it also satisfies
         any lower-limit (columns-only) request -- e.g. a prior ``.dtypes`` probe
         serves a later ``.columns`` with no extra query.
+
+        Returns ``None`` when the pipeline does not run as one SQL query
+        (see :meth:`_pipeline_sql`).
         """
         memo = self._meta_memo()
         ver = self._cache_version
         cached = memo.get("probe")
         if cached is not None and cached[0] == ver and cached[1] >= limit:
             return cached[2]
+        subquery_sql = self._pipeline_sql()
+        if subquery_sql is None:
+            return None
         if self._executor is None:
             self.connect()
-        subquery_sql = self.to_sql()
         probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT {int(limit)}"
         df = self._executor.execute(probe_sql).to_df()
         # Keep the probe with the most rows -- it subsumes smaller-limit requests.
@@ -4389,10 +4345,10 @@ class DataStore(PandasCompatMixin):
             )
             return self._get_df().count()
 
-        # If LIMIT is applied (e.g., via head()), execute with LIMIT and count
-        # the actual result, since COUNT without LIMIT would over-count
-        if self._limit_value is not None:
-            self._logger.debug("count() executing due to LIMIT")
+        # If LIMIT or OFFSET is applied (e.g., via head() or ds[k:]), execute
+        # and count the actual result: the flat COUNT below would over-count
+        if self._limit_value is not None or self._offset_value is not None:
+            self._logger.debug("count() executing due to LIMIT/OFFSET")
             return self._execute().count()
 
         # Ensure we're connected
@@ -4448,6 +4404,8 @@ class DataStore(PandasCompatMixin):
             subquery_sql = None
             if not is_simple and not is_remote:
                 subquery_sql = self._build_count_subquery()
+                if subquery_sql is None:
+                    return self._execute().count()
 
             # Now get column names (may trigger execution on non-pristine
             # sources, clearing SQL state -- but we've already captured it).
@@ -4489,6 +4447,8 @@ class DataStore(PandasCompatMixin):
             # Non-remote complex case: subquery wrapping is safe
             if subquery_sql is None:
                 subquery_sql = self._build_count_subquery()
+            if subquery_sql is None:
+                return self._execute().count()
             count_exprs = []
             for col_name in column_names:
                 quoted_col = format_identifier(col_name, self.quote_char)
@@ -4622,6 +4582,8 @@ class DataStore(PandasCompatMixin):
 
         # Non-remote complex case: subquery wrapping is safe
         subquery_sql = self._build_count_subquery()
+        if subquery_sql is None:
+            return len(self._execute())
         count_sql = f"SELECT COUNT(*) FROM ({subquery_sql})"
         self._logger.debug("count_rows() executing SQL: %s", count_sql)
         result = self._executor.execute(count_sql)
@@ -5202,9 +5164,9 @@ class DataStore(PandasCompatMixin):
                 f"Cannot create {kind}: the pipeline does not run as a single "
                 "SQL query (it contains pandas-only operations such as "
                 "apply / UDF / local file, or steps that execute in separate "
-                "stages, e.g. a column assignment that reads a column "
-                "assigned just before), so it cannot be expressed as a "
-                "server-side SQL definition. Materialize the data first via "
+                "stages, e.g. operations applied after ds.sql(...)), so it "
+                "cannot be expressed as a server-side SQL definition. "
+                "Materialize the data first via "
                 "to_clickhouse(), then create a view on the resulting table."
             )
         target_host = self._remote_params["host"]
@@ -5275,13 +5237,13 @@ class DataStore(PandasCompatMixin):
         check inspected."""
         if self._flat_sql_reproduces_pipeline():
             return self.to_sql()
-        sql, _ = self._single_sql_query()
-        if sql is None:
+        build_result = self._single_sql_query()
+        if build_result is None:
             raise ExecutionError(
                 "Internal error: server-side writeback SQL requested for a "
                 "pipeline that does not run as a single SQL query."
             )
-        return sql
+        return build_result.sql
 
     def _writeback_select_sql(self, same_server: bool) -> str:
         """The SELECT body used for every server-side writeback path
@@ -5485,11 +5447,10 @@ class DataStore(PandasCompatMixin):
 
         Decided by the same segmented plan ``_execute()`` runs (via
         ``_single_sql_query``): the pipeline is pushable only when it collapses
-        to ONE SQL segment against the original source. Every op being
-        SQL-compatible is not enough — the planner also splits all-SQL chains
-        into several segments (e.g. ``ds["d"] = ds["c"] + 1`` right after
-        assigning ``c``, or assigning ``c`` twice), and no single SELECT
-        reproduces those.
+        to ONE SQL segment against the original source. Accepting each op on
+        its own is not enough — ops after a ``ds.sql(...)`` run in a later
+        segment on the intermediate result, and no single SELECT reproduces
+        such a plan.
 
         The one exception is a SQL-style ``groupby().agg()`` whose flat SQL
         renders the whole pipeline (see ``_flat_sql_reproduces_pipeline``):
@@ -5516,8 +5477,7 @@ class DataStore(PandasCompatMixin):
         if self._flat_sql_reproduces_pipeline():
             return True
 
-        sql, _ = self._single_sql_query()
-        return sql is not None
+        return self._single_sql_query() is not None
 
     def _materialize_for_writeback(
         self,
@@ -6382,8 +6342,13 @@ class DataStore(PandasCompatMixin):
         self._track_operation("sql", f"SELECT {field_names}", {"lazy": True})
 
         # Record in lazy ops for correct execution order in explain()
-        # Store fields for DataFrame execution
-        self._add_lazy_op(LazyRelationalOp("SELECT", field_names, fields=list(fields)))
+        # Store fields for DataFrame execution; SQL consumers read the
+        # expression of a ColumnExpr field
+        op_fields = [
+            f._expr if isinstance(f, ColumnExpr) and f._expr is not None else f
+            for f in fields
+        ]
+        self._add_lazy_op(LazyRelationalOp("SELECT", field_names, fields=op_fields))
 
         for field in fields:
             if isinstance(field, str):
@@ -6888,7 +6853,12 @@ class DataStore(PandasCompatMixin):
         """
         Union with another DataStore (vertical concatenation).
 
-        This is equivalent to SQL UNION (or UNION ALL if all=True).
+        This is equivalent to SQL UNION (or UNION ALL if all=True), with the
+        result of ``pd.concat([self, other], ignore_index=True)``: rows of
+        ``self`` come first, then rows of ``other``, each in their own order.
+        Without ``all``, ``drop_duplicates()`` is applied to that result, so
+        the first occurrence of each duplicate row is kept along with its
+        position in the concatenated index.
 
         Args:
             other: Another DataStore to union with
@@ -6900,42 +6870,150 @@ class DataStore(PandasCompatMixin):
         """
         from .lazy_ops import LazyUnion
 
-        # When both sides have SQL sources, use SQL UNION ALL directly
-        # This avoids materializing both sides into Python DataFrames
-        has_sql_source = bool(self._table_function or self.table_name)
-        other_has_sql_source = bool(
-            hasattr(other, '_table_function') and (other._table_function or getattr(other, 'table_name', None))
-        )
-        if has_sql_source and other_has_sql_source:
+        # UNION ALL of two sides whose complete pipelines are single SQL queries
+        # runs in SQL. This avoids materializing both sides into Python DataFrames.
+        # Without ``all`` the result keeps concat index positions, which only
+        # the pandas path reproduces.
+        union_sql = self._build_union_all_sql(other) if all else None
+        if union_sql is not None:
             from .table_functions import SubqueryTableFunction
-            left_cols = list(self._get_all_column_names())
-            right_cols = list(other._get_all_column_names())
-            if set(left_cols) == set(right_cols):
-                if left_cols != right_cols:
-                    other = other.select(*left_cols)
-                left_sql = self._generate_select_sql(self.quote_char)
-                other_sql = other._generate_select_sql(other.quote_char)
-                union_keyword = "UNION ALL" if all else "UNION"
-                union_sql = f"({left_sql}) {union_keyword} ({other_sql})"
-                self._table_function = SubqueryTableFunction(union_sql)
-                self._cached_result = None
-                self._cached_at_version = -1
-                self._select_fields = []
-                self._where_condition = None
-                self._joins = []
-                self._groupby_fields = []
-                self._having_condition = None
-                self._orderby_fields = []
-                self._limit_value = None
-                self._offset_value = None
-                self._distinct = False
-                self._select_star = False
-                return  # @immutable returns the copy
+
+            # Both pipelines are inside union_sql; the copy starts over from it.
+            self._table_function = SubqueryTableFunction(union_sql)
+            self._lazy_ops = []
+            self._computed_columns = {}
+            self._schema = None
+            self._index_info = None
+            self._metadata_memo = {}
+            self._cached_result = None
+            self._cached_at_version = -1
+            self._select_fields = []
+            self._where_condition = None
+            self._joins = []
+            self._groupby_fields = []
+            self._having_condition = None
+            self._orderby_fields = []
+            self._limit_value = None
+            self._offset_value = None
+            self._distinct = False
+            self._distinct_subset = None
+            self._select_star = False
+            return  # @immutable returns the copy
 
         # Add LazyUnion operation - pass the DataStore/DataFrame directly
         # Execution is deferred until needed
         self._add_lazy_op(LazyUnion(other=other, all=all))
         # Note: Don't return self - @immutable decorator will return the copy
+
+    def _build_union_all_sql(self, other) -> Optional[str]:
+        """
+        Build SQL for ``self.union(other, all=True)``, or return ``None`` when
+        either side cannot be expressed as a single SQL query, or when the
+        column names or types differ (pandas then decides the result columns
+        and dtypes). Rows come out in ``pd.concat([self, other])`` order.
+        """
+        if not isinstance(other, DataStore):
+            return None
+        left = self._union_operand_sql()
+        if left is None:
+            return None
+        right = other._union_operand_sql()
+        if right is None:
+            return None
+
+        left_sql, left_cols = left
+        right_sql, right_cols = right
+        names = [name for name, _, _ in left_cols]
+        if len(set(names)) != len(names):
+            return None
+        left_types = {name: col_type for name, _, col_type in left_cols}
+        right_types = {name: col_type for name, _, col_type in right_cols}
+        if len(right_types) != len(right_cols) or left_types != right_types:
+            return None
+
+        q = self.quote_char
+        # The helper aliases share each operand's SELECT scope with the
+        # columns it reads and the names it outputs, so they must not equal
+        # any of them.
+        taken = set(names)
+        taken.update(source_name for _, source_name, _ in left_cols + right_cols)
+
+        def helper_alias(base):
+            alias, suffix = f"__{base}__", 1
+            while alias in taken:
+                alias = f"__{base}_{suffix}__"
+                suffix += 1
+            taken.add(alias)
+            return format_identifier(alias, q)
+
+        side_alias = helper_alias("union_side")
+        row_alias = helper_alias("union_row")
+
+        def operand(sql, columns, side):
+            source = {name: source_name for name, source_name, _ in columns}
+            fields = ", ".join(
+                f"{format_identifier(source[name], q)} AS {format_identifier(name, q)}"
+                for name in names
+            )
+            return (
+                f"SELECT {fields}, {side} AS {side_alias}, "
+                f"rowNumberInAllBlocks() AS {row_alias} FROM ({sql})"
+            )
+
+        out_fields = ", ".join(format_identifier(name, q) for name in names)
+        return (
+            f"SELECT {out_fields} FROM ({operand(left_sql, left_cols, 0)} "
+            f"UNION ALL {operand(right_sql, right_cols, 1)}) "
+            f"ORDER BY {side_alias}, {row_alias}"
+        )
+
+    def _union_operand_sql(self):
+        """
+        Return ``(sql, columns)`` for using this DataStore as a union operand,
+        where ``sql`` yields its complete result and ``columns`` lists
+        ``(result column name, column name in sql, type)`` in order; the type
+        ignores ``Nullable``, which UNION ALL reconciles without a type change.
+        Return ``None`` when the result needs pandas execution or
+        post-processing beyond renaming.
+        """
+        if not (self._table_function or self.table_name):
+            return None
+        # DataFrame sources rely on query_df's row-order handling in _execute.
+        if self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        ):
+            return None
+        if (
+            self._is_subquery
+            or self._delete_flag
+            or self._update_fields
+            or self._insert_columns
+        ):
+            return None
+
+        try:
+            build_result = self._single_sql_query()
+        except Exception as e:  # planning / SQL-build issue -> LazyUnion
+            self._logger.debug("union SQL operand unavailable: %s", e)
+            return None
+        # GroupBy results carry their keys in the index after post-processing.
+        if build_result is None or build_result.groupby_agg is not None:
+            return None
+
+        try:
+            if self._executor is None:
+                self.connect()
+            rows = self._executor.execute(f"DESCRIBE ({build_result.sql})").rows
+        except Exception as e:  # invalid side SQL -> LazyUnion raises at execution
+            self._logger.debug("union SQL operand schema unavailable: %s", e)
+            return None
+        renames = build_result.alias_renames or {}
+        columns = []
+        for name, col_type, *_ in rows:
+            if col_type.startswith("Nullable(") and col_type.endswith(")"):
+                col_type = col_type[len("Nullable("):-1]
+            columns.append((renames.get(name, name), name, col_type))
+        return build_result.sql, columns
 
     @immutable
     def with_column(self, name: str, expr: Union[Expression, Any]) -> "DataStore":
@@ -7363,35 +7441,12 @@ class DataStore(PandasCompatMixin):
             # Ensure we have a SQL source (create PythonTableFunction if needed)
             result._ensure_sql_source()
 
-            # Check if there's an existing column selection in lazy ops
-            # If the last SELECT op has specific columns (not just '*'), preserve them
-            existing_select_fields = None
-            for op in reversed(result._lazy_ops):
-                if hasattr(op, "op_type") and op.op_type == "SELECT":
-                    if hasattr(op, "fields") and op.fields:
-                        # Check if this SELECT has specific columns vs '*'
-                        # A SELECT with just '*' has no fields, or has '*' string in fields
-                        has_star = any(
-                            f == "*" or (isinstance(f, str) and f.strip() == "*")
-                            for f in op.fields
-                        )
-                        if not has_star:
-                            # We have specific columns selected, preserve them
-                            existing_select_fields = op.fields
-                    break
-
-            # Use existing column selection if available, otherwise use '*'
-            if existing_select_fields:
-                # Preserve the existing column selection and add new columns
-                select_items = list(existing_select_fields)
-            else:
-                select_items = ["*"]
-
             # Get list of aliases being assigned
             aliases_to_assign = set(sql_kwargs.keys())
 
-            # Get existing columns to check for overwrites
-            existing_columns = list(result._get_all_column_names())
+            # Columns after the pending lazy ops (selection, drop, rename,
+            # earlier assigns), not the source's columns
+            existing_columns = result._get_current_columns()
             existing_columns_set = set(existing_columns)
 
             # Check if any alias overwrites an existing column
@@ -7400,59 +7455,34 @@ class DataStore(PandasCompatMixin):
             # New columns that don't exist yet
             new_columns = aliases_to_assign - existing_columns_set
 
-            # Build expression map for all assigned columns first
+            # Build expression map for all assigned columns first. The SELECT
+            # reads the current columns, like any later lazy op; the planner
+            # keeps it from sharing a SQL layer with an op whose column it
+            # overwrites. _computed_columns keeps the fully resolved form for
+            # consumers that expand computed columns in place (GROUP BY).
             expr_map = {}
             for alias, expr in sql_kwargs.items():
-                original_expr = expr
                 if isinstance(expr, ColumnExpr):
                     expr = expr._expr
                 if isinstance(expr, Expression):
-                    # Resolve any computed column dependencies in the expression
-                    # This enables chained assigns where later assigns reference earlier ones
-                    # e.g., ds.assign(a=...).assign(b=ds['a'] * 2) - 'a' needs to be expanded
-                    resolved_expr = result._resolve_expr_dependencies(expr)
-                    # Record the resolved expression (alias -> expression without alias)
-                    result._computed_columns[alias] = resolved_expr
-                    # Set alias on the expression
-                    expr_map[alias] = resolved_expr.as_(alias)
+                    result._computed_columns[alias] = result._resolve_expr_dependencies(
+                        expr
+                    )
+                    expr_map[alias] = expr.as_(alias)
 
+            # All values are evaluated against the frame before this call,
+            # so new columns are selected before any column is overwritten.
+            added = [alias for alias in sql_kwargs if alias in new_columns]
+            if added:
+                result = result.select("*", *[expr_map[alias] for alias in added])
             if columns_to_overwrite:
-                # When overwriting, expand '*' and replace columns in-place to preserve order
-                if select_items == ["*"]:
-                    # Build select items preserving order, replacing overwrites in-place
-                    new_select_items = []
-                    for col in existing_columns:
-                        if col in columns_to_overwrite:
-                            # Replace with new expression in-place
-                            new_select_items.append(expr_map[col])
-                        else:
-                            new_select_items.append(col)
-                    select_items = new_select_items
-                else:
-                    # Replace overwritten columns in existing selection
-                    new_select_items = []
-                    for item in select_items:
-                        col_name = (
-                            item
-                            if isinstance(item, str)
-                            else getattr(item, "_alias", None)
-                        )
-                        if col_name in columns_to_overwrite:
-                            new_select_items.append(expr_map[col_name])
-                        else:
-                            new_select_items.append(item)
-                    select_items = new_select_items
-
-                # Add new (non-overwrite) columns at the end
-                for alias in sql_kwargs.keys():
-                    if alias in new_columns:
-                        select_items.append(expr_map[alias])
-            else:
-                # No overwrites - keep '*' and just append new columns
-                for alias, expr_with_alias in expr_map.items():
-                    select_items.append(expr_with_alias)
-
-            result = result.select(*select_items)
+                # Expand '*' and replace columns in-place to preserve order
+                result = result.select(
+                    *[
+                        expr_map[col] if col in columns_to_overwrite else col
+                        for col in existing_columns + added
+                    ]
+                )
 
         # Process pd.col fallback expressions: each as its own
         # LazyColumnAssignment so the planner segments it correctly.

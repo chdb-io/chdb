@@ -80,5 +80,30 @@ class TestEmptyGroupbyColumnDrift(unittest.TestCase):
         )
 
 
+class TestRepeatedSelectionAfterHead(unittest.TestCase):
+    """Chain ``[_filter('v', 0), _head(1), _select(['cat', 'v']),
+    _select(['cat', 'v']), _filter('v', 0)]`` returned ``cat, v, cat_1,
+    v_1``: the SQL layer under the second filter concatenated both
+    selections into ``SELECT "cat", "v", "cat", "v"``.
+
+    Discovered by Hypothesis in
+    ``test_random_chain_matches_pandas`` (issue #670).
+    """
+
+    def test_filter_head_select_select_filter(self):
+        df = _dataset()
+
+        pd_result = df[df['v'] > 0].head(1)[['cat', 'v']][['cat', 'v']]
+        pd_result = pd_result[pd_result['v'] > 0]
+
+        ds = DataStore(df)
+        ds_result = ds[ds['v'] > 0].head(1)[['cat', 'v']][['cat', 'v']]
+        ds_result = ds_result[ds_result['v'] > 0]
+
+        assert_datastore_equals_pandas(
+            ds_result, pd_result, check_index=True
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

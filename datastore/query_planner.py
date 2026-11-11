@@ -36,7 +36,7 @@ from .lazy_ops import (
     LazyDataFrameSource,
     LazyDistinct,
 )
-from .expressions import Field, Expression
+from .expressions import Field, Expression, is_star_item, projection_name
 from .config import get_logger
 import pandas as pd
 
@@ -218,6 +218,13 @@ class ExecutionPlan:
         return sum(1 for seg in self.segments if seg.is_pandas())
 
 
+# Most subquery layers one SQL query nests. ClickHouse parses about ten
+# levels per layer against max_parser_depth (1000 by default), and analysis
+# time grows faster than linearly with depth, so longer pipelines continue
+# in a new SQL segment that runs on the previous segment's result.
+MAX_SQL_LAYERS = 16
+
+
 class QueryPlanner:
     """
     Query planner that analyzes LazyOp chains and produces execution plans.
@@ -352,11 +359,20 @@ class QueryPlanner:
         - LazyGroupByAgg follows LIMIT/OFFSET (pandas: ``head(N).groupby()``
           aggregates over the first N rows; emitting LIMIT in the same SQL
           layer as GROUP BY would otherwise mean "first N groups" instead).
-        - A pure-projection SELECT (e.g. ``df[['a','b']]``) follows a
-          WHERE in the same layer and the WHERE references columns that
-          would be dropped by the projection. This split keeps the
-          WHERE's columns alive in the inner subquery before the outer
-          layer projects them away.
+        - A pure-projection SELECT (e.g. ``df[['a','b']]``) drops a
+          column computed in the same layer that a WHERE, ORDER BY or
+          another computed expression of the layer reads. This split keeps
+          the column alive in the inner subquery before the outer layer
+          projects it away.
+        - An op computes a column that an earlier op in the layer reads
+          (WHERE, ORDER BY, computed expression) or computes. Within one
+          SELECT, ClickHouse binds every reference to a name to that
+          SELECT's alias, so the earlier op would see the new value.
+        - An op computes an expression that reads a column computed in the
+          same layer. ClickHouse inlines an alias wherever it is referenced,
+          so chains of aliases referencing aliases grow the query tree
+          without bound (exponentially when a column is read twice); in a
+          new layer the reference is to a real column of the inner layer.
 
         This preserves pandas-like execution order semantics in SQL.
 
@@ -382,7 +398,7 @@ class QueryPlanner:
                 isinstance(op, LazyRelationalOp)
                 and op.op_type == "SELECT"
                 and op.fields
-                and not any(isinstance(f, str) and f == "*" for f in op.fields)
+                and not any(is_star_item(f) for f in op.fields)
             )
 
         def _projection_field_names(op):
@@ -397,43 +413,78 @@ class QueryPlanner:
                     names.add(name.strip('"`'))
             return names
 
-        def _where_refs_columns_not_in(op_set, layer):
-            """Does any WHERE in ``layer`` reference a column outside
-            ``op_set`` (e.g. one created by an assignment-style
-            SELECT/LazyColumnAssignment in the same layer)? If yes, the
-            outer projection would drop that column before the WHERE
-            could bind to it, so we must split into a new layer that
-            wraps the inner WHERE."""
-            wheres = [
-                prev
-                for prev in layer
-                if isinstance(prev, LazyRelationalOp)
-                and prev.op_type == "WHERE"
-                and prev.condition is not None
-            ]
-            if not wheres:
+        def _computed_and_read(layer):
+            """Columns the layer's ops compute, and columns they read."""
+            computed = set()
+            read = set()
+            for prev in layer:
+                computed.update(self._computed_columns_of(prev))
+                read |= self._columns_read_by(prev)
+            return computed, read
+
+        def _drops_used_computed_column(op_set, layer):
+            """Does the layer compute a column outside ``op_set`` that one
+            of its ops reads? If yes, the outer projection would drop that
+            column before the reader could bind to it, so we must split
+            into a new layer. Source columns stay visible to the
+            projecting layer."""
+            computed, read = _computed_and_read(layer)
+            return bool((read & computed) - op_set)
+
+        def _append(op):
+            nonlocal seen_limit, seen_offset
+            current_layer.append(op)
+            if isinstance(op, LazyRelationalOp):
+                if op.op_type == "LIMIT":
+                    seen_limit = True
+                elif op.op_type == "OFFSET":
+                    seen_offset = True
+
+        def _open_layer_with(op):
+            nonlocal current_layer, seen_limit, seen_offset
+            nonlocal computed_columns_after_limit
+            layers.append(current_layer)
+            current_layer = []
+            seen_limit = seen_offset = False
+            computed_columns_after_limit = set()
+            _append(op)
+
+        def _shadows_layer_column(op, layer):
+            new_columns = self._computed_columns_of(op).keys()
+            if not new_columns:
                 return False
-            for w in wheres:
-                refs = self._extract_referenced_columns(w.condition)
-                if refs - op_set:
-                    return True
+            computed, read = _computed_and_read(layer)
+            if new_columns & (computed | read):
+                return True
+            return bool(self._columns_read_by(op) & computed)
+
+        def _place(op):
+            """Append ``op``, or open a new layer for it when it would
+            shadow a column the layer already uses or compute from a column
+            the layer computes. Returns whether a layer was opened."""
+            if current_layer and _shadows_layer_column(op, current_layer):
+                _open_layer_with(op)
+                return True
+            _append(op)
             return False
 
+        def _flush_pending():
+            nonlocal pending_column_assignments
+            pending = pending_column_assignments
+            pending_column_assignments = []
+            opened = False
+            for assignment in pending:
+                opened = _place(assignment) or opened
+            return opened
+
         def _start_new_layer_with(op):
-            """Push current_layer, drop any pending assignments into it
-            first, then begin a fresh layer containing ``op``."""
-            nonlocal current_layer, seen_limit, seen_offset
-            nonlocal computed_columns_after_limit, pending_column_assignments
-            if pending_column_assignments:
-                current_layer.extend(pending_column_assignments)
-                pending_column_assignments = []
-            layers.append(current_layer)
-            current_layer = [op]
-            seen_limit = isinstance(op, LazyRelationalOp) and op.op_type == "LIMIT"
-            seen_offset = (
-                isinstance(op, LazyRelationalOp) and op.op_type == "OFFSET"
-            )
-            computed_columns_after_limit = set()
+            """Drop any pending assignments into current_layer, then begin a
+            fresh layer containing ``op``. If placing the assignments already
+            opened a fresh layer (no LIMIT/OFFSET/WHERE yet), ``op`` joins it."""
+            if _flush_pending():
+                _place(op)
+            else:
+                _open_layer_with(op)
 
         for op in ops:
             if isinstance(op, LazyRelationalOp):
@@ -455,26 +506,19 @@ class QueryPlanner:
                     needs_new_layer = True
                 elif _is_pure_projection_select(op):
                     proj_fields = _projection_field_names(op)
-                    if _where_refs_columns_not_in(proj_fields, current_layer):
-                        # Pure projection that drops a column the layer's
-                        # WHERE depends on (e.g. ``assign(x=...)[where x>0][[id]]``).
+                    if _drops_used_computed_column(proj_fields, current_layer):
+                        # Pure projection that drops a column the layer
+                        # still reads (e.g. ``assign(x=...)[where x>0][[id]]``).
                         # Split into a new layer so the outer SELECT
-                        # projects after the inner WHERE has run.
+                        # projects after the inner layer has used it.
                         needs_new_layer = True
 
                 if needs_new_layer and current_layer:
                     _start_new_layer_with(op)
                 else:
                     # Add pending column assignments to current layer first
-                    if pending_column_assignments:
-                        current_layer.extend(pending_column_assignments)
-                        pending_column_assignments = []
-
-                    current_layer.append(op)
-                    if op.op_type == "LIMIT":
-                        seen_limit = True
-                    elif op.op_type == "OFFSET":
-                        seen_offset = True
+                    _flush_pending()
+                    _place(op)
 
             elif isinstance(op, LazyColumnAssignment):
                 # Column assignment after LIMIT/OFFSET needs special handling
@@ -485,7 +529,7 @@ class QueryPlanner:
                     pending_column_assignments.append(op)
                 else:
                     # No LIMIT/OFFSET yet, add directly to current layer
-                    current_layer.append(op)
+                    _place(op)
             elif isinstance(op, LazyGroupByAgg) and (seen_limit or seen_offset):
                 # ``head(N).groupby(...).agg(...)`` semantics: pandas
                 # aggregates over the first N rows. If LIMIT and GROUP BY
@@ -511,14 +555,11 @@ class QueryPlanner:
                 _start_new_layer_with(op)
             else:
                 # Other operations - add pending column assignments first, then this op
-                if pending_column_assignments:
-                    current_layer.extend(pending_column_assignments)
-                    pending_column_assignments = []
-                current_layer.append(op)
+                _flush_pending()
+                _place(op)
 
         # Add any remaining pending column assignments
-        if pending_column_assignments:
-            current_layer.extend(pending_column_assignments)
+        _flush_pending()
 
         if current_layer:
             layers.append(current_layer)
@@ -529,12 +570,9 @@ class QueryPlanner:
         """
         Extract all column names referenced in an expression.
 
-        This is used to detect dependencies between column assignments.
-        If assignment A references column X, and assignment B targets column X,
-        then A depends on B and they cannot be in the same SQL segment.
-
-        ClickHouse has a quirk where alias references in the same SELECT can cause
-        unexpected results when multiple columns reference each other.
+        Used to keep an op that overwrites a column out of the SQL layer of
+        an earlier op that reads it, and to keep a projection from dropping
+        a computed column its layer still reads.
 
         Args:
             expr: Expression to analyze (can be Expression, ColumnExpr, or other)
@@ -544,6 +582,7 @@ class QueryPlanner:
         """
         from .expressions import ArithmeticExpression
         from .column_expr import ColumnExpr
+        from .conditions import Condition
         from .functions import Function
 
         columns = set()
@@ -572,6 +611,11 @@ class QueryPlanner:
                 # Function call - extract from arguments
                 for arg in e.args:
                     _extract(arg)
+
+            elif isinstance(e, Condition):
+                # Comparison, AND/OR/NOT, IS NULL, IN, BETWEEN, LIKE operands
+                for operand in ("left", "right", "condition", "expression", "lower", "upper"):
+                    _extract(getattr(e, operand, None))
 
             elif hasattr(e, "expr") and e.expr is not None:
                 # Wrapper types with an 'expr' attribute
@@ -700,70 +744,42 @@ class QueryPlanner:
             else:
                 op_types.append(("pandas", op))
 
-        # Group consecutive operations of the same type into segments
-        # Special case: when multiple LazyColumnAssignment ops target the same column,
-        # they must be executed in separate SQL segments to maintain correct execution order.
-        # Each assignment must see the result of the previous one.
+        # Group consecutive operations of the same type into segments.
+        # Ordering between column assignments inside a SQL segment is kept
+        # by _build_layers, which gives an overwrite its own subquery layer.
         current_type = None
         current_ops = []
         is_first = True
-        # Track columns assigned in current SQL segment for conflict detection
-        assigned_columns_in_segment = set()
+
+        def save_segment(segment_type, segment_ops):
+            nonlocal is_first
+            chunks = (
+                self._split_by_layer_depth(segment_ops)
+                if segment_type == "sql"
+                else [segment_ops]
+            )
+            for chunk in chunks:
+                exec_plan.segments.append(
+                    self._create_segment(
+                        segment_type, chunk, is_first, has_sql_source, schema
+                    )
+                )
+                is_first = False
 
         for op_type, op in op_types:
-            # Check if this is a column assignment that conflicts with previous ones in segment
-            needs_new_segment = False
-            if op_type == "sql" and isinstance(op, LazyColumnAssignment):
-                if op.column in assigned_columns_in_segment:
-                    # Same column being assigned again - need a new segment
-                    needs_new_segment = True
-                    self._logger.debug(
-                        "  [Segment Split] Column '%s' already assigned in current segment, splitting",
-                        op.column,
-                    )
-                else:
-                    # Check if this assignment references any column that was assigned
-                    # in the current segment (cross-column dependency)
-                    # ClickHouse has a quirk where alias references in the same SELECT
-                    # can cause unexpected results when columns reference each other
-                    referenced_cols = self._extract_referenced_columns(op.expr)
-                    dependency_cols = referenced_cols & assigned_columns_in_segment
-                    if dependency_cols:
-                        # This assignment references a column that was just assigned
-                        # Split to ensure correct execution order
-                        needs_new_segment = True
-                        self._logger.debug(
-                            "  [Segment Split] Column '%s' references recently assigned columns %s, splitting",
-                            op.column,
-                            dependency_cols,
-                        )
-
-            if op_type != current_type or needs_new_segment:
+            if op_type != current_type:
                 # Save previous segment
                 if current_ops:
-                    segment = self._create_segment(
-                        current_type, current_ops, is_first, has_sql_source, schema
-                    )
-                    exec_plan.segments.append(segment)
-                    is_first = False
+                    save_segment(current_type, current_ops)
                 # Start new segment
                 current_type = op_type
                 current_ops = [op]
-                # Reset column tracking for new segment
-                assigned_columns_in_segment = set()
-                if isinstance(op, LazyColumnAssignment):
-                    assigned_columns_in_segment.add(op.column)
             else:
                 current_ops.append(op)
-                if isinstance(op, LazyColumnAssignment):
-                    assigned_columns_in_segment.add(op.column)
 
         # Save last segment
         if current_ops:
-            segment = self._create_segment(
-                current_type, current_ops, is_first, has_sql_source, schema
-            )
-            exec_plan.segments.append(segment)
+            save_segment(current_type, current_ops)
 
         self._logger.debug(
             "Execution plan: %d segments (%d SQL, %d Pandas)",
@@ -773,6 +789,54 @@ class QueryPlanner:
         )
 
         return exec_plan
+
+    def _split_by_layer_depth(self, ops: List[LazyOp]) -> List[List[LazyOp]]:
+        """Split SQL ops into consecutive runs of at most MAX_SQL_LAYERS
+        subquery layers each, in layer order."""
+        layers = self._build_layers(ops)
+        if len(layers) <= MAX_SQL_LAYERS:
+            return [ops]
+        return [
+            [op for layer in layers[i : i + MAX_SQL_LAYERS] for op in layer]
+            for i in range(0, len(layers), MAX_SQL_LAYERS)
+        ]
+
+    @staticmethod
+    def _computed_columns_of(op: LazyOp) -> Dict[str, Any]:
+        """Columns an op computes in SQL, mapped to their expressions.
+
+        Covers ``ds[col] = expr`` (``LazyColumnAssignment``) and the aliased
+        expressions of a SELECT (``assign()`` and similar).
+        """
+        if isinstance(op, LazyColumnAssignment):
+            return {op.column: op.expr}
+        if isinstance(op, LazyRelationalOp) and op.op_type == "SELECT" and op.fields:
+            return {
+                f.alias: f
+                for f in op.fields
+                if not isinstance(f, str) and getattr(f, "alias", None)
+            }
+        return {}
+
+    def _columns_read_by(self, op: LazyOp) -> Set[str]:
+        """Columns an op's condition, sort keys or computed expressions read.
+
+        Plain columns of a projection are not included: the projection is
+        rebound in place when one of them is overwritten.
+        """
+        if isinstance(op, LazyRelationalOp):
+            if op.op_type == "WHERE":
+                return self._extract_referenced_columns(op.condition)
+            if op.op_type == "ORDER BY":
+                return {
+                    projection_name(f) for f in op.fields or [] if projection_name(f)
+                }
+        if isinstance(op, (LazyWhere, LazyMask)):
+            return self._extract_referenced_columns(op.condition)
+        columns = set()
+        for expr in self._computed_columns_of(op).values():
+            columns |= self._extract_referenced_columns(expr)
+        return columns
 
     def _can_push_op_to_sql(
         self,
