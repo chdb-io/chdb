@@ -715,13 +715,20 @@ class ColumnExpr:
         # instead of SELECT * which wastes memory for wide DataFrames.
         # Only prune for SQL-backed DataStores (file/table) to avoid dtype changes
         # when the pruning goes through a SQL segment on in-memory data.
-        # Also skip pruning when DISTINCT is active since it depends on all columns.
+        # Also skip pruning when DISTINCT is active since it depends on all columns,
+        # and when pandas ops run before the pruning SELECT, which would then be
+        # one more SQL pass over in-memory data instead of a narrower source read.
         has_sql_source = bool(
             self._datastore._table_function or getattr(self._datastore, 'table_name', None)
         )
         has_distinct = getattr(self._datastore, '_distinct', False)
         needed_fields = set()
-        if has_sql_source and not has_distinct and self._expr is not None:
+        if (
+            has_sql_source
+            and not has_distinct
+            and self._expr is not None
+            and self._datastore._runs_as_single_sql_segment()
+        ):
             for node in self._expr.find(Field):
                 needed_fields.add(node.name)
 

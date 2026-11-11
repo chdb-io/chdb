@@ -962,6 +962,23 @@ class DataStore(PandasCompatMixin):
         """
         return self._all_lazy_ops_are_sql_compatible() and self._has_sql_state()
 
+    def _runs_as_single_sql_segment(self) -> bool:
+        """Whether _execute() would run the whole pipeline as one SQL query on the source."""
+        from .query_planner import QueryPlanner
+
+        if not self._lazy_ops:
+            return True
+        local_source = self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        )
+        exec_plan = QueryPlanner().plan_segments(
+            self._lazy_ops,
+            has_sql_source=True,
+            schema=self.schema(),
+            local_source=local_source,
+        )
+        return len(exec_plan.segments) == 1 and exec_plan.segments[0].is_sql()
+
     def _is_remote_source(self) -> bool:
         """Check if the data source is a remote ClickHouse table function."""
         from .table_functions import RemoteTableFunction
@@ -1535,8 +1552,9 @@ class DataStore(PandasCompatMixin):
             self._logger.debug("  SQL returned DataFrame with shape: %s", df.shape)
 
         else:
-            # Subsequent segment: execute on DataFrame via Python() table function
-            if df.empty and not (self._table_function or self.table_name):
+            # Subsequent segment: execute on DataFrame via Python() table function.
+            # An empty df here is the previous segment's (empty) result.
+            if df.empty:
                 self._logger.debug("  No data to execute SQL on")
                 # Even for empty DataFrames, apply column selection if present
                 # This ensures df[['a', 'b']] on empty df returns correct columns
@@ -1613,29 +1631,6 @@ class DataStore(PandasCompatMixin):
                             df = df.set_index(groupby_cols)
                     return df
 
-            # If we have a source but no DataFrame yet, load raw data first
-            if df.empty and (self._table_function or self.table_name):
-                if self._executor is None:
-                    self.connect()
-                # Load raw data without any filters
-                if self._table_function:
-                    table_sql = self._table_function.to_sql()
-                else:
-                    table_sql = f"{self.quote_char}{self.table_name}{self.quote_char}"
-                load_sql = f"SELECT * FROM {table_sql}"
-                # Append format settings if present
-                if self._format_settings:
-                    settings_parts = []
-                    for key, value in self._format_settings.items():
-                        if isinstance(value, str):
-                            settings_parts.append(f"{key}='{value}'")
-                        else:
-                            settings_parts.append(f"{key}={value}")
-                    load_sql = f"{load_sql} SETTINGS {', '.join(settings_parts)}"
-                result = self._executor.execute(load_sql)
-                df = result.to_df()
-                self._logger.debug("  Loaded raw data from source: %s rows", len(df))
-
             plan = segment.plan
             if plan is None:
                 from .query_planner import QueryPlan
@@ -1667,8 +1662,9 @@ class DataStore(PandasCompatMixin):
         Returns:
             Result DataFrame
         """
-        # If first operation and we have SQL source but no DataFrame, load raw data
-        if df.empty and (self._table_function or self.table_name):
+        # If first operation and we have SQL source but no DataFrame, load raw data.
+        # A later segment's empty df is an empty result, not a missing one.
+        if segment.is_first_segment and (self._table_function or self.table_name):
             if self._executor is None:
                 self.connect()
             # Load raw data - include JOINs if present
@@ -3318,6 +3314,20 @@ class DataStore(PandasCompatMixin):
             columns_changed = (
                 set(current_cols) != set(source_cols) or current_cols != source_cols
             )
+
+            # Baking the selection into the source is only safe when the SELECTs
+            # removed below are the only ops that drop or rename columns;
+            # rename(), drop(), add_prefix() etc. need the source columns intact.
+            cols = source_cols
+            for op in self._lazy_ops:
+                new_cols = op.transform_columns(cols)
+                is_selection = isinstance(op, LazyColumnSelection) or (
+                    isinstance(op, LazyRelationalOp) and op.op_type == "SELECT"
+                )
+                if not is_selection and not set(cols) <= set(new_cols):
+                    columns_changed = False
+                    break
+                cols = new_cols
 
             if columns_changed and current_cols:
                 # Apply column selection to the DataFrame

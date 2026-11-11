@@ -1138,12 +1138,16 @@ class PandasCompatMixin:
     # ========== Data Manipulation ==========
 
     def drop(self, labels=None, *, axis=0, index=None, columns=None, level=None, inplace=False, errors='raise'):
-        """Drop specified labels from rows or columns."""
+        """Drop specified labels from rows or columns (lazy operation)."""
         if inplace:
             raise ImmutableError("DataStore")
-        return self._wrap_result(
-            self._get_df().drop(labels=labels, axis=axis, index=index, columns=columns, level=level, errors=errors)
+        from .lazy_ops import LazyDrop
+
+        new_ds = copy(self)
+        new_ds._add_lazy_op(
+            LazyDrop(labels=labels, axis=axis, index=index, columns=columns, level=level, errors=errors)
         )
+        return new_ds
 
     def drop_duplicates(self, subset=None, keep='first', inplace=False, ignore_index=False):
         """Return DataFrame with duplicate rows removed.
@@ -1191,21 +1195,20 @@ class PandasCompatMixin:
         return self._get_df().duplicated(subset=subset, keep=keep)
 
     def fillna(self, value=None, *, method=None, axis=None, inplace=False, limit=None):
-        """Fill NA/NaN values."""
+        """Fill NA/NaN values (lazy operation)."""
         if inplace:
             raise ImmutableError("DataStore")
-        df = self._get_df()
-        # pandas 3.0 removed method parameter, use ffill()/bfill() instead
-        if method is not None:
-            if method == 'ffill' or method == 'pad':
-                result = df.ffill(axis=axis, limit=limit)
-            elif method == 'bfill' or method == 'backfill':
-                result = df.bfill(axis=axis, limit=limit)
-            else:
-                raise ValueError(f"Invalid fill method: {method}")
-        else:
-            result = df.fillna(value=value, axis=axis, limit=limit)
-        return self._wrap_result(result)
+        if method is not None and method not in ('ffill', 'pad', 'bfill', 'backfill'):
+            raise ValueError(f"Invalid fill method: {method}")
+        if method is None:
+            # pandas rejects bad fill values at call time; check them on an
+            # empty frame so that still happens before execution.
+            pd.DataFrame().fillna(value=value, axis=axis, limit=limit)
+        from .lazy_ops import LazyFillNA
+
+        new_ds = copy(self)
+        new_ds._add_lazy_op(LazyFillNA(value, method=method, axis=axis, limit=limit))
+        return new_ds
 
     def replace(self, to_replace=None, value=None, *, inplace=False, limit=None, regex=False, method=None):
         """
@@ -1285,26 +1288,16 @@ class PandasCompatMixin:
     def rename(
         self, mapper=None, *, index=None, columns=None, axis=None, copy=True, inplace=False, level=None, errors='ignore'
     ):
-        """Rename columns or index labels."""
+        """Rename columns or index labels (lazy operation)."""
         if inplace:
             raise ImmutableError("DataStore")
+        from .lazy_ops import LazyRename
 
-        # Build operation description
-        op_desc = "rename("
-        if columns:
-            op_desc += f"columns={columns}"
-        elif mapper:
-            op_desc += f"mapper={mapper}"
-        if index:
-            op_desc += f", index={index}" if "=" in op_desc else f"index={index}"
-        op_desc += ")"
-
-        return self._wrap_result(
-            self._get_df().rename(
-                mapper=mapper, index=index, columns=columns, axis=axis, copy=copy, level=level, errors=errors
-            ),
-            op_desc,
+        new_ds = self.__copy__()
+        new_ds._add_lazy_op(
+            LazyRename(mapper=mapper, index=index, columns=columns, axis=axis, copy=copy, level=level, errors=errors)
         )
+        return new_ds
 
     def rename_axis(self, mapper=None, *, index=None, columns=None, axis=None, copy=True, inplace=False):
         """Set the name of the axis."""
@@ -2432,8 +2425,12 @@ class PandasCompatMixin:
     # ========== Conversion Methods ==========
 
     def astype(self, dtype, copy=True, errors='raise'):
-        """Cast object to specified dtype."""
-        return self._wrap_result(self._get_df().astype(dtype=dtype, copy=copy, errors=errors))
+        """Cast object to specified dtype (lazy operation)."""
+        from .lazy_ops import LazyAsType
+
+        new_ds = self.__copy__()
+        new_ds._add_lazy_op(LazyAsType(dtype, copy=copy, errors=errors))
+        return new_ds
 
     def convert_dtypes(
         self,

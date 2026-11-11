@@ -242,6 +242,7 @@ class ExtractedClauses:
     explicit_column_selection: bool = (
         False  # True if SELECT explicitly listed columns (without *)
     )
+    select_star: bool = False  # True if a SELECT in these ops included '*'
 
     def has_orderby(self) -> bool:
         """Check if ORDER BY is present."""
@@ -343,6 +344,7 @@ def extract_clauses_from_ops(
 
             if has_star:
                 # Add computed columns mode: append non-* fields to existing select
+                result.select_star = True
                 for f in op.fields:
                     if isinstance(f, str):
                         if f != "*":
@@ -1336,6 +1338,10 @@ class SQLExecutionEngine:
         use_include_star = has_column_assignments if has_column_assignments else None
         if self.ds._distinct and use_include_star:
             use_include_star = None
+        if use_include_star is None and clauses.explicit_column_selection:
+            # This segment lists its columns; self.ds._select_star may come
+            # from an assign() in a later segment.
+            use_include_star = False
 
         return self.assemble_sql(
             select_fields,
@@ -2949,7 +2955,11 @@ class SQLExecutionEngine:
                 op.column for op in column_assignments if op.column in df_columns_set
             }
 
-            if (self.ds._select_star and not has_explicit_columns) or (
+            # The segment's own SELECT * counts too: self.ds._select_star
+            # reflects the final DataStore, which a later column selection
+            # in another segment may have reset.
+            has_star = self.ds._select_star or clauses.select_star
+            if (has_star and not has_explicit_columns) or (
                 has_column_assignments and not has_explicit_columns
             ):
                 if override_columns:

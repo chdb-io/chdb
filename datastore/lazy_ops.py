@@ -540,6 +540,61 @@ class LazyDropColumns(LazyOp):
         return f"Drop columns: {', '.join(self.columns)}"
 
 
+class LazyDrop(LazyOp):
+    """Drop rows or columns: df.drop(labels, axis=..., index=..., columns=..., ...)"""
+
+    def __init__(self, labels=None, axis=0, index=None, columns=None, level=None, errors="raise"):
+        super().__init__()
+        self.labels = labels
+        self.axis = axis
+        self.index = index
+        self.columns = columns
+        self.level = level
+        self.errors = errors
+
+    def _column_labels(self):
+        if self.columns is not None:
+            return self.columns
+        if self.labels is not None and self.axis in (1, "columns"):
+            return self.labels
+        return None
+
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """Remove the dropped columns."""
+        labels = self._column_labels()
+        if labels is None:
+            return columns
+        try:
+            empty = pd.DataFrame(columns=pd.Index(columns))
+            return list(empty.drop(columns=labels, level=self.level, errors="ignore").columns)
+        except Exception:
+            return columns
+
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
+        self._log_execute("Drop", self.describe())
+        result = df.drop(
+            labels=self.labels,
+            axis=self.axis,
+            index=self.index,
+            columns=self.columns,
+            level=self.level,
+            errors=self.errors,
+        )
+        self._logger.debug("      -> DataFrame shape after drop: %s", result.shape)
+        return result
+
+    def describe(self) -> str:
+        parts = []
+        columns = self._column_labels()
+        if columns is not None:
+            parts.append(f"columns={columns!r}")
+        if self.index is not None:
+            parts.append(f"index={self.index!r}")
+        elif self.labels is not None and columns is not self.labels:
+            parts.append(f"index={self.labels!r}")
+        return f"Drop {', '.join(parts)}"
+
+
 class LazyRenameColumns(LazyOp):
     """Rename columns: df.rename(columns={...})
 
@@ -590,6 +645,63 @@ class LazyRenameColumns(LazyOp):
         return f"Rename columns: {renames}"
 
 
+class LazyRename(LazyOp):
+    """Rename labels: df.rename(mapper, index=..., columns=..., axis=..., ...)"""
+
+    def __init__(self, mapper=None, index=None, columns=None, axis=None, copy=True, level=None, errors="ignore"):
+        super().__init__()
+        self.mapper = mapper
+        self.index = index
+        self.columns = columns
+        self.axis = axis
+        self.copy = copy
+        self.level = level
+        self.errors = errors
+
+    def _columns_mapper(self):
+        if self.columns is not None:
+            return self.columns
+        if self.mapper is not None and self.axis in (1, "columns"):
+            return self.mapper
+        return None
+
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """Apply the column mapper to column names."""
+        mapper = self._columns_mapper()
+        if mapper is None:
+            return columns
+        try:
+            empty = pd.DataFrame(columns=pd.Index(columns))
+            return list(empty.rename(columns=mapper, level=self.level).columns)
+        except Exception:
+            return columns
+
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
+        self._log_execute("Rename", self.describe())
+        result = df.rename(
+            mapper=self.mapper,
+            index=self.index,
+            columns=self.columns,
+            axis=self.axis,
+            copy=self.copy,
+            level=self.level,
+            errors=self.errors,
+        )
+        self._logger.debug("      -> New columns: %s", list(result.columns))
+        return result
+
+    def describe(self) -> str:
+        parts = []
+        columns = self._columns_mapper()
+        if columns is not None:
+            parts.append(f"columns={columns!r}")
+        if self.index is not None:
+            parts.append(f"index={self.index!r}")
+        elif self.mapper is not None and columns is not self.mapper:
+            parts.append(f"index={self.mapper!r}")
+        return f"Rename {', '.join(parts)}"
+
+
 class LazyAddPrefix(LazyOp):
     """Add prefix to all columns."""
 
@@ -635,23 +747,25 @@ class LazyAddSuffix(LazyOp):
 class LazyFillNA(LazyOp):
     """Fill NA values."""
 
-    def __init__(self, value, method=None):
+    def __init__(self, value, method=None, axis=None, limit=None):
         super().__init__()
         self.value = value
         self.method = method
+        self.axis = axis
+        self.limit = limit
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("FillNA", f"value={self.value}, method={self.method}")
         # pandas 3.0 removed method parameter, use ffill()/bfill() instead
         if self.method is not None:
             if self.method == 'ffill' or self.method == 'pad':
-                result = df.ffill()
+                result = df.ffill(axis=self.axis, limit=self.limit)
             elif self.method == 'bfill' or self.method == 'backfill':
-                result = df.bfill()
+                result = df.bfill(axis=self.axis, limit=self.limit)
             else:
                 raise ValueError(f"Invalid fill method: {self.method}")
         else:
-            result = df.fillna(value=self.value)
+            result = df.fillna(value=self.value, axis=self.axis, limit=self.limit)
         return result
 
     def describe(self) -> str:
@@ -720,13 +834,15 @@ class LazyDistinct(LazyOp):
 class LazyAsType(LazyOp):
     """Cast column types."""
 
-    def __init__(self, dtype):
+    def __init__(self, dtype, copy=True, errors="raise"):
         super().__init__()
         self.dtype = dtype
+        self.copy = copy
+        self.errors = errors
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("AsType", f"dtype={self.dtype}")
-        result = df.astype(self.dtype)
+        result = df.astype(dtype=self.dtype, copy=self.copy, errors=self.errors)
         self._logger.debug("      -> New dtypes: %s", dict(result.dtypes))
         return result
 
