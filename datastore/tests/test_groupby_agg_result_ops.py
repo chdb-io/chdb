@@ -576,6 +576,32 @@ class TestMinCount:
         assert result.index.tolist() == expected.index.tolist()
         assert result.tolist() == [float(v) for v in expected]
 
+    @pytest.mark.parametrize(
+        "values",
+        [
+            pytest.param([np.inf, 2.0], id="inf"),
+            pytest.param([-np.inf, 2.0], id="minus_inf"),
+            pytest.param([np.inf, -np.inf], id="inf_times_minus_inf"),
+            pytest.param([np.inf, 0.0], id="inf_times_zero"),
+            pytest.param([np.nan, 2.0], id="nan"),
+            pytest.param([0.0, 5.0], id="zero"),
+            pytest.param([-2.0, 3.0], id="negative"),
+            pytest.param([1e200, 1e200], id="float_overflow"),
+        ],
+    )
+    def test_product_of_special_floats(self, source_kind, tmp_path, values):
+        frame = pd.DataFrame({"g": ["a", "a", "b"], "v": values + [4.0]})
+        d = make_source(frame, source_kind, tmp_path)
+        assert_series_equal(d.groupby("g")["v"].prod(), frame.groupby("g")["v"].prod())
+
+    def test_product_integer_overflow_wraps(self, source_kind, tmp_path):
+        frame = pd.DataFrame(
+            {"g": ["a", "a", "b"], "v": np.array([3037000500, 3037000500, 7], dtype="int64")}
+        )
+        d = make_source(frame, source_kind, tmp_path)
+        assert_series_equal(d.groupby("g")["v"].prod(), frame.groupby("g")["v"].prod())
+
+
 class TestAggregateDtypeOfRecomputedColumns:
     """Only an output that is still the aggregate of a source column gets
     the dtype pandas gives the aggregate; a column recomputed before or

@@ -534,8 +534,11 @@ def build_groupby_select_fields(
         arrayFold needs ``acc * v`` to keep the accumulator's type. The seed
         is 1 in the type multiplication widens the values' type to (64-bit
         integers of their signedness, Float64), which ``* 1`` reaches from
-        any narrower one. A Decimal's scale grows with every product, so
-        decimals are multiplied as Float64.
+        any narrower one. It is built from the type's default value, never
+        from a value (inf * 0 is NaN). A Decimal's scale grows with every
+        product, so a Decimal expression is multiplied as Float64; ClickHouse
+        has no exact product aggregate (arrayProduct is Float64 for every
+        type, and 0 for no values).
         """
         from .config import is_performance_mode
 
@@ -553,7 +556,11 @@ def build_groupby_select_fields(
                     'ifNull',
                     Function(
                         'plus',
-                        Function('multiply', AggregateFunction('any', value), Literal(0)),
+                        Function(
+                            'multiply',
+                            Function('defaultValueOfArgumentType', value),
+                            Literal(0),
+                        ),
                         Literal(1),
                     ),
                     Literal(1),
