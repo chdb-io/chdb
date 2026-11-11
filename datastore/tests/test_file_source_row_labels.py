@@ -528,3 +528,57 @@ class TestFileOrderOutsideLabelledQueries:
         ds_result = left[left["t"] == 1].union(right[right["t"] == 2], all=True)
 
         assert_datastore_equals_pandas(ds_result, pd_result)
+
+
+class TestSourceLocations:
+    @pytest.fixture
+    def served(self, tmp_path):
+        """An HTTP server for tmp_path; yields its base URL."""
+        import functools
+        import http.server
+        import threading
+
+        handler = functools.partial(
+            http.server.SimpleHTTPRequestHandler, directory=str(tmp_path)
+        )
+        handler.log_message = lambda *args: None
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+        server.shutdown()
+
+    def test_url_with_query_string(self, tmp_path, served):
+        df = pd.DataFrame({"k": [5, 3, 4, 1, 2, 0]})
+        df.to_parquet(str(tmp_path / "s.parquet"))
+        pd_result = df[df["k"] < 3]
+
+        ds = DataStore.from_url(f"{served}/s.parquet?token=abc", format="Parquet")
+        ds_result = ds[ds["k"] < 3]
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    @pytest.mark.parametrize(
+        "location, has_positions",
+        [
+            ("https://host/data.parquet?token=abc&x=1", True),
+            ("https://host/data.parquet#part", True),
+            ("https://host/part-*.parquet", False),
+            ("https://host/part-{1..3}.parquet", False),
+            ("s3://bucket/dir/data.parquet?versionId=7", True),
+            ("s3://bucket/dir/{a,b}.parquet", False),
+            ("/data/part_?.parquet", False),
+            ("/data/part_{1..9}.parquet", False),
+            ("/data/part.parquet", True),
+        ],
+    )
+    def test_glob_locations(self, location, has_positions):
+        from datastore.table_functions import FileTableFunction, S3TableFunction, UrlTableFunction
+
+        if location.startswith("s3://"):
+            source = S3TableFunction(url=location, format="Parquet")
+        elif "://" in location:
+            source = UrlTableFunction(url=location, format="Parquet")
+        else:
+            source = FileTableFunction(path=location, format="Parquet")
+
+        assert source.has_row_positions(["k"]) is has_positions

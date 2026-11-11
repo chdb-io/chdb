@@ -6,6 +6,7 @@ supporting various data sources with their specific capabilities and settings.
 """
 
 import os
+from urllib.parse import urlsplit
 from typing import Dict, Any, List, Optional
 from abc import ABC, abstractmethod
 from .exceptions import DataStoreError
@@ -146,14 +147,26 @@ class TableFunction(ABC):
         if not format_name:
             from .uri_parser import _infer_format_from_path
 
-            location = str(
-                self.params.get("path") or self.params.get("url") or self.params.get("uri") or ""
-            ).split("?")[0]
+            location = self._location_path()
             stem, ext = os.path.splitext(location)
             if ext.lower() in self._COMPRESSION_SUFFIXES:
                 location = stem
             format_name = _infer_format_from_path(location)
         return format_name.lower() if format_name else None
+
+    def _location_path(self) -> str:
+        """
+        The path of the file this source reads: a URL's host and path,
+        without its query string or fragment, or a local path as given (in
+        which ``?`` is a glob character).
+        """
+        location = str(
+            self.params.get("path") or self.params.get("url") or self.params.get("uri") or ""
+        )
+        if "://" in location:
+            parts = urlsplit(location)
+            return parts.netloc + parts.path
+        return location
 
     def has_row_positions(self, columns: List[str]) -> bool:
         """
@@ -161,18 +174,16 @@ class TableFunction(ABC):
         which pandas labels them by. ``columns`` are the source's columns.
 
         Only single files in ``_POSITION_FORMATS`` qualify; the rows of a
-        glob are not numbered across its files. A Parquet column named
-        ``_row_number`` hides the reader's virtual column, so such a file
-        has no positions either.
+        glob (``*``, ``?``, ``{a,b}``, ``{1..9}`` in the path) are not
+        numbered across its files. A Parquet column named ``_row_number``
+        hides the reader's virtual column, so such a file has no positions
+        either.
         """
-        location = " ".join(
-            str(self.params.get(key) or "") for key in ("path", "url", "uri")
-        )
         format_name = self._row_number_format()
         return (
             format_name in self._POSITION_FORMATS
             and not (format_name == "parquet" and "_row_number" in columns)
-            and not any(char in location for char in "*?{")
+            and not any(char in self._location_path() for char in "*?{")
         )
 
     def _file_order_settings(self) -> List[str]:
