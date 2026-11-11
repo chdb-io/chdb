@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .case_when import CaseWhenBuilder
     from .query_planner import ExecutionSegment, QueryPlan
 
-from .expressions import Field, Expression, Literal, Star, bind_projection_item
+from .expressions import Field, Expression, Literal, Star, bind_projection_item, projection_name
 from .conditions import Condition
 from .utils import (
     immutable,
@@ -6940,6 +6940,7 @@ class DataStore(PandasCompatMixin):
         ]
         self._add_lazy_op(LazyRelationalOp("SELECT", field_names, fields=op_fields))
 
+        named_here = set()
         for field in fields:
             if isinstance(field, str):
                 # Special case: "*" means SELECT * (all existing columns)
@@ -6954,8 +6955,15 @@ class DataStore(PandasCompatMixin):
             elif isinstance(field, ColumnExpr):
                 field = field._expr
 
-            # A field named like a selected one replaces it in place.
-            bind_projection_item(self._select_fields, field)
+            # A field named like one an earlier select() call selected
+            # replaces it in place; a name repeated within this call selects
+            # the column again, as in SQL and df[['a', 'a']].
+            name = projection_name(field)
+            if name in named_here:
+                self._select_fields.append(field)
+            else:
+                bind_projection_item(self._select_fields, field)
+            named_here.add(name)
 
         return self
 

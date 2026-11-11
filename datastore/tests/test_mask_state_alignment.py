@@ -402,3 +402,28 @@ class TestToSqlWithoutReachingTheSource:
         for ds in self._unreachable():
             with pytest.raises(Exception):
                 ds.assign(c=ds["a"] + 1).to_pandas()
+
+
+class TestDuplicateColumnsInOneSelect:
+    """A column named twice in one selection is selected twice, as in
+    df[['a', 'a']] and SQL."""
+
+    def test_select_same_column_twice(self, source):
+        df = _frame()
+        d = source(df).select("a", "a")
+        assert '"a", "a"' in d.to_sql()
+        result = d.to_pandas()
+        assert len(result.columns) == 2
+        assert result.values.tolist() == df[["a", "a"]].values.tolist()
+
+    def test_getitem_same_column_twice(self, source):
+        df = _frame()
+        result = source(df)[["a", "a"]].to_pandas()
+        assert len(result.columns) == 2
+        assert result.values.tolist() == df[["a", "a"]].values.tolist()
+
+    def test_later_select_still_replaces(self, source):
+        df = _frame()
+        d = source(df).select("a", "b").select("b", "b")
+        result = d.to_pandas()
+        assert result.values.tolist() == df[["a", "b"]][["b", "b"]].values.tolist()
