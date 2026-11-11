@@ -456,3 +456,75 @@ class TestGroupFirstAppearance:
         queries = _data_queries(executed_sql)
         assert queries
         assert all(ordered_read in sql for sql in queries)
+
+
+@pytest.fixture
+def connection_sql(monkeypatch):
+    """SQL the connection runs, other than schema probes."""
+    from datastore.connection import Connection
+
+    sqls = []
+
+    def capturing(method):
+        def capture(self, sql, *args, **kwargs):
+            if not sql.startswith("DESCRIBE"):
+                sqls.append(sql)
+            return method(self, sql, *args, **kwargs)
+
+        return capture
+
+    monkeypatch.setattr(Connection, "execute", capturing(Connection.execute))
+    monkeypatch.setattr(Connection, "query_arrow", capturing(Connection.query_arrow))
+    return sqls
+
+
+class TestFileOrderOutsideLabelledQueries:
+    """Every read of a file returns its rows in file order."""
+
+    @pytest.fixture
+    def ties(self, tmp_path):
+        rng = np.random.default_rng(5)
+        df = pd.DataFrame({"k": rng.integers(0, 50, 2_000), "t": rng.integers(0, 3, 2_000)})
+        path = str(tmp_path / "ties.csv")
+        df.to_csv(path, index=False)
+        return df, path
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            lambda d: d.sort_values("k", kind="stable"),
+            lambda d: d.sort_values(["k", "t"], kind="stable"),
+        ],
+        ids=["one_key", "two_keys"],
+    )
+    def test_pandas_first_sort(self, ties, connection_sql, chain):
+        # The sort runs in pandas on the file's rows: their order breaks ties
+        df, path = ties
+        pd_result = chain(df)
+
+        ds_result = chain(DataStore.from_file(path))
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+        assert connection_sql
+        assert all("parallelize_output_from_storages=0" in sql for sql in connection_sql)
+
+    def test_to_arrow_of_filter(self, ties, connection_sql):
+        df, path = ties
+        pd_result = df[df["t"] == 1].reset_index(drop=True)
+
+        ds = DataStore.from_file(path)
+        table = ds[ds["t"] == 1].to_arrow()
+
+        pd.testing.assert_frame_equal(table.to_pandas(), pd_result, check_dtype=False)
+        assert connection_sql
+        assert all("parallelize_output_from_storages=0" in sql for sql in connection_sql)
+
+    def test_union_all(self, ties):
+        df, path = ties
+        pd_result = pd.concat([df[df["t"] == 1], df[df["t"] == 2]], ignore_index=True)
+
+        left = DataStore.from_file(path)
+        right = DataStore.from_file(path)
+        ds_result = left[left["t"] == 1].union(right[right["t"] == 2], all=True)
+
+        assert_datastore_equals_pandas(ds_result, pd_result)

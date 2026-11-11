@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .case_when import CaseWhenBuilder
     from .query_planner import ExecutionSegment, QueryPlan
 
-from .expressions import Field, Expression, Literal, Star, bind_projection_item, projection_name
+from .expressions import Field, Expression, Literal, RowPosition, Star, bind_projection_item, projection_name
 from .conditions import Condition
 from .utils import (
     immutable,
@@ -27,6 +27,8 @@ from .utils import (
     format_identifier,
     normalize_ascending,
     map_agg_func,
+    row_position_scope,
+    DEFAULT_ROW_POSITION,
 )
 from .exceptions import (
     QueryError,
@@ -2113,7 +2115,7 @@ class DataStore(PandasCompatMixin):
                     self.connect()
                 # Load raw data without any filters
                 if self._table_function:
-                    table_sql = self._table_function.to_sql()
+                    table_sql = self._source_read_sql()
                 else:
                     table_sql = f"{self.quote_char}{self.table_name}{self.quote_char}"
                 load_sql = f"SELECT * FROM {table_sql}"
@@ -2169,7 +2171,11 @@ class DataStore(PandasCompatMixin):
                 self.connect()
             # Load raw data - include JOINs if present
             if self._table_function:
-                table_sql = self._table_function.to_sql()
+                table_sql = (
+                    self._table_function.to_sql()
+                    if self._joins
+                    else self._source_read_sql()
+                )
             else:
                 table_sql = f"{self.quote_char}{self.table_name}{self.quote_char}"
 
@@ -2220,6 +2226,17 @@ class DataStore(PandasCompatMixin):
                 df = op.execute(df, self)
 
         return df
+
+    def _source_read_sql(self) -> str:
+        """
+        SQL reading this DataStore's table function for a raw load: a file
+        in file order (``TableFunction.ordered_source``), as pandas reads it.
+        """
+        from .config import is_performance_mode
+
+        if getattr(self._table_function, "reads_files", False) and not is_performance_mode():
+            return self._table_function.ordered_source()
+        return self._table_function.to_sql()
 
     def _postprocess_sql_result(
         self, df: pd.DataFrame, plan: "QueryPlan"
@@ -4228,13 +4245,16 @@ class DataStore(PandasCompatMixin):
             return None
 
         try:
-            build_result = self._single_sql_query()
+            build_result = self._single_sql_query(row_labels=True)
         except Exception as e:  # planning / SQL-build issue -> fall back to pandas
             self._logger.debug("to_arrow native path unavailable, using pandas: %s", e)
             return None
         if build_result is None:
             return None
-        sql = build_result.sql
+        # The rows _execute() reads, in its order
+        sql, settings = self._result_query(build_result)
+        if settings:
+            sql = f"{sql} SETTINGS {', '.join(settings)}"
 
         if self._executor is None:
             self.connect()
@@ -4257,6 +4277,17 @@ class DataStore(PandasCompatMixin):
         """
         from .query_planner import QueryPlanner
 
+        if (
+            not self._lazy_ops
+            and row_labels
+            and getattr(self._table_function, "reads_files", False)
+        ):
+            # A file in file order, as _execute() reads it
+            sql = self._append_format_settings(f"SELECT * FROM {self._source_read_sql()}")
+            return SQLBuildResult(
+                sql=sql,
+                has_settings=bool(self._format_settings),
+            )
         if not self._lazy_ops:
             # Plain ``SELECT * FROM source`` — fully pushable, no aliases. The
             # flat SQL already carries the format settings.
@@ -7571,12 +7602,13 @@ class DataStore(PandasCompatMixin):
         # runs in SQL. This avoids materializing both sides into Python DataFrames.
         # Without ``all`` the result keeps concat index positions, which only
         # the pandas path reproduces.
-        union_sql = self._build_union_all_sql(other) if all else None
-        if union_sql is not None:
+        union = self._build_union_all_sql(other) if all else None
+        if union is not None:
             from .table_functions import SubqueryTableFunction
 
             # Both pipelines are inside union_sql; the copy starts over from it.
-            self._start_from(SubqueryTableFunction(union_sql))
+            union_sql, settings = union
+            self._start_from(SubqueryTableFunction(union_sql, query_settings=settings))
             return  # @immutable returns the copy
 
         # Add LazyUnion operation - pass the DataStore/DataFrame directly
@@ -7584,12 +7616,14 @@ class DataStore(PandasCompatMixin):
         self._add_lazy_op(LazyUnion(other=other, all=all))
         # Note: Don't return self - @immutable decorator will return the copy
 
-    def _build_union_all_sql(self, other) -> Optional[str]:
+    def _build_union_all_sql(self, other) -> Optional[Tuple[str, List[str]]]:
         """
-        Build SQL for ``self.union(other, all=True)``, or return ``None`` when
-        either side cannot be expressed as a single SQL query, or when the
-        column names or types differ (pandas then decides the result columns
-        and dtypes). Rows come out in ``pd.concat([self, other])`` order.
+        Build ``(sql, settings)`` for ``self.union(other, all=True)``, or
+        return ``None`` when either side cannot be expressed as a single SQL
+        query, or when the column names or types differ (pandas then decides
+        the result columns and dtypes). Rows come out in
+        ``pd.concat([self, other])`` order; ``settings`` are needed at the top
+        level of a query reading ``sql``.
         """
         if not isinstance(other, DataStore):
             return None
@@ -7600,8 +7634,8 @@ class DataStore(PandasCompatMixin):
         if right is None:
             return None
 
-        left_sql, left_cols = left
-        right_sql, right_cols = right
+        left_sql, left_cols, left_settings = left
+        right_sql, right_cols, right_settings = right
         names = [name for name, _ in left_cols]
         if len(set(names)) != len(names):
             return None
@@ -7628,23 +7662,38 @@ class DataStore(PandasCompatMixin):
         side_alias = helper_alias("union_side")
         row_alias = helper_alias("union_row")
 
+        # An operand's result has no position column: its rows are
+        # numbered in the order the operand returns them
+        with row_position_scope(DEFAULT_ROW_POSITION):
+            position = RowPosition().to_sql(quote_char=q)
+
         def operand(sql, side):
             return (
                 f"SELECT {out_fields}, {side} AS {side_alias}, "
-                f"rowNumberInAllBlocks() AS {row_alias} FROM ({sql})"
+                f"{position} AS {row_alias} FROM ({sql})"
             )
 
-        return (
+        union_sql = (
             f"SELECT {out_fields} FROM ({operand(left_sql, 0)} "
             f"UNION ALL {operand(right_sql, 1)}) "
             f"ORDER BY {side_alias}, {row_alias}"
         )
+        # The numbering must see each operand's rows as it returns them
+        settings = list(dict.fromkeys(left_settings + right_settings))
+        if settings or any(
+            getattr(ds._table_function, "reads_files", False) for ds in (self, other)
+        ):
+            settings = list(
+                dict.fromkeys(settings + ["query_plan_enable_optimizations=0"])
+            )
+        return union_sql, settings
 
-    def _operand_sql(self) -> Optional[str]:
+    def _operand_sql(self) -> Optional[Tuple[str, List[str]]]:
         """
-        SQL yielding this DataStore's complete result, for reading it as a
-        subquery operand of a union or a join. Return ``None`` when the
-        result needs pandas execution or post-processing.
+        ``(sql, settings)`` for reading this DataStore's complete result as a
+        subquery operand of a union or a join (see ``_result_query``).
+        Return ``None`` when the result needs pandas execution or
+        post-processing.
         """
         if not (self._table_function or self.table_name):
             return None
@@ -7662,14 +7711,31 @@ class DataStore(PandasCompatMixin):
             return None
 
         try:
-            build_result = self._single_sql_query()
+            build_result = self._single_sql_query(row_labels=True)
         except Exception as e:  # planning / SQL-build issue -> pandas path
             self._logger.debug("SQL operand unavailable: %s", e)
             return None
         # GroupBy results carry their keys in the index after post-processing.
         if build_result is None or build_result.groupby_agg is not None:
             return None
-        return build_result.sql
+        return self._result_query(build_result)
+
+    def _result_query(self, build_result: SQLBuildResult) -> Tuple[str, List[str]]:
+        """
+        ``(sql, settings)`` for the result rows of ``build_result``, an
+        execution build (a file's rows in file order, as ``_execute()``
+        reads them), without the column holding their source positions.
+        ``settings`` are the settings a query reading ``sql`` as a subquery
+        needs at its top level for the rows to keep their order.
+        """
+        sql = build_result.sql
+        settings = []
+        if build_result.position_column is not None:
+            settings = self._table_function.row_position_query_settings()
+        if build_result.row_label_column is not None:
+            column = format_identifier(build_result.row_label_column, self.quote_char)
+            sql = f"SELECT * EXCEPT ({column}) FROM ({sql})"
+        return sql, settings
 
     def _union_operand_sql(self):
         """
@@ -7679,9 +7745,10 @@ class DataStore(PandasCompatMixin):
         UNION ALL reconciles without a type change. Return ``None`` when the
         result needs pandas execution or post-processing.
         """
-        sql = self._operand_sql()
-        if sql is None:
+        operand = self._operand_sql()
+        if operand is None:
             return None
+        sql, settings = operand
 
         try:
             if self._executor is None:
@@ -7695,7 +7762,7 @@ class DataStore(PandasCompatMixin):
             if col_type.startswith("Nullable(") and col_type.endswith(")"):
                 col_type = col_type[len("Nullable("):-1]
             columns.append((name, col_type))
-        return sql, columns
+        return sql, columns, settings
 
     def _join_operand(self) -> Optional["DataStore"]:
         """
@@ -7708,9 +7775,10 @@ class DataStore(PandasCompatMixin):
         """
         if not self._lazy_ops and not self._joins:
             return self._frozen()
-        sql = self._operand_sql()
-        if sql is None:
+        result = self._operand_sql()
+        if result is None:
             return None
+        sql, settings = result
         from .table_functions import SubqueryTableFunction
 
         # A copy: the frozen view is shared with values taken from this state
@@ -7720,6 +7788,7 @@ class DataStore(PandasCompatMixin):
                 sql,
                 alias=self._get_table_alias(),
                 source_tables=self._get_all_source_tables(),
+                query_settings=settings,
             )
         )
         return operand

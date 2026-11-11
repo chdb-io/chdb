@@ -762,6 +762,8 @@ class SQLBuildResult:
     # Source position of the first result row, for a result that is a
     # contiguous run of a labelled source's rows (labels count from it).
     row_label_start: int = 0
+    # Hidden column the SQL reads the source's row positions into, if any
+    position_column: Optional[str] = None
 
 
 @dataclass
@@ -1978,14 +1980,28 @@ class SQLExecutionEngine:
         with row_position_scope(self._source_row_position()) as scope:
             result = self._build_sql(plan, schema, for_execution)
         if column is not None and not labelled and scope.used:
-            # The SQL reads positions: read them from the file
+            # The SQL reads positions: read them from the file. Row-wise
+            # result rows are then labelled by them too.
             plan.alias_renames.clear()
             plan.alias_renames.update(renames)
             self.position_column = column
+            labelled = not _plan_aggregates(plan)
             with row_position_scope(self._source_row_position()):
                 result = self._build_sql(plan, schema, for_execution)
         if self.position_column is not None:
-            self._add_position_query_settings(result)
+            self._add_query_settings(
+                result, self.ds._table_function.row_position_query_settings()
+            )
+        # A subquery source or JOIN operand may need settings at the top level
+        self._add_query_settings(
+            result,
+            [
+                setting
+                for ds in [self.ds] + [other for other, _, _ in self.ds._joins]
+                for setting in getattr(ds._table_function, "query_settings", ())
+            ],
+        )
+        result.position_column = self.position_column
         if labelled:
             result.sql, carried = self._carry_position_column(result.sql)
             if carried:
@@ -2017,9 +2033,9 @@ class SQLExecutionEngine:
             return None
         return self._unique_hidden_name(ROW_LABEL_BASE, set(schema))
 
-    def _add_position_query_settings(self, result: SQLBuildResult) -> None:
-        """Add the settings reading the position source needs to ``result``."""
-        settings = self.ds._table_function.row_position_query_settings()
+    def _add_query_settings(self, result: SQLBuildResult, settings: List[str]) -> None:
+        """Add ``settings`` to the top-level SETTINGS clause of ``result``."""
+        settings = list(dict.fromkeys(settings))
         if not settings:
             return
         if result.has_settings:

@@ -230,14 +230,22 @@ class SubqueryTableFunction(TableFunction):
     Used for UNION ALL and other composite SQL expressions, and for the right
     side of a JOIN whose pipeline has lazy ops. ``alias`` is the table alias
     JOIN clauses and conditions use for it; ``source_tables`` lists the
-    ``(database, table)`` pairs the subquery reads.
+    ``(database, table)`` pairs the subquery reads; ``query_settings`` are
+    settings a query reading the subquery needs at its top level.
     """
 
-    def __init__(self, sql: str, alias: Optional[str] = None, source_tables=()):
+    def __init__(
+        self,
+        sql: str,
+        alias: Optional[str] = None,
+        source_tables=(),
+        query_settings=(),
+    ):
         super().__init__()
         self._sql = sql
         self.alias = alias
         self.source_tables = frozenset(source_tables)
+        self.query_settings = list(query_settings)
 
     @property
     def can_read(self) -> bool:
