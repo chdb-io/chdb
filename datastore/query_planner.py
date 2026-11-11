@@ -118,6 +118,31 @@ class QueryPlan:
         """Check if SQL needs nested subqueries (multiple layers)."""
         return len(self.layers) > 1
 
+    def columns_recomputed_around_aggregation(
+        self,
+    ) -> Tuple[Optional[Set[str]], Optional[Set[str]]]:
+        """
+        ``(before, after)``: the columns this plan's ops compute before and
+        after ``groupby_agg``; None when an op changes every column (another
+        aggregation, where/mask) or the aggregation is not among the ops.
+        """
+        ops = [op for layer in self.layers for op in layer]
+        position = next(
+            (i for i, op in enumerate(ops) if op is self.groupby_agg), None
+        )
+        if position is None:
+            return None, None
+        computed: List[Optional[Set[str]]] = [set(), set()]
+        for i, op in enumerate(ops):
+            if i == position:
+                continue
+            side = 0 if i < position else 1
+            if isinstance(op, (LazyGroupByAgg, LazyWhere, LazyMask)):
+                computed[side] = None
+            elif computed[side] is not None:
+                computed[side] |= set(QueryPlanner._computed_columns_of(op))
+        return computed[0], computed[1]
+
     def describe(self) -> str:
         """Return a human-readable description of the plan."""
         lines = []

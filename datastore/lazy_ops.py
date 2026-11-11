@@ -1440,7 +1440,10 @@ class LazyGroupByAgg(LazyOp):
         return self.set_group_index(aggregated._execute())
 
     def restore_input_dtypes(
-        self, result: pd.DataFrame, source: pd.DataFrame
+        self,
+        result: pd.DataFrame,
+        source: pd.DataFrame,
+        recomputed: Tuple[Optional[set], Optional[set]] = (set(), set()),
     ) -> pd.DataFrame:
         """
         Give outputs of type-preserving aggregates (sum, prod, min, max,
@@ -1448,14 +1451,24 @@ class LazyGroupByAgg(LazyOp):
         products of integers in 64 bits and returns a Nullable column without
         NULLs as the plain numpy dtype; pandas keeps the input dtype (float,
         nullable extension, or integer when the values fit, else 64 bits of
-        the same signedness) and sums or multiplies booleans to int64. A
-        column a later op recomputed into another kind is left alone.
+        the same signedness) and sums or multiplies booleans to int64.
+
+        ``recomputed`` is ``(before, after)``: the columns the SQL steps of
+        ``source -> result`` compute before the aggregation (its inputs are
+        then not ``source``'s columns) and after it (the output is no longer
+        the aggregate); None for every column. Only an output that is still
+        the aggregate of a source column is restored.
         """
+        before, after = recomputed
+        if before is None or after is None:
+            return result
         for name, func, col in self.aggregate_outputs(list(source.columns)):
             if (
                 func not in ("sum", "prod", "min", "max", "first", "last")
                 or col not in source.columns
                 or name not in result.columns
+                or col in before
+                or name in after
             ):
                 continue
             target = _aggregate_dtype(source[col].dtype, func, result[name])

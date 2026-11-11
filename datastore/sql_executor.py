@@ -2722,7 +2722,9 @@ class SQLExecutionEngine:
         from .config import is_performance_mode as _is_perf
 
         if plan.groupby_agg and not _is_perf():
-            result_df = plan.groupby_agg.restore_input_dtypes(result_df, df)
+            result_df = plan.groupby_agg.restore_input_dtypes(
+                result_df, df, plan.columns_recomputed_around_aggregation()
+            )
             if plan.groupby_agg.groupby_cols:
                 result_df = plan.groupby_agg.set_group_index(result_df)
 

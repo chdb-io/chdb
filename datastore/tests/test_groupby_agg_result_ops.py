@@ -537,6 +537,41 @@ class TestMinCount:
         assert result.index.tolist() == expected.index.tolist()
         assert result.tolist() == [float(v) for v in expected]
 
+class TestAggregateDtypeOfRecomputedColumns:
+    """Only an output that is still the aggregate of a source column gets
+    the dtype pandas gives the aggregate; a column recomputed before or
+    after the aggregation keeps the recomputation's dtype."""
+
+    FRAME = pd.DataFrame(
+        {"g": ["a", "a", "b"], "v": np.array([1, 2, 3], dtype="int8"), "w": [10, 20, 30]}
+    )
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(
+                lambda d: d.groupby("g")
+                .agg({"v": "sum", "w": "sum"})
+                .assign(v=lambda x: x["v"] + x["w"]),
+                id="recomputed_after",
+            ),
+            pytest.param(
+                lambda d: d.assign(v=lambda x: x["v"] + x["w"]).groupby("g").agg({"v": "sum"}),
+                id="recomputed_before",
+            ),
+            pytest.param(
+                lambda d: d.groupby("g").agg({"v": "sum", "w": "max"}).sort_values("w"),
+                id="untouched",
+            ),
+            pytest.param(
+                lambda d: d.groupby("g").agg({"v": "sum", "w": "max"})[["v"]],
+                id="untouched_selected",
+            ),
+        ],
+    )
+    def test_matches_pandas(self, chain):
+        assert_matches_pandas(chain(DataStore(self.FRAME.copy())), chain(self.FRAME.copy()))
+
 
 class TestHiddenColumnsStayInternal:
     """A key moved to a hidden column when an output takes its name is not

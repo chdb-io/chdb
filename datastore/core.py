@@ -2153,7 +2153,9 @@ class DataStore(PandasCompatMixin):
         if plan.groupby_agg and not is_performance_mode():
             if isinstance(self._table_function, PythonTableFunction):
                 df = plan.groupby_agg.restore_input_dtypes(
-                    df, self._table_function._df
+                    df,
+                    self._table_function._df,
+                    plan.columns_recomputed_around_aggregation(),
                 )
             # In performance mode, skip set_index -- group keys stay as columns
             if plan.groupby_agg.groupby_cols:
