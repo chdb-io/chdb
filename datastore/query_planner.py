@@ -328,6 +328,7 @@ class QueryPlanner:
         computed_columns_after_limit = set()  # Computed columns added after LIMIT
         seen_groupby = False  # Has the current layer a LazyGroupByAgg?
         seen_mask = False  # Has the current layer a LazyWhere / LazyMask?
+        seen_distinct = False  # Has the current layer a LazyDistinct?
 
         def _changes_columns(op):
             return isinstance(op, LazyColumnAssignment) or (
@@ -382,12 +383,14 @@ class QueryPlanner:
             return bool((read & computed) - op_set)
 
         def _append(op):
-            nonlocal seen_limit, seen_offset, seen_groupby, seen_mask
+            nonlocal seen_limit, seen_offset, seen_groupby, seen_mask, seen_distinct
             current_layer.append(op)
             if isinstance(op, LazyGroupByAgg):
                 seen_groupby = True
             if isinstance(op, (LazyWhere, LazyMask)):
                 seen_mask = True
+            if isinstance(op, LazyDistinct):
+                seen_distinct = True
             if isinstance(op, LazyRelationalOp):
                 if op.op_type == "LIMIT":
                     seen_limit = True
@@ -396,10 +399,10 @@ class QueryPlanner:
 
         def _open_layer_with(op):
             nonlocal current_layer, seen_limit, seen_offset, seen_groupby, seen_mask
-            nonlocal computed_columns_after_limit
+            nonlocal seen_distinct, computed_columns_after_limit
             layers.append(current_layer)
             current_layer = []
-            seen_limit = seen_offset = seen_groupby = seen_mask = False
+            seen_limit = seen_offset = seen_groupby = seen_mask = seen_distinct = False
             computed_columns_after_limit = set()
             _append(op)
 
@@ -440,9 +443,47 @@ class QueryPlanner:
             else:
                 _open_layer_with(op)
 
+        def _filters_sorts_and_projections_only(layer):
+            return all(
+                isinstance(prev, LazyRelationalOp)
+                and (prev.op_type in ("WHERE", "ORDER BY") or _is_pure_projection_select(prev))
+                for prev in layer
+            )
+
+        def _commutes_with_layer_dedup(op):
+            # Equal rows pass a filter together and keep their order in a
+            # stable sort, so a full-row dedup gives the same rows before or
+            # after either; a layer sorts once
+            dedup = next(prev for prev in current_layer if isinstance(prev, LazyDistinct))
+            if dedup.subset is not None or seen_limit or seen_offset:
+                return False
+            return op.op_type == "WHERE" or not any(
+                isinstance(prev, LazyRelationalOp) and prev.op_type == "ORDER BY" for prev in current_layer
+            )
+
         for op in ops:
             if seen_groupby or seen_mask:
                 _start_new_layer_with(op)
+            elif seen_distinct and not (
+                isinstance(op, LazyRelationalOp)
+                and (
+                    op.op_type in ("LIMIT", "OFFSET")
+                    or (op.op_type in ("WHERE", "ORDER BY") and _commutes_with_layer_dedup(op))
+                )
+            ):
+                # A layer's SELECT, WHERE and ORDER BY run before its DISTINCT
+                # (or LIMIT 1 BY); an op after drop_duplicates() reads its result
+                _start_new_layer_with(op)
+            elif isinstance(op, LazyDistinct):
+                # drop_duplicates() reads the rows the earlier ops leave: it
+                # shares a layer only with filters, sorts and column
+                # selections before it
+                if current_layer and (
+                    pending_column_assignments or not _filters_sorts_and_projections_only(current_layer)
+                ):
+                    _start_new_layer_with(op)
+                else:
+                    _place(op)
             elif isinstance(op, LazyRelationalOp):
                 needs_new_layer = False
 
@@ -719,6 +760,11 @@ class QueryPlanner:
                 preceding_ops,
                 following_ops,
                 local_source=local_source,
+            ) and not (
+                # SQL over an intermediate DataFrame carries its _row_id
+                # through every SELECT, which DISTINCT would compare
+                isinstance(op, LazyDistinct)
+                and any(kind == "pandas" for kind, _ in op_types)
             ):
                 op_types.append(("sql", op))
             else:

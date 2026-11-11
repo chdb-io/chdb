@@ -8302,7 +8302,7 @@ class DataStore(PandasCompatMixin):
         # Set SQL flag for SQL execution path
         if subset is not None:
             # Use LIMIT 1 BY for subset-based deduplication
-            self._distinct_subset = list(subset) if not isinstance(subset, list) else subset
+            self._distinct_subset = [subset] if isinstance(subset, str) else list(subset)
         else:
             # Use SELECT DISTINCT for full-row deduplication
             self._distinct = True

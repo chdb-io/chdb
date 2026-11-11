@@ -40,6 +40,7 @@ from .lazy_ops import (
     LazyJoin,
     LazyWhere,
     LazyMask,
+    LazyDistinct,
 )
 from .sql_builder import SQLBuilder
 from .utils import (
@@ -725,6 +726,10 @@ class SQLExecutionEngine:
         self.ds = datastore
         self.quote_char = datastore.quote_char
         self._logger = get_logger()
+        # The LazyDistinct of the layer being built and the columns entering
+        # it, when known (see _build_layer)
+        self._layer_distinct = None
+        self._layer_columns = None
 
     def is_python_table_function(self) -> bool:
         """Check if the data source is a Python() table function.
@@ -783,14 +788,41 @@ class SQLExecutionEngine:
 
         Returns the clause string (e.g. 'LIMIT 1 BY "a", "b"') or None.
         """
-        if not self.ds._distinct_subset:
+        subset = self._distinct_subset()
+        if not subset:
             return None
-        limit_by_cols = ", ".join(
-            format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
-        )
+        limit_by_cols = ", ".join(format_identifier(c, self.quote_char) for c in subset)
         return f"LIMIT 1 BY {limit_by_cols}"
 
-    def _build_layer(
+    def _build_layer(self, layer_ops: List[LazyOp], **kwargs) -> "LayerBuildResult":
+        """
+        Build SQL for one layer (see ``_build_layer_sql``), deduplicating its
+        rows when it holds a ``LazyDistinct``: ``SELECT DISTINCT`` for all
+        columns, ``LIMIT 1 BY`` a subset. The planner places the op so the
+        layer's other clauses run in SQL's order around it.
+        """
+        distinct = next((op for op in layer_ops if isinstance(op, LazyDistinct)), None)
+        outer = self._layer_distinct, self._layer_columns
+        self._layer_distinct = distinct
+        # A deduplicating layer only filters, sorts and limits its input
+        self._layer_columns = kwargs.get("input_columns")
+        try:
+            return self._build_layer_sql(layer_ops, **kwargs)
+        finally:
+            self._layer_distinct, self._layer_columns = outer
+
+    def _distinct_all(self) -> bool:
+        """Whether the layer being built drops duplicate rows over all columns."""
+        return self._layer_distinct is not None and self._distinct_subset() is None
+
+    def _distinct_subset(self) -> Optional[List[str]]:
+        """Columns the layer being built drops duplicate rows by, if a subset."""
+        if self._layer_distinct is None or self._layer_distinct.subset is None:
+            return None
+        subset = self._layer_distinct.subset
+        return [subset] if isinstance(subset, str) else list(subset)
+
+    def _build_layer_sql(
         self,
         layer_ops: List[LazyOp],
         *,
@@ -1300,7 +1332,7 @@ class SQLExecutionEngine:
         # When DISTINCT is active, don't use include_star because it would
         # expand * to all source columns (defeating column selection +
         # DISTINCT). Column assignments are already in select_fields.
-        use_include_star = None if self.ds._distinct else has_column_assignments
+        use_include_star = None if self._distinct_all() else has_column_assignments
 
         return self.assemble_sql(
             select_fields,
@@ -1309,7 +1341,7 @@ class SQLExecutionEngine:
             clauses.limit_value,
             clauses.offset_value,
             joins=self.ds._joins,
-            distinct=self.ds._distinct,
+            distinct=self._distinct_all(),
             groupby_fields=groupby_fields,
             having_condition=effective_having,
             include_star=use_include_star,
@@ -1377,7 +1409,19 @@ class SQLExecutionEngine:
         else:
             select_sql = star
 
-        parts = [f"SELECT {select_sql}", f"FROM {from_source}"]
+        # Rows are deduplicated by the layer's columns, not by the hidden
+        # columns an inner layer passes through ``*``
+        limit_by = self._build_limit_by_clause()
+        distinct_keyword = ""
+        if self._distinct_all():
+            if self._layer_columns:
+                limit_by = "LIMIT 1 BY " + ", ".join(
+                    format_identifier(c, self.quote_char) for c in self._layer_columns
+                )
+            else:
+                distinct_keyword = "DISTINCT "
+
+        parts = [f"SELECT {distinct_keyword}{select_sql}", f"FROM {from_source}"]
 
         # When LazyMask/LazyWhere temp aliases wrap this layer, any
         # WHERE in ``clauses.where_conditions`` semantically filters the
@@ -1468,6 +1512,8 @@ class SQLExecutionEngine:
             # is chDB's deterministic virtual column for Python() sources.
             parts.append("ORDER BY _row_id")
 
+        if limit_by:
+            parts.append(limit_by)
         if clauses.limit_value is not None:
             parts.append(f"LIMIT {clauses.limit_value}")
         if clauses.offset_value is not None:
@@ -1573,6 +1619,14 @@ class SQLExecutionEngine:
         sql_parts.append("ORDER BY __orig_row_num__")
 
         limit_by = self._build_limit_by_clause()
+        if self._distinct_all():
+            # The first row of each distinct output row, in source order
+            names = [projection_name(f) for f in select_fields or []]
+            if names and not include_star and all(names):
+                by = ", ".join(format_identifier(n, self.quote_char) for n in names)
+            else:
+                by = "* EXCEPT(__orig_row_num__)"
+            limit_by = f"LIMIT 1 BY {by}"
         if limit_by:
             sql_parts.append(limit_by)
 
@@ -1839,6 +1893,12 @@ class SQLExecutionEngine:
             column_assignments
             and not groupby_agg_op
             and not where_ops
+            # SQLBuilder doesn't place drop_duplicates()
+            and not any(
+                isinstance(op, LazyDistinct)
+                for layer in (plan.layers or [plan.sql_ops])
+                for op in layer
+            )
             and self._needs_sql_builder(plan.sql_ops, column_assignments, schema)
         ):
             sql = self._build_sql_with_builder(plan, schema)
@@ -1905,10 +1965,6 @@ class SQLExecutionEngine:
 
         # Don't use SQLBuilder if there are GROUP BY operations (not supported yet)
         if self.ds._groupby_fields:
-            return False
-
-        # Don't use SQLBuilder if DISTINCT is used (not supported yet)
-        if self.ds._distinct:
             return False
 
         # Get existing column names from schema
