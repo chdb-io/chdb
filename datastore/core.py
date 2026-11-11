@@ -5851,13 +5851,16 @@ class DataStore(PandasCompatMixin):
           follow pandas' own ``reset_index()`` defaults (``"index"`` for an
           unnamed single Index, ``"level_0"`` / ``"level_1"`` / ... for an
           unnamed MultiIndex), so ``index_label`` can rename them.
+
+        MultiIndex columns (``agg({'v': ['sum', 'max']})``) are flattened to
+        ``v_sum`` / ``v_max``, the names the aggregation has in SQL.
         """
         if index:
             is_multi = isinstance(df.index, pd.MultiIndex)
             original_index_names = (
                 list(df.index.names) if is_multi else [df.index.name]
             )
-            df = df.reset_index()
+            df = self._flatten_column_index(df.reset_index())
             if index_label is not None:
                 labels = (
                     [index_label] if isinstance(index_label, str)
@@ -5889,7 +5892,19 @@ class DataStore(PandasCompatMixin):
             # Drop a non-default index quietly — chDB's Python() adapter
             # ignores the index but downstream column counts must agree
             # with what DESCRIBE Python(df) reports above.
-            df = df.reset_index(drop=True)
+            df = self._flatten_column_index(df.reset_index(drop=True))
+        return df
+
+    @staticmethod
+    def _flatten_column_index(df: "pd.DataFrame") -> "pd.DataFrame":
+        """Join MultiIndex column levels with ``_``, skipping empty levels."""
+        if not isinstance(df.columns, pd.MultiIndex):
+            return df
+        df = df.copy(deep=False)
+        df.columns = [
+            "_".join(str(level) for level in col if level != "")
+            for col in df.columns
+        ]
         return df
 
     def _insert_dataframe_to_remote(

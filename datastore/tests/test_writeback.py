@@ -1085,6 +1085,26 @@ class TestToClickHouseLocalDataFrame:
         finally:
             _drop(target)
 
+    @pytest.mark.parametrize("index", [False, True])
+    def test_multiindex_columns_are_flattened(self, index):
+        """agg(['sum', 'max']) columns are written as amount_sum /
+        amount_max, the names the aggregation has in SQL."""
+        target = f"wb_localdf_multiindex_{int(index)}"
+        _drop(target)
+        try:
+            frame = _local_df()[["status", "amount"]]
+            DataStore(frame).groupby("status").agg(["sum", "max"]).to_clickhouse(
+                f"{DATABASE}.{target}",
+                host=HOST, user=USER, password=PASSWORD, index=index,
+            )
+            expected = frame.groupby("status").agg(["sum", "max"])
+            expected.columns = ["amount_sum", "amount_max"]
+            expected = expected.reset_index(drop=not index)
+            sort_key = "status" if index else "amount_sum"
+            _assert_written(target, expected, [sort_key])
+        finally:
+            _drop(target)
+
     def test_fail_when_target_exists_raises(self):
         target = "wb_localdf_exists"
         _drop(target)
