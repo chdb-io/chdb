@@ -106,11 +106,23 @@ def _op_effect(op) -> tuple:
     """
     ``(token, effect)`` of an op in a lineage, where ``effect`` says what it
     does to columns and rows without holding its data: ``("rows",)``,
-    ``("assign", column)``, ``("select", names, keeps_others)`` or
+    ``("assign", column)``, ``("select", names, keeps_others, computed)``,
+    ``("columns",)`` (drops or selects columns, keeping values and rows),
+    ``("values",)`` (keeps the rows, changes values of unknown columns) or
     ``("other",)``.
     """
     from .expressions import is_star_item, projection_name
-    from .lazy_ops import LazyAssignCallable, LazyColumnAssignment
+    from .lazy_ops import (
+        LazyAsType,
+        LazyAssignCallable,
+        LazyColumnAssignment,
+        LazyColumnSelection,
+        LazyDropColumns,
+        LazyFillNA,
+        LazyMask,
+        LazyRenameColumns,
+        LazyWhere,
+    )
 
     cached = op.__dict__.get("_provenance_effect")
     if cached is not None:
@@ -123,16 +135,21 @@ def _op_effect(op) -> tuple:
             fields = op.fields or []
             if any(is_star_item(f) for f in fields):
                 computed = frozenset(projection_name(f) for f in fields if not is_star_item(f))
-                effect = ("select", computed, True)
+                effect = ("select", computed, True, computed)
             else:
                 plain = frozenset(
                     f if isinstance(f, str) else f.name
                     for f in fields
                     if isinstance(f, str) or (isinstance(f, Field) and not f.alias)
                 )
-                effect = ("select", plain, False)
+                names = frozenset(projection_name(f) for f in fields)
+                effect = ("select", plain, False, names - plain)
     elif isinstance(op, (LazyColumnAssignment, LazyAssignCallable)):
         effect = ("assign", op.column)
+    elif isinstance(op, (LazyColumnSelection, LazyDropColumns)):
+        effect = ("columns",)
+    elif isinstance(op, (LazyAsType, LazyFillNA, LazyMask, LazyRenameColumns, LazyWhere)):
+        effect = ("values",)
     cached = op.__dict__["_provenance_effect"] = (_token(op), effect)
     return cached
 
@@ -147,10 +164,12 @@ def _columns_read(value) -> Optional[set]:
     if unknown.
     """
     from .column_expr import ColumnExpr
-    from .lazy_result import LazySeries
+    from .lazy_result import LazyCondition, LazySeries
 
     if isinstance(value, Expression):
         return {f.name for f in value.subtree() if isinstance(f, Field)}
+    if isinstance(value, LazyCondition):
+        return _columns_read(value.condition)
     if isinstance(value, LazySeries):
         if value._executor is not None:
             return None
@@ -178,23 +197,35 @@ def _columns_read(value) -> Optional[set]:
     return names
 
 
-def _keeps_read_columns(effect: tuple, reads: Optional[set], rowwise: bool) -> bool:
+def _keeps_read_columns(
+    effect: tuple, reads: Optional[set], rowwise: bool, values_only: bool = False
+) -> bool:
     """
     Whether an op with ``effect`` (see ``_op_effect``) keeps the values of the
     columns in ``reads`` (``None``: unknown columns) and, unless ``rowwise``,
-    the rows.
+    the rows. Unless ``values_only``, the columns must also still be there: a
+    projection or drop that leaves one out doesn't keep it.
     """
     kind = effect[0]
     if kind == "rows":
         return rowwise
+    if kind == "columns":
+        return values_only
     if reads is None:
         return False
     if kind == "assign":
         return effect[1] not in reads
     if kind == "select":
-        names, keeps_others = effect[1], effect[2]
-        return not reads & names if keeps_others else reads <= names
+        names, keeps_others, computed = effect[1], effect[2], effect[3]
+        if keeps_others or values_only:
+            return not reads & computed
+        return reads <= names
     return False
+
+
+def _keeps_rows(effect: tuple) -> bool:
+    """Whether an op with ``effect`` keeps the rows and their order."""
+    return effect[0] in ("select", "assign", "columns", "values")
 
 
 def _is_row_wise(value) -> bool:
@@ -1478,17 +1509,47 @@ class DataStore(PandasCompatMixin):
         source = getattr(value, "_datastore", None) if _is_lazy_value(value) else None
         if not isinstance(source, DataStore):
             return True
-        identity, frame_ops = self._lineage()
-        source_identity, ops = source._lineage()
-        if source_identity != identity:
-            return False
-        if frame_ops[: len(ops)] != ops:
+        later = self._ops_after(source)
+        if later is None:
             return False
         reads = _columns_read(value)
         rowwise = _is_row_wise(value)
-        return all(
-            _keeps_read_columns(effect, reads, rowwise) for _, effect in frame_ops[len(ops) :]
+        return all(_keeps_read_columns(effect, reads, rowwise) for effect in later)
+
+    def _filters_changed_values(self, condition) -> bool:
+        """
+        Whether a later op of this frame changed the values of a column that
+        ``condition``, taken from an earlier state of this pipeline, reads
+        (``d.assign(a=0)[d['a'] > 1]``). pandas filters by the values the
+        condition was taken with, aligned by index. A projection that drops a
+        column the condition reads keeps its values (``ds.select('a')
+        .filter(ds.c > 10)``). The condition is matched to the frame's rows
+        by position, so only a frame whose later ops keep the rows and their
+        order is filtered by it.
+        """
+        source = getattr(condition, "_datastore", None)
+        if not isinstance(source, DataStore):
+            return False
+        later = self._ops_after(source)
+        if not later or not all(_keeps_rows(effect) for effect in later):
+            return False
+        reads = _columns_read(condition)
+        return not all(
+            _keeps_read_columns(effect, reads, rowwise=True, values_only=True)
+            for effect in later
         )
+
+    def _ops_after(self, state: "DataStore") -> Optional[list]:
+        """
+        The effects (see ``_op_effect``) of the ops this pipeline applies
+        after ``state``, this pipeline's state or an earlier one; None if
+        ``state`` is neither.
+        """
+        identity, frame_ops = self._lineage()
+        state_identity, ops = state._lineage()
+        if state_identity != identity or frame_ops[: len(ops)] != ops:
+            return None
+        return [effect for _, effect in frame_ops[len(ops) :]]
 
     def _null_as_nan_inputs(self, expr) -> bool:
         """
@@ -6884,6 +6945,18 @@ class DataStore(PandasCompatMixin):
         from .lazy_result import LazyCondition
 
         if isinstance(condition, LazyCondition):
+            if self._filters_changed_values(condition):
+                # Taken before a column it reads was overwritten: evaluated
+                # on its own state.
+                self._track_operation(
+                    "pandas", "filter(condition_of_earlier_state)", {"lazy": True}
+                )
+                self._add_lazy_op(
+                    LazyRelationalOp(
+                        "PANDAS_FILTER", "earlier_state", condition=condition
+                    )
+                )
+                return self
             # Extract the underlying Condition for SQL generation
             condition = condition.condition
 
@@ -6892,8 +6965,14 @@ class DataStore(PandasCompatMixin):
         # we just need to check if _expr is already a Condition.
         if isinstance(condition, ColumnExpr):
             # Check if this is a method-mode ColumnExpr (e.g., cumsum() > 6, rank() > 3)
-            # These cannot be converted to SQL and need pandas-based filtering
-            if condition._exec_mode == "method" or condition._expr is None:
+            # These cannot be converted to SQL and need pandas-based filtering,
+            # as does a condition on values this frame no longer holds (taken
+            # before they were overwritten): it is evaluated on its own state.
+            if (
+                condition._exec_mode == "method"
+                or condition._expr is None
+                or self._filters_changed_values(condition)
+            ):
                 # For method-mode ColumnExpr, we need to execute it and use pandas filtering
                 # Add as a pandas filter operation
                 self._track_operation(

@@ -224,3 +224,79 @@ class TestAssignReadsInputColumns:
             d.assign(price=lambda x: x["qty"], qty=lambda x: x["price"] * 3),
             df.assign(price=lambda x: x["qty"], qty=lambda x: x["price"] * 3),
         )
+
+
+class TestColumnReadBeforeChange:
+    """#734: a column expression keeps the state of the frame it was read from."""
+
+    def test_cumsum_read_before_overwrite(self, source):
+        def chain(d):
+            c = d["a"].cumsum()
+            d["a"] = d["a"] * 0
+            d["z"] = c
+            return d
+
+        df = pd.DataFrame({"a": [1, 2, 3]})
+        assert_datastore_equals_pandas(chain(source(df)), chain(df.copy()))
+
+    def test_rowwise_read_before_overwrite(self, source):
+        def chain(d):
+            c = d["a"] + 1
+            d["a"] = d["a"] * 0
+            d["z"] = c * 2
+            return d
+
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        assert_datastore_equals_pandas(chain(source(df)), chain(df.copy()))
+
+    def test_read_before_unrelated_change(self, source):
+        def chain(d):
+            c = d["a"] + d["b"]
+            d["b2"] = d["b"] * 2
+            d["z"] = c
+            return d
+
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        assert_datastore_equals_pandas(chain(source(df)), chain(df.copy()))
+
+    def test_read_from_other_frame_before_its_change(self, source):
+        def chain(left, right):
+            c = right["a"] * 10
+            right["a"] = right["a"] * 0
+            left["z"] = c
+            return left
+
+        df = pd.DataFrame({"a": [1, 2, 3]})
+        assert_datastore_equals_pandas(
+            chain(source(df), source(df)), chain(df.copy(), df.copy())
+        )
+
+    def test_filter_condition_read_before_overwrite(self, source):
+        def chain(d):
+            keep = d["a"] > 1
+            d["a"] = d["a"] * 0
+            return d[keep]
+
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        assert_datastore_equals_pandas(chain(source(df)), chain(df.copy()))
+
+    def test_filter_condition_of_ancestor_before_overwrite(self, source):
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        d = source(df)
+        assert_datastore_equals_pandas(
+            d.assign(a=d["a"] * 0)[d["a"] > 1], df.assign(a=df["a"] * 0)[df["a"] > 1]
+        )
+
+    def test_isin_condition_read_before_overwrite(self, source):
+        def chain(d):
+            keep = d["a"].isin([2, 3])
+            d["a"] = d["a"] * 0
+            return d[keep]
+
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        assert_datastore_equals_pandas(chain(source(df)), chain(df.copy()))
+
+    def test_condition_read_before_projection(self, source):
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        d = source(df)
+        assert_datastore_equals_pandas(d[["b"]][d["a"] > 1], df[["b"]][df["a"] > 1])

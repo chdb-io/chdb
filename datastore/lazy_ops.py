@@ -1056,7 +1056,9 @@ class LazyRelationalOp(LazyOp):
                     len(result),
                 )
                 return result
-            if isinstance(self.condition, ColumnExpr):
+            from .lazy_result import LazyCondition
+
+            if isinstance(self.condition, (ColumnExpr, LazyCondition)):
                 # Set datastore for proper execution context
                 if self.condition._datastore is None:
                     self.condition._datastore = context
