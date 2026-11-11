@@ -161,6 +161,33 @@ jobs:
             done
           done
         continue-on-error: false
+      - name: Test the chdb package import
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          plain_pyenv_version() {
+            local pattern="${1//./\\.}"
+            pyenv versions --bare 2>/dev/null | grep -E "^${pattern}\.[0-9]+$" | tail -1
+          }
+
+          PYTHON_VERSION=""
+          for version in 3.12 3.11 3.13 3.10 3.9 3.14; do
+            candidate="$(plain_pyenv_version "$version")"
+            if [ -n "$candidate" ]; then
+              PYTHON_VERSION="$candidate"
+              break
+            fi
+          done
+          if [ -z "$PYTHON_VERSION" ]; then
+            echo "No suitable Python found; skipping the import tests"
+            exit 0
+          fi
+
+          pyenv shell "$PYTHON_VERSION"
+          python -m pip install dist/*.whl --force-reinstall
+          python -m pip install pytest
+          python -m pytest tests/test_import_cwd.py -v --tb=short
+        continue-on-error: false
       - name: Test chdb.durable (Durable V1 conformance)
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
