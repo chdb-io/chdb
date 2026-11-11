@@ -286,6 +286,17 @@ class TestOutputNamedLikeKey:
         d = make_source(self.FRAME, source_kind, tmp_path)
         assert_matches_pandas(chain(d), chain(self.FRAME))
 
+    @pytest.mark.parametrize("as_index", [True, False])
+    def test_hidden_name_unlike_every_key(self, source_kind, tmp_path, as_index):
+        frame = pd.DataFrame(
+            {"g": ["a", "a", "b"], "__key_g__": ["x", "y", "x"], "v": [1, 2, 3]}
+        )
+
+        def chain(d):
+            return d.groupby(["g", "__key_g__"], as_index=as_index).agg(g=("v", "sum"))
+
+        assert_matches_pandas(chain(make_source(frame, source_kind, tmp_path)), chain(frame))
+
     def test_performance_mode_result_has_no_hidden_key(self, source_kind, tmp_path):
         """Performance mode keeps the group keys as columns instead of the
         index; a key an output's name takes is dropped as with

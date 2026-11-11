@@ -1378,10 +1378,23 @@ class LazyGroupByAgg(LazyOp):
         The SQL result column of each group key: the key's name, or a hidden
         name when an aggregate output takes it (``agg(g=col('v').sum())``
         grouped by ``g``). pandas then keeps the key in the index, or drops
-        it with ``as_index=False``.
+        it with ``as_index=False``. A hidden name is unlike every key and
+        output name.
         """
         outputs = {name for name, _, _ in self.aggregate_outputs()}
-        return [f"__key_{key}__" if key in outputs else key for key in self.groupby_cols]
+        taken = set(self.groupby_cols) | outputs
+        columns = []
+        for key in self.groupby_cols:
+            column = key
+            if key in outputs:
+                column = f"__key_{key}__"
+                suffix = 1
+                while column in taken:
+                    column = f"__key_{key}_{suffix}__"
+                    suffix += 1
+                taken.add(column)
+            columns.append(column)
+        return columns
 
     def hidden_key_columns(self) -> List[str]:
         """Key columns under a hidden name; only execution reads them, to
