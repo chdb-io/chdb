@@ -429,6 +429,32 @@ class TestDuplicateColumnsInOneSelect:
         assert result.values.tolist() == df[["a", "b"]][["b", "b"]].values.tolist()
 
 
+class TestMaskAfterProjectionAndPandasStep:
+    """A filter reads the columns entering the step that runs it, also when
+    an earlier step (an unbounded sort) runs apart, in pandas."""
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            lambda d, m: d.select("b").sort("b").select("b").filter(m)
+            if isinstance(d, DataStore)
+            else d[["b"]].sort_values("b")[["b"]][m],
+            lambda d, m: d.select("b").sort("b").filter(m)
+            if isinstance(d, DataStore)
+            else d[["b"]].sort_values("b")[m],
+            lambda d, m: d[["b"]].sort_values("b")[["b"]].where(m, 0),
+        ],
+        ids=["select_sort_select_filter", "select_sort_filter", "select_sort_select_where"],
+    )
+    def test_chain(self, source, chain):
+        df = _frame()
+        d = source(df)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            expected = chain(df, df["a"] > 2)
+        assert_datastore_equals_pandas(chain(d, d["a"] > 2), expected)
+
+
 class TestMaskArgumentOfSeriesMethod:
     """A mask or column passed to a Series method stays a Series, also with
     one row, and a mask computed in pandas is applied by mask() as by

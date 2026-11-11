@@ -1577,12 +1577,17 @@ class DataStore(PandasCompatMixin):
     ) -> bool:
         """
         Whether the frame can read the columns in ``reads`` where it applies
-        ``mask``, given the ``later`` effects since the mask's state. A later
-        projection or drop may leave them out; a ``where_clause`` (a filter)
-        reads the columns entering its SQL layer, which include the ones a
-        select() projection in that layer leaves out, as SQL filters the
-        projection's input (``ds.select('a').filter(ds.c > 10)``).
+        ``mask``, given the ``later`` effects since the mask's state. Only a
+        later projection or drop can leave them out; then the step that runs
+        the filter (``where_clause``) or the where/mask added now must still
+        have them in its input (see ``_columns_entering``). A filter in a
+        projection's SQL layer reads the projection's input
+        (``ds.select('a').filter(ds.c > 10)``); one after a step that runs
+        apart, such as an unbounded sort run in pandas, reads its output.
         """
+        from .lazy_ops import LazyWhere
+        from .lazy_result import LazyCondition
+
         removes = [
             effect
             for effect in later
@@ -1592,59 +1597,15 @@ class DataStore(PandasCompatMixin):
             return True
         if reads is None:
             return False
-        if where_clause and all(effect[0] == "select" for effect in removes):
-            return self._filter_reads(reads, mask)
-        try:
-            return reads <= set(self._get_current_columns())
-        except Exception:
-            return False
-
-    def _filter_reads(self, reads: set, mask) -> bool:
-        """
-        Whether a filter by ``mask`` added now reads the columns in
-        ``reads``: they enter the SQL layer the planner puts it in, which is
-        the source's columns for the first layer and the columns the earlier
-        layers output otherwise (an earlier projection may have left them
-        out). Only filters may follow the pipeline's last projection: another
-        op (a sort or limit) may run in pandas, on the projected rows.
-        """
-        from .expressions import is_star_item
-        from .lazy_result import LazyCondition
-        from .query_planner import QueryPlanner
-
-        def projects(op):
-            return (
-                isinstance(op, LazyRelationalOp)
-                and op.op_type == "SELECT"
-                and op.fields
-                and not any(is_star_item(f) for f in op.fields)
-            )
-
-        ops = list(self._lazy_ops)
-        last = next((i for i in range(len(ops) - 1, -1, -1) if projects(ops[i])), None)
-        if last is None or not all(
-            isinstance(op, LazyRelationalOp) and op.op_type == "WHERE"
-            for op in ops[last + 1 :]
-        ):
-            return False
         condition = mask.condition if isinstance(mask, LazyCondition) else mask._expr
-        probe = LazyRelationalOp("WHERE", "probe", condition=condition)
-        layers = QueryPlanner()._build_layers(ops + [probe])
-        before = [op for layer in layers[:-1] for op in layer]
-        if not before:
+        probe = (
+            LazyRelationalOp("WHERE", "probe", condition=condition)
+            if where_clause
+            else LazyWhere(condition, 0)
+        )
+        first, columns, known = self._columns_entering(list(self._lazy_ops) + [probe], probe)
+        if first:
             return True
-        try:
-            columns = (
-                list(self._source_df.columns)
-                if self._source_df is not None
-                else list(self._get_all_column_names())
-            )
-        except Exception:
-            columns = []
-        known = bool(columns)
-        for op in before:
-            known = known or projects(op)
-            columns = op.transform_columns(columns)
         return known and reads <= set(columns)
 
     def _ops_after(self, state: "DataStore") -> Optional[list]:
@@ -2348,10 +2309,10 @@ class DataStore(PandasCompatMixin):
         sql_engine = SQLExecutionEngine(self)
         return sql_engine.build_sql_from_plan(first_segment.plan, schema)
 
-    def _plan_segments(self):
+    def _plan_segments(self, ops: Optional[list] = None):
         """
-        ``(execution plan, schema)``: the lazy ops split into SQL and pandas
-        steps as ``_execute()`` splits them for this SQL source.
+        ``(execution plan, schema)``: the lazy ops (or ``ops``) split into
+        SQL and pandas steps as ``_execute()`` splits them.
 
         When the source's schema can't be discovered (the source is
         unreachable), the plan is made with an unknown schema, as the planner
@@ -2370,12 +2331,63 @@ class DataStore(PandasCompatMixin):
             self._table_function, PythonTableFunction
         )
         exec_plan = QueryPlanner().plan_segments(
-            self._lazy_ops,
-            has_sql_source=True,
+            self._lazy_ops if ops is None else ops,
+            has_sql_source=bool(
+                self._table_function or self.table_name or self._source_df is not None
+            ),
             schema=schema,
             local_source=local_source,
         )
         return exec_plan, schema
+
+    def _columns_entering(self, ops: list, target) -> Tuple[bool, List[str], bool]:
+        """
+        ``(first, columns, known)`` for the op ``target`` of ``ops`` as
+        ``_execute()`` runs them: ``columns`` the columns entering the step
+        that runs it (the SQL layer it is in, or the op itself in a pandas
+        step), which an earlier projection or drop may have left out;
+        ``first`` when that step reads the source directly; ``known`` when
+        the columns are known (the source's schema, or an explicit
+        projection before the step).
+        """
+        from .expressions import is_star_item
+
+        exec_plan = self._plan_segments(ops)[0]
+        before = []
+        found = False
+        for segment in exec_plan.segments:
+            units = (
+                segment.plan.layers
+                if segment.is_sql() and segment.plan is not None and segment.plan.layers
+                else [[op] for op in segment.ops]
+            )
+            for unit in units:
+                if any(op is target for op in unit):
+                    found = True
+                    break
+                before.extend(unit)
+            if found:
+                break
+        if not before:
+            return True, [], False
+        try:
+            columns = (
+                list(self._source_df.columns)
+                if self._source_df is not None
+                else list(self._get_all_column_names())
+            )
+        except Exception:
+            columns = []
+        known = bool(columns)
+        for op in before:
+            known = known or (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "SELECT"
+                and bool(op.fields)
+                and not any(is_star_item(f) for f in op.fields)
+            )
+            columns = op.transform_columns(columns)
+        return False, columns, known
 
     def _runs_as_one_query(self) -> bool:
         """
