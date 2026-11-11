@@ -268,10 +268,10 @@ class QueryPlanner:
           (WHERE, ORDER BY, computed expression) or computes. Within one
           SELECT, ClickHouse binds every reference to a name to that
           SELECT's alias, so the earlier op would see the new value.
-        - A column assignment (``LazyColumnAssignment`` or an
-          assignment-style ``SELECT *, expr``) follows a LazyGroupByAgg:
-          it computes on the aggregated rows, while in the GROUP BY layer
-          its fields would be taken as the aggregation targets.
+        - Any op follows a LazyGroupByAgg. The aggregation is a closed
+          step whose output is exactly its result rows (group keys and
+          aggregates); everything after it reads those rows from a
+          subquery, as pandas reads the aggregated frame.
         - An op computes an expression that reads a column computed in the
           same layer. ClickHouse inlines an alias wherever it is referenced,
           so chains of aliases referencing aliases grow the query tree
@@ -394,7 +394,9 @@ class QueryPlanner:
                 _open_layer_with(op)
 
         for op in ops:
-            if isinstance(op, LazyRelationalOp):
+            if seen_groupby:
+                _start_new_layer_with(op)
+            elif isinstance(op, LazyRelationalOp):
                 needs_new_layer = False
 
                 if op.op_type == "WHERE" and (seen_limit or seen_offset):
@@ -410,17 +412,6 @@ class QueryPlanner:
                 elif op.op_type == "LIMIT" and seen_limit:
                     # Second LIMIT means chained limits like [:50][:20]
                     # The second limit operates on the result of the first
-                    needs_new_layer = True
-                elif (
-                    seen_groupby
-                    and op.op_type == "SELECT"
-                    and (
-                        not _is_pure_projection_select(op)
-                        or self._computed_columns_of(op)
-                    )
-                ):
-                    # Assignment after an aggregation computes on its result,
-                    # also when it overwrites a column in an explicit projection
                     needs_new_layer = True
                 elif _is_pure_projection_select(op):
                     proj_fields = _projection_field_names(op)
@@ -440,10 +431,7 @@ class QueryPlanner:
 
             elif isinstance(op, LazyColumnAssignment):
                 # Column assignment after LIMIT/OFFSET needs special handling
-                if seen_groupby:
-                    # Assignment after an aggregation computes on its result
-                    _start_new_layer_with(op)
-                elif seen_limit or seen_offset:
+                if seen_limit or seen_offset:
                     # Track the column for dependency checking
                     computed_columns_after_limit.add(op.column)
                     # Queue the assignment to be added before any dependent WHERE/ORDER BY

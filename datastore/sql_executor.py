@@ -851,6 +851,10 @@ class SQLExecutionEngine:
         preserved_orderby: Optional[List[Tuple[Any, bool]]] = None,
         preserved_orderby_kind: Optional[str] = None,
         star_except: Optional[List[str]] = None,
+        group_position: Optional[str] = None,
+        expose_group_position: bool = False,
+        input_position: Optional[Expression] = None,
+        orderby_tiebreak: Optional[List[Tuple[Any, bool]]] = None,
     ) -> "LayerBuildResult":
         """
         Build SQL for a single nested-subquery layer (unified entry point).
@@ -893,6 +897,16 @@ class SQLExecutionEngine:
             preserved_orderby_kind: Sort kind for stable sort detection.
             star_except: Inherited columns a ``*`` of this layer leaves out
                 (wrapper layers only).
+            group_position: Name of the aggregation's group position: the
+                rank of each group in the aggregation's row order (by key
+                when ``sort=True``, by first appearance in the input when
+                ``sort=False``).
+            expose_group_position: Whether the layer outputs the group
+                position, so outer layers can keep the aggregation's order.
+            input_position: Position of each input row in the input's order;
+                the first appearance of a group is its smallest position.
+            orderby_tiebreak: Sort keys appended to this layer's ORDER BY so
+                ties keep the input's order (a stable sort).
 
         Returns:
             LayerBuildResult containing the SQL text and every temp alias
@@ -903,6 +917,11 @@ class SQLExecutionEngine:
 
         groupby_agg_op, where_ops = self._extract_special_ops_from_layer(layer_ops)
         clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
+        if orderby_tiebreak and clauses.orderby_fields:
+            clauses.orderby_fields = list(clauses.orderby_fields) + list(
+                orderby_tiebreak
+            )
+            clauses.orderby_kind = None
 
         # 1) Split WHEREs by GroupByAgg position (pre-agg -> WHERE, post-agg
         # -> HAVING). ``_split_wheres_by_groupby_position`` re-reads from
@@ -1024,17 +1043,39 @@ class SQLExecutionEngine:
                     for c in having_conditions
                 ]
 
-            if groupby_agg_op.sort and not clauses.orderby_fields:
-                clauses.orderby_fields = [
-                    (Field(col), True) for col in groupby_agg_op.groupby_cols
-                ]
+            from .functions import AggregateFunction, Function, WindowFunction
+
+            key_order = [(Field(col), True) for col in groupby_agg_op.groupby_cols]
+            if group_position is not None:
+                if groupby_agg_op.sort:
+                    position_expr = WindowFunction(
+                        "row_number", alias=group_position
+                    ).over(
+                        order_by=[
+                            _SQLText(build_orderby_clause(key_order, self.quote_char))
+                        ]
+                    )
+                else:
+                    position_expr = AggregateFunction(
+                        "min",
+                        input_position
+                        if input_position is not None
+                        else Function("rowNumberInAllBlocks"),
+                        alias=group_position,
+                    )
+                select_fields_for_sql = select_fields_for_sql + [position_expr]
+            if not clauses.orderby_fields:
+                if groupby_agg_op.sort:
+                    clauses.orderby_fields = key_order
+                elif group_position is not None:
+                    clauses.orderby_fields = [(Field(group_position), True)]
             # GROUP BY reshapes rows; inner-layer ORDER BY no longer applies.
             preserved_orderby = None
             preserved_orderby_kind = None
 
             # ORDER BY / LIMIT / OFFSET bind to user-visible names, so they
             # move to the outer projection that renames the temp aliases.
-            if emitted_renames:
+            if emitted_renames or group_position is not None:
                 agg_outer_clauses = ExtractedClauses(
                     orderby_fields=clauses.orderby_fields,
                     orderby_kind=clauses.orderby_kind,
@@ -1111,7 +1152,15 @@ class SQLExecutionEngine:
 
         if agg_outer_clauses is not None:
             sql = self._wrap_agg_temp_aliases(
-                sql, select_fields_for_sql, emitted_renames, agg_outer_clauses
+                sql,
+                select_fields_for_sql,
+                emitted_renames,
+                agg_outer_clauses,
+                hidden=(
+                    {group_position}
+                    if group_position is not None and not expose_group_position
+                    else set()
+                ),
             )
 
         # Temp aliases this layer used internally. Empty when the layer has
@@ -1127,6 +1176,7 @@ class SQLExecutionEngine:
         select_fields: List[Expression],
         temp_to_visible: Dict[str, str],
         outer_clauses: ExtractedClauses,
+        hidden: Set[str] = frozenset(),
     ) -> str:
         """
         Project an aggregation layer's temp aliases back to their visible names.
@@ -1136,7 +1186,8 @@ class SQLExecutionEngine:
         WHERE or in other aggregate arguments. The aggregation therefore emits
         ``AS __agg_price__`` and this projection restores ``price`` in SQL,
         so execution, ``to_sql()``, explain and server-side writeback all see
-        the same columns.
+        the same columns. ``hidden`` outputs are left out of the projection;
+        the ORDER BY may still read them.
         """
         qc = self.quote_char
         projection = []
@@ -1147,6 +1198,8 @@ class SQLExecutionEngine:
                     f"Cannot project unnamed aggregation output: {f!r}"
                 )
             name = name.strip(qc)
+            if name in hidden:
+                continue
             visible = temp_to_visible.get(name)
             if visible is None:
                 projection.append(format_identifier(name, qc))
@@ -2194,11 +2247,24 @@ class SQLExecutionEngine:
         # next layer keeps also outputs the sorted row position under a
         # hidden alias, and outer layers order by that position. Hidden
         # columns in the current output; the last layer leaves them out.
-        from .functions import WindowFunction
+        # An aggregation orders its groups by key, or by first appearance
+        # with ``sort=False``, and outputs that rank as a hidden group
+        # position when outer layers follow: they keep the order by it and a
+        # sort breaks ties with it. Its group keys become the index, so outer
+        # projections keep them.
+        from .functions import Function, WindowFunction
 
         hidden_columns: List[str] = []
         taken_names: set = set(source_columns or [])
         last_idx = len(layers) - 1
+        index_keys: List[str] = []
+        aggs = [self._extract_special_ops_from_layer(l)[0] for l in layers]
+        first_agg_idx = next(
+            (i for i, agg in enumerate(aggs) if agg is not None), None
+        )
+        # A first-appearance order over a subquery needs the source row
+        # position, which only the first layer can read.
+        needs_row_position = bool(first_agg_idx) and not aggs[first_agg_idx].sort
 
         for layer_idx, layer_ops in enumerate(layers):
             is_first = layer_idx == 0
@@ -2207,12 +2273,27 @@ class SQLExecutionEngine:
                 if is_first
                 else f"({sql}) AS __subq{layer_idx}__"
             )
-            layer_has_agg = any(isinstance(o, LazyGroupByAgg) for o in layer_ops)
+            layer_agg = aggs[layer_idx]
+            layer_has_agg = layer_agg is not None
             layer_orderby, layer_orderby_kind = (
                 (None, None)
                 if layer_has_agg
                 else self._layer_orderby(layer_ops)
             )
+            # The input's order, when an inner layer outputs it as a position.
+            input_position = None
+            if (
+                preserved_orderby
+                and len(preserved_orderby) == 1
+                and isinstance(preserved_orderby[0][0], Field)
+                and preserved_orderby[0][0].name in hidden_columns
+            ):
+                input_position = Field(preserved_orderby[0][0].name)
+            orderby_tiebreak = None
+            if layer_orderby and input_position is not None:
+                orderby_tiebreak = [(input_position, True)]
+                layer_orderby = list(layer_orderby) + orderby_tiebreak
+                layer_orderby_kind = None
 
             # Derive per-layer select fields so each layer only emits its
             # own projection. The caller-supplied ``sql_select_fields``
@@ -2246,14 +2327,25 @@ class SQLExecutionEngine:
                 for name, _ in (preserved_orderby or [])
                 if isinstance(name, Field) and name.name in hidden_columns
             ]
+            group_position = None
             if layer_has_agg:
                 hidden_columns = []
+                if not is_last or not layer_agg.sort:
+                    group_position = self._unique_hidden_name(
+                        "__group_pos__", taken_names
+                    )
+                    if not is_last:
+                        hidden_columns.append(group_position)
             elif projects:
                 hidden_columns = []
                 if not is_last and not layer_orderby:
                     for f in carried:
                         effective_select_fields.append(Field(f.name))
                         hidden_columns.append(f.name)
+                projected = {projection_name(f) for f in effective_select_fields}
+                effective_select_fields.extend(
+                    Field(key) for key in index_keys if key not in projected
+                )
 
             sort_position = None
             if (
@@ -2276,6 +2368,16 @@ class SQLExecutionEngine:
                     effective_has_assignments = True
                 hidden_columns.append(sort_position)
 
+            row_position = None
+            if is_first and needs_row_position and not layer_orderby:
+                row_position = self._unique_hidden_name("__row_pos__", taken_names)
+                effective_select_fields.append(
+                    Function("rowNumberInAllBlocks", alias=row_position)
+                )
+                if not projects:
+                    effective_has_assignments = True
+                hidden_columns.append(row_position)
+
             star_except = None
             if is_last and not projects and hidden_columns:
                 star_except = list(hidden_columns)
@@ -2293,19 +2395,31 @@ class SQLExecutionEngine:
                     preserved_orderby_kind if not is_first else None
                 ),
                 star_except=star_except,
+                group_position=group_position,
+                expose_group_position=not is_last,
+                input_position=input_position,
+                orderby_tiebreak=orderby_tiebreak,
             )
             sql = result.sql
             alias_renames.update(result.renames_introduced)
 
             if layer_has_agg:
-                preserved_orderby = None
+                preserved_orderby = (
+                    [(Field(group_position), True)] if not is_last else None
+                )
                 preserved_orderby_kind = None
+                index_keys = (
+                    list(layer_agg.groupby_cols) if layer_agg.as_index else []
+                )
             elif sort_position is not None:
                 preserved_orderby = [(Field(sort_position), True)]
                 preserved_orderby_kind = None
             elif layer_orderby:
                 preserved_orderby = layer_orderby
                 preserved_orderby_kind = layer_orderby_kind
+            elif row_position is not None:
+                preserved_orderby = [(Field(row_position), True)]
+                preserved_orderby_kind = None
 
         return sql
 
@@ -2317,11 +2431,12 @@ class SQLExecutionEngine:
         return layer_clauses.orderby_fields, layer_clauses.orderby_kind
 
     def _keeps_inner_order(self, layer_ops: List[LazyOp]) -> bool:
-        """Whether a layer re-applies its input's order: it neither sorts
-        nor aggregates."""
-        if any(isinstance(o, LazyGroupByAgg) for o in layer_ops):
-            return False
-        return not extract_clauses_from_ops(layer_ops, self.quote_char).orderby_fields
+        """Whether a layer reads its input's order: it keeps it, breaks sort
+        ties by it, or aggregates in order of first appearance."""
+        agg = self._extract_special_ops_from_layer(layer_ops)[0]
+        if agg is not None:
+            return not agg.sort
+        return True
 
     @staticmethod
     def _unique_hidden_name(base: str, taken: set) -> str:
