@@ -814,12 +814,9 @@ class ColumnExpr:
         """Execute method mode - call method on source result."""
         from .expressions import Field
 
-        # Execute any ColumnExpr in args or kwargs; an operator's operand
-        # stays a Series, which pandas aligns by index
-        operator = self._method_name.startswith("__") and self._method_name.endswith("__")
-        args = tuple(
-            self._execute_if_needed(arg, as_operand=operator) for arg in self._method_args
-        )
+        # Execute any ColumnExpr in args or kwargs; a column argument stays
+        # a Series, which pandas aligns by index
+        args = tuple(self._execute_if_needed(arg) for arg in self._method_args)
         kwargs = {k: self._execute_if_needed(v) for k, v in self._method_kwargs.items()}
 
         # Handle groupby + agg scenario: df.groupby('col')['value'].agg(['sum', 'mean'])
@@ -1450,15 +1447,13 @@ class ColumnExpr:
         """Execute executor mode - call the custom executor (DEPRECATED)."""
         return self._executor()
 
-    def _execute_if_needed(self, value: Any, as_operand: bool = False) -> Any:
-        """Execute ColumnExpr and LazyCondition arguments if needed; a
-        single-value Series argument becomes a scalar unless it is an
-        operator's operand."""
+    def _execute_if_needed(self, value: Any) -> Any:
+        """Execute ColumnExpr and LazyCondition arguments if needed. A column
+        argument stays a Series even when it has one row (a one-row mask or
+        fill value for where/mask/fillna, an operand aligned by index); a
+        scalar value such as an aggregation already executes to a scalar."""
         if isinstance(value, (ColumnExpr, LazyCondition)):
-            result = value._execute()
-            if not as_operand and isinstance(result, pd.Series) and len(result) == 1:
-                return result.iloc[0]
-            return result
+            return value._execute()
         return value
 
     def to_pandas(self) -> pd.Series:
@@ -3700,6 +3695,53 @@ class ColumnExpr:
         return ColumnExpr(
             source=self,
             method_name="where",
+            method_args=(cond,),
+            method_kwargs=dict(other=other, axis=axis, level=level),
+        )
+
+    def mask(
+        self, cond, other=pd.NA, inplace=False, axis=None, level=None
+    ) -> "ColumnExpr":
+        """
+        Replace values where the condition is True (lazy).
+
+        A condition expression of this state is computed in SQL, as
+        ``if(cond, other, x)``. A condition without one (a value computed in
+        pandas, such as ``s.cumsum() > 2``) or of another state is evaluated
+        on its own state and applied in pandas, as ``where()`` is.
+
+        Example:
+            >>> ds['age'].mask(ds['age'] > 30, 0)
+        """
+        from .conditions import Condition
+        from .expressions import Expression
+
+        if isinstance(cond, LazyCondition) and not self._is_cross_datastore(cond):
+            condition = cond.condition
+        elif (
+            isinstance(cond, ColumnExpr)
+            and not cond._evaluated_in_pandas()
+            and not self._is_cross_datastore(cond)
+        ):
+            condition = cond._expr
+        elif isinstance(cond, Condition):
+            condition = cond
+        else:
+            condition = None
+        if (
+            condition is not None
+            and not self._evaluated_in_pandas()
+            and axis is None
+            and level is None
+            and (other is pd.NA or pd.api.types.is_scalar(other))
+        ):
+            from .functions import Function
+
+            replacement = Expression.wrap(None if other is pd.NA else other)
+            return self._derive_expr(Function("if", condition, replacement, self._expr))
+        return ColumnExpr(
+            source=self,
+            method_name="mask",
             method_args=(cond,),
             method_kwargs=dict(other=other, axis=axis, level=level),
         )

@@ -427,3 +427,26 @@ class TestDuplicateColumnsInOneSelect:
         d = source(df).select("a", "b").select("b", "b")
         result = d.to_pandas()
         assert result.values.tolist() == df[["a", "b"]][["b", "b"]].values.tolist()
+
+
+class TestMaskArgumentOfSeriesMethod:
+    """A mask or column passed to a Series method stays a Series, also with
+    one row, and a mask computed in pandas is applied by mask() as by
+    where()."""
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda s: s.where(s.isin([1]), 0),
+            lambda s: s.where(s.cumsum() > 0, 0),
+            lambda s: s.mask(s.isin([1]), 9),
+            lambda s: s.mask(s.cumsum() > 0, 9),
+            lambda s: s.fillna(s * 2),
+        ],
+        ids=["where_isin", "where_cumsum", "mask_isin", "mask_cumsum", "fillna_series"],
+    )
+    @pytest.mark.parametrize("values", [[1], [1, 2, 3]], ids=["one_row", "three_rows"])
+    def test_call(self, source, call, values):
+        df = pd.DataFrame({"x": values})
+        d = source(df)
+        pd.testing.assert_series_equal(call(d["x"]).to_pandas(), call(df["x"]), check_names=False)
