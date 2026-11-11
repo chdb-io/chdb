@@ -24,6 +24,10 @@ def assert_matches_pandas(ds_result, expected):
 def make_source(frame, kind, tmp_path):
     if kind == "dataframe":
         return DataStore(frame.copy())
+    if kind == "csv":
+        path = str(tmp_path / "src.csv")
+        frame.to_csv(path, index=False)
+        return DataStore.from_file(path)
     path = str(tmp_path / "src.parquet")
     frame.to_parquet(path)
     return DataStore.from_file(path)
@@ -354,6 +358,41 @@ class TestSeriesAndSizeAggregation:
         )
         d = make_source(frame, source_kind, tmp_path)
         result, expected = chain(d), chain(frame)
+        if isinstance(expected, pd.Series):
+            assert_series_equal(result, expected)
+        else:
+            assert_matches_pandas(result, expected)
+
+
+class TestComputedGroupKey:
+    """A group key overwritten with a computed value is grouped by that
+    value, also when it replaces a source column."""
+
+    FRAME = pd.DataFrame({"k": ["a", "b", "a", "c"], "b": [1, 2, 3, 4]})
+
+    @pytest.mark.parametrize(
+        "chain",
+        [
+            pytest.param(lambda d: d.groupby("k")["b"].sum(), id="series_sum"),
+            pytest.param(lambda d: d.groupby("k")["b"].mean(), id="series_mean"),
+            pytest.param(lambda d: d.groupby("k").size(), id="size"),
+            pytest.param(lambda d: d.groupby("k").agg({"b": "sum"}), id="dict"),
+            pytest.param(
+                lambda d: d.groupby("k", sort=False).agg({"b": "sum"}).sort_values("b"),
+                id="sort_false_then_sort",
+            ),
+            pytest.param(
+                lambda d: d.groupby("k", as_index=False).agg(t=("b", "max")),
+                id="as_index_false",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("kind", ["dataframe", "file", "csv"])
+    def test_overwritten_key(self, kind, tmp_path, chain):
+        def upper_key(d):
+            return chain(d.assign(k=d["k"].str.upper()))
+
+        result, expected = upper_key(make_source(self.FRAME, kind, tmp_path)), upper_key(self.FRAME)
         if isinstance(expected, pd.Series):
             assert_series_equal(result, expected)
         else:

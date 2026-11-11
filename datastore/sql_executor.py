@@ -520,19 +520,11 @@ def build_groupby_select_fields(
             sql_func = map_agg_func(func)
             return AggregateFunction(sql_func, col_expr)
 
-    # Build GROUP BY fields
-    # Use resolve_column to expand computed columns in groupby keys
-    groupby_fields = []
-    for col, column in zip(groupby_agg.groupby_cols, groupby_agg.key_columns()):
-        col_expr = resolve_column(col)
-        # A computed key, or one whose name an aggregate output takes, is
-        # aliased to its result column
-        if col in computed_columns or column != col:
-            col_expr = col_expr.as_(column)
-        groupby_fields.append(col_expr)
-
-    # Build SELECT fields with aggregations
-    select_fields = list(groupby_fields)  # Include group keys
+    # Group keys, expanded when computed, with their result columns
+    keys = [
+        (resolve_column(col), column, col in computed_columns)
+        for col, column in zip(groupby_agg.groupby_cols, groupby_agg.key_columns())
+    ]
 
     outputs = groupby_agg.aggregate_outputs(all_columns)
     if groupby_agg.expr_agg:
@@ -545,18 +537,39 @@ def build_groupby_select_fields(
             create_agg_expr(func, None if col is None else resolve_column(col))
             for _, func, col in outputs
         ]
-    taken = set(reserved_names or ()) | {name for name, _, _ in outputs}
-    for expr in groupby_fields + agg_exprs:
+    taken = (
+        set(reserved_names or ())
+        | {name for name, _, _ in outputs}
+        | {column for _, column, _ in keys}
+    )
+    for expr in [expr for expr, _, _ in keys] + agg_exprs:
         taken |= _referenced_identifiers(expr)
-    for (name, _, _), agg_expr in zip(outputs, agg_exprs):
-        temp_alias = f"__agg_{name}__"
+
+    def temp_alias_for(stem: str, name: str) -> str:
+        temp_alias = f"__{stem}_{name}__"
         suffix = 1
         while temp_alias in taken:
-            temp_alias = f"__agg_{name}_{suffix}__"
+            temp_alias = f"__{stem}_{name}_{suffix}__"
             suffix += 1
         taken.add(temp_alias)
-        agg_expr.alias = temp_alias
         emitted_renames[temp_alias] = name
+        return temp_alias
+
+    # A computed key is also emitted under a temp alias: ``upper(k) AS k``
+    # would make the ``k`` of ``GROUP BY upper(k)`` resolve to the alias.
+    # A key whose name an aggregate output takes is aliased to its hidden
+    # result column.
+    groupby_fields = []
+    for expr, column, computed in keys:
+        if computed:
+            expr = expr.as_(temp_alias_for("key", column))
+        elif column != expr.name:
+            expr = expr.as_(column)
+        groupby_fields.append(expr)
+
+    select_fields = list(groupby_fields)
+    for (name, _, _), agg_expr in zip(outputs, agg_exprs):
+        agg_expr.alias = temp_alias_for("agg", name)
         select_fields.append(agg_expr)
 
     if (
@@ -872,13 +885,20 @@ class SQLExecutionEngine:
 
             key_columns = groupby_agg_op.key_columns()
             key_order = [(Field(col), True) for col in key_columns]
+            # Inside the GROUP BY query a renamed key has its temp alias
+            inner_name = {visible: temp for temp, visible in emitted_renames.items()}
+            inner_key_order = [
+                (Field(inner_name.get(col, col)), True) for col in key_columns
+            ]
             if group_position is not None:
                 if groupby_agg_op.sort:
                     position_expr = WindowFunction(
                         "row_number", alias=group_position
                     ).over(
                         order_by=[
-                            _SQLText(build_orderby_clause(key_order, self.quote_char))
+                            _SQLText(
+                                build_orderby_clause(inner_key_order, self.quote_char)
+                            )
                         ]
                     )
                 else:
