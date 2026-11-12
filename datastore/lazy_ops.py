@@ -201,6 +201,7 @@ class LazyColumnAssignment(LazyOp):
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute column assignment using unified ExpressionEvaluator."""
+        from .column_expr import ColumnExpr
         from .expression_evaluator import ExpressionEvaluator
 
         self._log_execute("ColumnAssignment", f"column='{self.column}'")
@@ -209,6 +210,9 @@ class LazyColumnAssignment(LazyOp):
         if self.reads_frame:
             # Use unified expression evaluator (respects function_config)
             value = ExpressionEvaluator(df, context).evaluate(self.expr)
+        elif isinstance(self.expr, Expression):
+            # e.g. a CASE built on another state: evaluated on that state
+            value = ColumnExpr(expr=self.expr, datastore=self.expr._datastore)._execute()
         else:
             value = self.expr._execute()
 
