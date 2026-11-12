@@ -2621,6 +2621,8 @@ class LazyJoin(LazyOp):
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute pandas merge."""
+        from .pandas_compat import _pandas_merge
+
         self._log_execute("Join", f"how='{self.how}', on={self.on}")
         left_rows = len(df)
 
@@ -2632,7 +2634,7 @@ class LazyJoin(LazyOp):
 
         right_rows = len(right_df)
 
-        result = pd.merge(
+        result = _pandas_merge(
             df,
             right_df,
             on=self.on,
