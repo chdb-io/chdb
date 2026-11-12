@@ -152,12 +152,6 @@ def format_identifier(name: str, quote_char: str = '"') -> str:
     return name
 
 
-# ========== Sort Stability Constants and Functions ==========
-# These ensure DataStore sort matches pandas stable sort (kind='stable') behavior
-
-# Tie-breaker for stable sort to preserve original row order when sort keys have duplicates.
-# For Python() table function: connection.py replaces this with _row_id at execution time
-# For file sources (Parquet, CSV): rowNumberInAllBlocks() works correctly as-is
 # Pre-filter row number injected as ``SELECT *, <expr> AS <alias>``.
 # Callers detect this SQL by the ``__orig_row_num__`` substring, so a
 # collision suffix must keep that substring (extra trailing underscores).
@@ -179,6 +173,12 @@ def row_order_alias(column_names) -> str:
     return name
 
 
+# ========== Sort Stability Constants and Functions ==========
+# These ensure DataStore sort matches pandas stable sort (kind='stable') behavior
+
+# Tie-breaker for stable sort to preserve original row order when sort keys have duplicates.
+# For Python() table function: connection.py replaces this with _row_id at execution time
+# For file sources (Parquet, CSV): rowNumberInAllBlocks() works correctly as-is
 STABLE_SORT_TIEBREAKER = "rowNumberInAllBlocks() ASC"
 
 # Sort kinds that guarantee stability (matching pandas behavior)
