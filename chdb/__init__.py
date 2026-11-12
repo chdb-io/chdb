@@ -12,7 +12,7 @@ import os
 import threading
 import importlib
 import atexit
-import weakref
+import gc
 
 _this_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -93,32 +93,24 @@ else:
 # C++ static destruction, after the thread pools it needs are destroyed (heap
 # corruption and SIGABRT on macOS, chdb-io/chdb-core#254). Python's atexit
 # handlers run before that, so close whatever is still open there. Every
-# engine connection, including chdb.connect(), Session and DataStore, is
-# created through _chdb.connect. Not needed once chdb-core >= 26.11 is required.
-_open_connections = weakref.WeakSet()
-_open_connections_lock = threading.Lock()
-_engine_connect = _chdb.connect
-
-
-def _connect_and_track(*args, **kwargs):
-    conn = _engine_connect(*args, **kwargs)
-    with _open_connections_lock:
-        _open_connections.add(conn)
-    return conn
-
-
+# long-lived engine connection (chdb.connect(), Session, dbapi, DataStore,
+# durable) is owned by a chdb.state.sqlitelike.Connection, and instances of
+# Python classes are always tracked by the garbage collector, so they can be
+# found without wrapping anything in chdb-core. Not needed once
+# chdb-core >= 26.11 is required.
 def _close_open_connections():
-    with _open_connections_lock:
-        conns = list(_open_connections)
-        _open_connections.clear()
-    for conn in conns:
+    sqlitelike = sys.modules.get("chdb.state.sqlitelike")
+    if sqlitelike is None:
+        return
+    connection_class = sqlitelike.Connection
+    open_connections = [obj for obj in gc.get_objects() if issubclass(type(obj), connection_class)]
+    for conn in open_connections:
         try:
             conn.close()
         except Exception:
             pass
 
 
-_chdb.connect = _connect_and_track
 atexit.register(_close_open_connections)
 
 chdb_version = tuple(__version__.split("."))

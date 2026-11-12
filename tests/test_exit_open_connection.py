@@ -46,6 +46,24 @@ conn.query("INSERT INTO t VALUES (1), (2)")
 assert str(conn.query("SELECT sum(x) FROM t", "CSV")).strip() == "3"
 """
 
+_CHDB_SESSION = """
+from chdb.session import Session
+
+sess = Session()
+sess.query("CREATE TABLE t (x Int32) ENGINE = Memory")
+sess.query("INSERT INTO t VALUES (1), (2)")
+assert str(sess.query("SELECT sum(x) FROM t", "CSV")).strip() == "3"
+"""
+
+_CHDB_DBAPI = """
+from chdb import dbapi
+
+conn = dbapi.connect()
+cur = conn.cursor()
+cur.execute("SELECT 1")
+assert cur.fetchone() == (1,)
+"""
+
 
 def _run(code):
     env = dict(os.environ)
@@ -74,6 +92,34 @@ class TestExitWithOpenConnection(unittest.TestCase):
 
     def test_chdb_connection(self):
         self._check(_CHDB_CONNECTION)
+
+    def test_chdb_session(self):
+        self._check(_CHDB_SESSION)
+
+    def test_chdb_dbapi(self):
+        self._check(_CHDB_DBAPI)
+
+
+class TestEngineConnectionClassUntouched(unittest.TestCase):
+    def test_connect_is_the_engine_connection_class(self):
+        import chdb
+
+        conn = chdb.connect()
+        try:
+            self.assertIs(type(conn._conn), chdb._chdb.connect)
+        finally:
+            conn.close()
+
+    def test_durable_abi_probe_sees_the_engine_class(self):
+        import chdb
+        from chdb.durable.engine import _REQUIRED_ABI, engine_has_v1_abi
+
+        conn = chdb.connect()
+        try:
+            engine_class = type(conn._conn)
+        finally:
+            conn.close()
+        self.assertEqual(engine_has_v1_abi(), all(hasattr(engine_class, name) for name in _REQUIRED_ABI))
 
 
 if __name__ == "__main__":
