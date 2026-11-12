@@ -229,8 +229,6 @@ class DataStoreLocIndexer:
         from .lazy_result import LazyCondition
         from .lazy_ops import LazyRelationalOp
         from .expressions import Field
-        from copy import copy
-
         # Translate pd.col(...) so loc pushdown sees a chdb-ds Condition.
         key = _translate_pd_col_in_key(key)
 
@@ -250,22 +248,8 @@ class DataStoreLocIndexer:
                 condition = self._extract_condition(row_key)
 
                 if condition is not None:
-                    # Create a copy of the DataStore for immutability
-                    result = copy(self._datastore)
-                    result._cached_result = None
-                    result._cache_version = 0
-                    result._cached_at_version = -1
-                    result._cache_timestamp = None
-
-                    # Add WHERE operation (filter)
-                    cond_desc = condition.to_sql(quote_char='"') if hasattr(condition, 'to_sql') else str(condition)
-                    result._add_lazy_op(
-                        LazyRelationalOp(
-                            op_type='WHERE',
-                            description=f"loc filter: {cond_desc}",
-                            condition=condition,
-                        )
-                    )
+                    # Rows as ds[row_key] selects them
+                    result = self._datastore.filter(row_key)
 
                     # Add SELECT operation (column selection)
                     single_column = isinstance(col_key, str)
@@ -292,20 +276,8 @@ class DataStoreLocIndexer:
         if self._can_pushdown_condition(key):
             condition = self._extract_condition(key)
             if condition is not None:
-                result = copy(self._datastore)
-                result._cached_result = None
-                result._cache_version = 0
-                result._cached_at_version = -1
-                result._cache_timestamp = None
-                cond_desc = condition.to_sql(quote_char='"') if hasattr(condition, 'to_sql') else str(condition)
-                result._add_lazy_op(
-                    LazyRelationalOp(
-                        op_type='WHERE',
-                        description=f"loc filter: {cond_desc}",
-                        condition=condition,
-                    )
-                )
-                return result
+                # Rows as ds[key] selects them
+                return self._datastore.filter(key)
 
         # Fall back to pandas execution for non-pushable cases
         # (label-based indexing, slice indexing, method-mode conditions, etc.)
@@ -799,16 +771,19 @@ class PandasCompatMixin:
         from .column_expr import ColumnExpr
         from .conditions import Condition
         from .lazy_ops import LazyWhere
+        from .lazy_result import LazyCondition
         from copy import copy
 
         # Check if we can use lazy execution
         # Lazy mode: ColumnExpr or Condition with scalar other
-        can_lazy = isinstance(cond, (ColumnExpr, Condition)) and not isinstance(other, (pd.DataFrame, pd.Series))
+        can_lazy = isinstance(cond, (ColumnExpr, Condition, LazyCondition)) and not isinstance(
+            other, (pd.DataFrame, pd.Series)
+        )
 
         if can_lazy:
             # Lazy execution: create LazyWhere operation
             new_ds = copy(self)
-            new_ds._add_lazy_op(LazyWhere(cond, other))
+            new_ds._add_lazy_op(LazyWhere(cond, other, alignment=self._mask_alignment(cond)))
             return new_ds
         else:
             # Immediate execution: pandas Series/DataFrame condition
@@ -844,15 +819,18 @@ class PandasCompatMixin:
         from .column_expr import ColumnExpr
         from .conditions import Condition
         from .lazy_ops import LazyMask
+        from .lazy_result import LazyCondition
         from copy import copy
 
         # Check if we can use lazy execution
-        can_lazy = isinstance(cond, (ColumnExpr, Condition)) and not isinstance(other, (pd.DataFrame, pd.Series))
+        can_lazy = isinstance(cond, (ColumnExpr, Condition, LazyCondition)) and not isinstance(
+            other, (pd.DataFrame, pd.Series)
+        )
 
         if can_lazy:
             # Lazy execution: create LazyMask operation
             new_ds = copy(self)
-            new_ds._add_lazy_op(LazyMask(cond, other))
+            new_ds._add_lazy_op(LazyMask(cond, other, alignment=self._mask_alignment(cond)))
             return new_ds
         else:
             # Immediate execution: pandas Series/DataFrame condition
@@ -1189,7 +1167,7 @@ class PandasCompatMixin:
             new_ds = copy(self)
             if subset is not None:
                 # Use LIMIT 1 BY for subset-based deduplication
-                new_ds._distinct_subset = list(subset) if not isinstance(subset, list) else subset
+                new_ds._distinct_subset = [subset] if isinstance(subset, str) else list(subset)
             else:
                 # Use SELECT DISTINCT for full-row deduplication
                 new_ds._distinct = True

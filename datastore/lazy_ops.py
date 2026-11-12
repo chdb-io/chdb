@@ -605,21 +605,45 @@ class LazyColumnAssignment(LazyOp):
         return expr
 
 
-def _null_safe_comparisons(cond):
-    """Copy of ``cond`` with each comparison wrapped in NullSafeCondition."""
+def aligned_mask(mask, df: pd.DataFrame, alignment: str):
+    """
+    ``mask`` (a boolean Series evaluated on the state it was taken from) as
+    an indexer of ``df``'s rows: its values when ``alignment`` is "position"
+    and it has one per row, otherwise the Series itself, which pandas aligns
+    by index label and rejects with IndexingError when its index doesn't
+    cover ``df``'s.
+    """
+    if not isinstance(mask, pd.Series):
+        return mask
+    if alignment == "position" and len(mask) == len(df):
+        # The array keeps a nullable boolean mask's dtype, so pandas applies
+        # its NA rules (NA selects no row) instead of rejecting object values.
+        return pd.Series(mask.array, index=df.index, name=mask.name)
+    return mask
+
+
+def _null_safe_comparisons(cond, nan_columns=None):
+    """
+    Copy of ``cond`` with each comparison wrapped in NullSafeCondition, or
+    with ``nan_columns``, each comparison that reads only those columns (a
+    NULL in any other one stands for pandas NA and stays NULL).
+    """
     from .conditions import BinaryCondition, CompoundCondition, NotCondition, NullSafeCondition
+    from .core import _reads_within
 
     if isinstance(cond, BinaryCondition):
-        return NullSafeCondition(cond)
+        if nan_columns is None or _reads_within(cond.columns_read(), nan_columns):
+            return NullSafeCondition(cond)
+        return cond
     if isinstance(cond, CompoundCondition):
         return CompoundCondition(
             cond.operator,
-            _null_safe_comparisons(cond.left),
-            _null_safe_comparisons(cond.right),
+            _null_safe_comparisons(cond.left, nan_columns),
+            _null_safe_comparisons(cond.right, nan_columns),
             cond.alias,
         )
     if isinstance(cond, NotCondition):
-        return NotCondition(_null_safe_comparisons(cond.condition), cond.alias)
+        return NotCondition(_null_safe_comparisons(cond.condition, nan_columns), cond.alias)
     return cond
 
 
@@ -924,6 +948,7 @@ class LazyRelationalOp(LazyOp):
         limit_value=None,
         offset_value=None,
         kind="quicksort",
+        alignment="position",
     ):
         """
         Args:
@@ -935,6 +960,10 @@ class LazyRelationalOp(LazyOp):
             limit_value: Value for LIMIT
             offset_value: Value for OFFSET
             kind: Sort algorithm for ORDER BY ('quicksort', 'stable', 'mergesort', etc.)
+            alignment: For PANDAS_FILTER, how the evaluated mask is matched to
+                the rows: "position" (the rows are those it was evaluated
+                on) or "index" (by index label, as pandas aligns a boolean
+                Series; see DataStore._mask_alignment).
         """
         super().__init__()
         self.op_type = op_type
@@ -945,6 +974,7 @@ class LazyRelationalOp(LazyOp):
         self.limit_value = limit_value
         self.offset_value = offset_value
         self.kind = kind
+        self.alignment = alignment
 
     def transform_columns(self, columns: List[str]) -> List[str]:
         """Transform columns based on the operation type."""
@@ -1060,19 +1090,15 @@ class LazyRelationalOp(LazyOp):
                     len(result),
                 )
                 return result
-            if isinstance(self.condition, ColumnExpr):
+            from .lazy_result import LazyCondition
+
+            if isinstance(self.condition, (ColumnExpr, LazyCondition)):
                 # Set datastore for proper execution context
                 if self.condition._datastore is None:
                     self.condition._datastore = context
-                # Execute to get boolean mask
+                # Evaluated on the state the mask was taken from
                 bool_series = self.condition._execute()
-                # Filter DataFrame using the boolean mask
-                # Align index if necessary
-                if len(bool_series) == len(df):
-                    result = df[bool_series.values]
-                else:
-                    # Try to align by index
-                    result = df.loc[bool_series.index[bool_series]]
+                result = df[aligned_mask(bool_series, df, self.alignment)]
                 self._logger.debug(
                     "      -> Pandas filter (method-mode): %d -> %d rows",
                     rows_before,
@@ -1244,6 +1270,34 @@ class LazyRelationalOp(LazyOp):
         return True
 
 
+def _aggregate_dtype(dtype, func: str, values: pd.Series):
+    """
+    The dtype pandas gives ``func``'s result over a column of ``dtype``,
+    for the ``values`` a SQL aggregate returned; None keeps them as they are.
+    """
+    nullable = isinstance(dtype, pd.api.extensions.ExtensionDtype)
+    base = getattr(dtype, "numpy_dtype", None) if nullable else dtype
+    if base is None or base.kind not in "biuf":
+        return None
+    kind = getattr(values.dtype, "numpy_dtype", values.dtype).kind
+    if base.kind == "f" or (base.kind == "b" and func not in ("sum", "prod")):
+        return dtype if kind == base.kind else None
+    if kind not in "iu":
+        return None
+    present = values.dropna()
+    if not nullable and len(present) < len(values):
+        # A numpy integer column can't hold NA (min_count): pandas uses float64
+        return np.dtype("float64")
+    if base.kind == "b":
+        return pd.Int64Dtype() if nullable else np.dtype("int64")
+    info = np.iinfo(base)
+    if present.empty or (present.min() >= info.min and present.max() <= info.max):
+        return dtype
+    if base.kind == "i":
+        return pd.Int64Dtype() if nullable else np.dtype("int64")
+    return pd.UInt64Dtype() if nullable else np.dtype("uint64")
+
+
 class LazyGroupByAgg(LazyOp):
     """
     Lazy groupby aggregation operation.
@@ -1255,6 +1309,7 @@ class LazyGroupByAgg(LazyOp):
         ds.groupby('category').mean()  # Returns DataStore with LazyGroupByAgg
         ds.groupby('category').agg({'value': 'sum'})
         ds.groupby('category').agg(total=('value', 'sum'))  # Named aggregation
+        ds.groupby('category').agg(total=col('value').sum())  # SQL expression
     """
 
     def __init__(
@@ -1268,6 +1323,7 @@ class LazyGroupByAgg(LazyOp):
         dropna: bool = True,
         single_column_agg: bool = False,
         selected_columns: List[str] = None,
+        expr_agg: dict = None,
         **kwargs,
     ):
         """
@@ -1285,6 +1341,8 @@ class LazyGroupByAgg(LazyOp):
             single_column_agg: If True, this agg was called on a single column via
                                ColumnExpr.agg(['funcs']), which in pandas returns flat column names
             selected_columns: List of column names to aggregate (None = all columns).
+            expr_agg: Dict of SQL aggregate expressions {alias: expr}
+                (``agg(total=col('v').sum())``); they only run in SQL.
             **kwargs: Additional arguments passed to aggregation function
         """
         super().__init__()
@@ -1292,6 +1350,7 @@ class LazyGroupByAgg(LazyOp):
         self.agg_func = agg_func
         self.agg_dict = agg_dict
         self.named_agg = named_agg
+        self.expr_agg = expr_agg
         self.sort = sort
         self.as_index = as_index
         self.dropna = dropna
@@ -1306,12 +1365,6 @@ class LazyGroupByAgg(LazyOp):
             f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict or self.named_agg}, sort={self.sort}, as_index={self.as_index}, dropna={self.dropna}, selected_columns={self.selected_columns}",
         )
 
-        # If selected_columns is specified, filter the DataFrame to only include
-        # groupby columns + selected columns before aggregation
-        if self.selected_columns:
-            cols_to_keep = self.groupby_cols + self.selected_columns
-            df = df[cols_to_keep]
-
         # Pass sort, as_index, and dropna parameters to pandas groupby
         grouped = df.groupby(
             self.groupby_cols,
@@ -1319,6 +1372,9 @@ class LazyGroupByAgg(LazyOp):
             as_index=self.as_index,
             dropna=self.dropna,
         )
+        # Only the selected columns are aggregated, a selected group key too
+        if self.selected_columns:
+            grouped = grouped[list(self.selected_columns)]
 
         if self.named_agg is not None:
             # Pandas named aggregation: agg(alias=('col', 'func'))
@@ -1343,7 +1399,11 @@ class LazyGroupByAgg(LazyOp):
         return result
 
     def describe(self) -> str:
-        if self.named_agg:
+        if self.expr_agg:
+            func_str = ", ".join(
+                f"{alias}={expr.to_sql()}" for alias, expr in self.expr_agg.items()
+            )
+        elif self.named_agg:
             func_str = str(self.named_agg)
         elif self.agg_dict:
             func_str = str(self.agg_dict)
@@ -1355,14 +1415,102 @@ class LazyGroupByAgg(LazyOp):
         """
         The group keys followed by the aggregate outputs. The keys stay
         columns of the SQL result until execution moves them to the index;
-        when the outputs aren't named (``size()``) the columns are unknown
-        and passed through.
+        when the outputs aren't named (column-less ``count()``) the columns
+        are unknown and passed through.
         """
         outputs = [name for name, _, _ in self.aggregate_outputs(columns)]
         if not outputs:
             return columns
-        keys = list(self.groupby_cols)
-        return keys + [name for name in outputs if name not in keys]
+        keys = [
+            column
+            for key, column in zip(self.groupby_cols, self.key_columns())
+            if self.as_index or column == key
+        ]
+        return keys + outputs
+
+    def key_columns(self) -> List[str]:
+        """
+        The SQL result column of each group key: the key's name, or a hidden
+        name when an aggregate output takes it (``agg(g=col('v').sum())``
+        grouped by ``g``). pandas then keeps the key in the index, or drops
+        it with ``as_index=False``. A hidden name is unlike every key and
+        output name.
+        """
+        outputs = {name for name, _, _ in self.aggregate_outputs()}
+        taken = set(self.groupby_cols) | outputs
+        columns = []
+        for key in self.groupby_cols:
+            column = key
+            if key in outputs:
+                column = f"__key_{key}__"
+                suffix = 1
+                while column in taken:
+                    column = f"__key_{key}_{suffix}__"
+                    suffix += 1
+                taken.add(column)
+            columns.append(column)
+        return columns
+
+    def hidden_key_columns(self) -> List[str]:
+        """Key columns under a hidden name; only execution reads them, to
+        build the group index."""
+        return [c for k, c in zip(self.groupby_cols, self.key_columns()) if c != k]
+
+    def run_on(self, datastore: "DataStore") -> pd.DataFrame:
+        """The aggregation of ``datastore``'s rows, indexed by the group keys
+        unless ``as_index=False`` (also in performance mode)."""
+        from copy import copy
+
+        aggregated = copy(datastore)
+        aggregated._groupby_fields = []
+        aggregated._add_lazy_op(self)
+        return self.set_group_index(aggregated._execute())
+
+    def restore_input_dtypes(
+        self,
+        result: pd.DataFrame,
+        source: pd.DataFrame,
+        recomputed: Tuple[Optional[set], Optional[set]] = (set(), set()),
+    ) -> pd.DataFrame:
+        """
+        Give outputs of type-preserving aggregates (sum, prod, min, max,
+        first, last) the dtype pandas gives them. SQL computes sums and
+        products of integers in 64 bits and returns a Nullable column without
+        NULLs as the plain numpy dtype; pandas keeps the input dtype (float,
+        nullable extension, or integer when the values fit, else 64 bits of
+        the same signedness) and sums or multiplies booleans to int64.
+
+        ``recomputed`` is ``(before, after)``: the columns the SQL steps of
+        ``source -> result`` compute before the aggregation (its inputs are
+        then not ``source``'s columns) and after it (the output is no longer
+        the aggregate); None for every column. Only an output that is still
+        the aggregate of a source column is restored.
+        """
+        before, after = recomputed
+        if before is None or after is None:
+            return result
+        for name, func, col in self.aggregate_outputs(list(source.columns)):
+            if (
+                func not in ("sum", "prod", "min", "max", "first", "last")
+                or (source.columns == col).sum() != 1
+                or (result.columns == name).sum() != 1
+                or col in before
+                or name in after
+            ):
+                continue
+            target = _aggregate_dtype(source[col].dtype, func, result[name])
+            if target is not None and result[name].dtype != target:
+                result[name] = result[name].astype(target)
+        return result
+
+    def set_group_index(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Move the group key columns of a SQL result to the index."""
+        columns = self.key_columns()
+        if not self.as_index or not all(c in df.columns for c in columns):
+            return df
+        df = df.set_index(columns)
+        df.index.names = list(self.groupby_cols)
+        return df
 
     def aggregate_outputs(
         self, all_columns: Optional[List[str]] = None
@@ -1370,10 +1518,16 @@ class LazyGroupByAgg(LazyOp):
         """
         ``(output_name, func, source_column)`` for every named aggregate output.
 
-        ``size()`` and the column-less ``count()`` fallback emit an unnamed
-        ``count(*)`` and are not listed. ``all_columns`` is only needed when
-        one function is applied to every non-key column.
+        ``size()`` is named ``size``, as pandas names it; the column-less
+        ``count()`` fallback emits an unnamed ``count(*)`` and is not listed.
+        ``all_columns`` is only needed when
+        one function is applied to every non-key column; selected columns
+        are all aggregated, a selected group key too, as in pandas
+        (``groupby('g')['g'].sum()``). SQL expression aggregates have
+        neither a function name nor a source column.
         """
+        if self.expr_agg:
+            return [(alias, None, None) for alias in self.expr_agg]
         if self.named_agg:
             return [(alias, func, col) for alias, (col, func) in self.named_agg.items()]
         if isinstance(self.agg_dict, dict):
@@ -1394,10 +1548,15 @@ class LazyGroupByAgg(LazyOp):
                         name = col
                     outputs.append((name, func, col))
             return outputs
-        if self.agg_func and self.agg_func != "size" and all_columns:
-            cols = self.selected_columns or all_columns
+        if self.agg_func == "size":
+            return [("size", "size", None)]
+        if self.agg_func and self.selected_columns:
+            return [(col, self.agg_func, col) for col in self.selected_columns]
+        if self.agg_func and all_columns:
             return [
-                (col, self.agg_func, col) for col in cols if col not in self.groupby_cols
+                (col, self.agg_func, col)
+                for col in all_columns
+                if col not in self.groupby_cols
             ]
         return []
 
@@ -1405,18 +1564,13 @@ class LazyGroupByAgg(LazyOp):
         """
         Check if this GroupByAgg can be pushed to SQL.
 
-        Most aggregation modes can be pushed to SQL, except:
-        - agg_dict is a list (e.g., ['sum', 'mean', 'count']) which needs pandas
-        - an aggregate output named like a group key: pandas keeps the key in
-          the index, but a SQL result cannot hold two columns with one name
+        Most aggregation modes can be pushed to SQL, except agg_dict as a
+        list (e.g., ['sum', 'mean', 'count']), which needs pandas. An output
+        named like a group key is emitted under that name while the key
+        moves to a hidden column (see ``key_columns``).
         """
         # List format agg (e.g., agg(['sum', 'mean'])) needs pandas
-        if self.agg_dict is not None and isinstance(self.agg_dict, list):
-            return False
-        output_names = {name for name, _, _ in self.aggregate_outputs()}
-        if output_names & set(self.groupby_cols):
-            return False
-        return True
+        return not (self.agg_dict is not None and isinstance(self.agg_dict, list))
 
     def execution_engine(self) -> str:
         """Return which engine this operation should use.
@@ -1495,7 +1649,6 @@ class LazySQLQuery(LazyOp):
         query: str,
         df_alias: str = "__df__",
         is_raw_query: bool = False,
-        mirrors_select_state: bool = False,
     ):
         """
         Args:
@@ -1506,17 +1659,11 @@ class LazySQLQuery(LazyOp):
                    - Raw SQL: "SELECT * FROM file('data.csv', 'CSVWithNames')" (when is_raw_query=True)
             df_alias: Alias for the DataFrame in the query (default: '__df__')
             is_raw_query: If True, execute the query directly without a DataFrame
-            mirrors_select_state: True when the query was built by
-                ``DataStore.agg()`` from the store's own ``_select_fields`` /
-                ``_groupby_fields``, which it also updated — so the store's
-                flat SELECT renders the same aggregation (relied on by
-                writeback, see ``DataStore._flat_sql_reproduces_pipeline``).
         """
         super().__init__()
         self.original_query = query.strip()
         self.df_alias = df_alias
         self.is_raw_query = is_raw_query
-        self.mirrors_select_state = mirrors_select_state
 
         # Process the query to determine if it needs boilerplate (only for non-raw queries)
         if is_raw_query:
@@ -2124,17 +2271,29 @@ class LazyWhere(LazyOp):
         ds.where(ds['value'] > 100, 0)  # Keep where value > 100, else 0
     """
 
-    def __init__(self, condition, other, columns: List[str] = None):
+    def __init__(
+        self, condition, other, columns: List[str] = None, alignment: str = None
+    ):
         """
         Args:
             condition: Condition object or ColumnExpr containing condition
             other: Value to use where condition is False
             columns: Column names for SQL pushdown (optional, inferred at execution)
+            alignment: None when the condition is evaluated on the frame's
+                rows; otherwise it is evaluated on the state it was taken
+                from and matched to the rows by "position" or "index" (see
+                DataStore._mask_alignment).
         """
         super().__init__()
         self.condition = condition
         self.other = other
         self.columns = columns
+        self.alignment = alignment
+        # Columns the condition compares null-safely in SQL and the kinds of
+        # the frame's values (set when the op is added, see
+        # DataStore._nan_columns and DataStore._column_value_kinds).
+        self.nan_columns: Optional[frozenset] = None
+        self.value_kinds: Optional[dict] = None
         self._is_mask = False  # Subclass sets this to True
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
@@ -2142,6 +2301,7 @@ class LazyWhere(LazyOp):
         from .expression_evaluator import ExpressionEvaluator
         from .column_expr import ColumnExpr
         from .conditions import Condition
+        from .lazy_result import LazyCondition
         from .pandas_col_compat import PandasFallbackExpr
 
         op_name = "Mask" if self._is_mask else "Where"
@@ -2149,11 +2309,15 @@ class LazyWhere(LazyOp):
 
         # Evaluate condition to boolean Series
         cond = self.condition
-        if isinstance(cond, ColumnExpr):
+        if self.alignment is not None:
+            bool_series = aligned_mask(cond._execute(), df, self.alignment)
+        elif isinstance(cond, ColumnExpr):
             cond_expr = cond._expr
             evaluator = ExpressionEvaluator(df, context)
             bool_series = evaluator.evaluate(cond_expr)
-        elif isinstance(cond, Condition):
+        elif isinstance(cond, (Condition, LazyCondition)):
+            if isinstance(cond, LazyCondition):
+                cond = cond.condition
             evaluator = ExpressionEvaluator(df, context)
             bool_series = evaluator.evaluate(cond)
         elif isinstance(cond, PandasFallbackExpr):
@@ -2219,6 +2383,10 @@ class LazyWhere(LazyOp):
         from .conditions import Condition
         from .function_executor import function_config
 
+        # A condition evaluated on its own state is applied in pandas
+        if self.alignment is not None:
+            return False
+
         # Check function_config - respect user's engine preference
         func_name = "mask" if self._is_mask else "where"
         if not function_config.should_use_chdb(func_name):
@@ -2235,6 +2403,23 @@ class LazyWhere(LazyOp):
         # Check if other is a scalar (not DataFrame/Series)
         if isinstance(self.other, (pd.DataFrame, pd.Series)):
             return False
+
+        # A replacement of another kind than a column's values changes the
+        # column's dtype as pandas does (e.g. to object), which SQL can't;
+        # a missing one becomes NULL.
+        if not (self.other is None or (isinstance(self.other, float) and pd.isna(self.other))):
+            from .core import _sql_replacement_keeps_dtype
+
+            kinds = self.value_kinds
+            if kinds is None and getattr(self, "_datastore", None) is not None:
+                kinds = self._datastore._column_value_kinds()
+            kinds = kinds or {}
+            columns = self.columns or list(kinds)
+            if not kinds or not all(
+                _sql_replacement_keeps_dtype(kinds.get(column), self.other, variant=True)
+                for column in columns
+            ):
+                return False
 
         # Type compatibility check when schema is available
         if schema and not self._is_type_compatible_with_schema(schema):
@@ -2430,8 +2615,10 @@ class LazyMask(LazyWhere):
         ds.mask(ds['value'] > 100, -1)  # Replace where value > 100 with -1
     """
 
-    def __init__(self, condition, other, columns: List[str] = None):
-        super().__init__(condition, other, columns)
+    def __init__(
+        self, condition, other, columns: List[str] = None, alignment: str = None
+    ):
+        super().__init__(condition, other, columns, alignment)
         self._is_mask = True
 
 

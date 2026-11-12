@@ -1143,11 +1143,14 @@ class ExpressionEvaluator:
     def _reads_na_column(self, expr) -> bool:
         """Whether ``expr`` reads a column whose dtype represents missing
         values as ``pd.NA``."""
-        reads = expr.columns_read() or ()
-        return any(
-            name in self.df.columns and getattr(self.df[name].dtype, "na_value", None) is pd.NA
-            for name in reads
-        )
+        from .core import _may_read
+
+        na_columns = {
+            name
+            for name, dtype in self.df.dtypes.items()
+            if getattr(dtype, "na_value", None) is pd.NA
+        }
+        return _may_read(expr.columns_read(), na_columns)
 
     def _evaluate_via_chdb(self, expr) -> pd.Series:
         """
@@ -1171,12 +1174,12 @@ class ExpressionEvaluator:
         # (chDB converts NULL to empty string, need to restore)
         original_name = self._extract_column_name(expr)
         original_null_mask = None
-        if original_name and original_name in self.df.columns:
+        if original_name and (self.df.columns == original_name).sum() == 1:
             original_null_mask = self.df[original_name].isna()
 
         # Use centralized executor
         executor = get_executor()
-        result = executor.execute_expression(sql_expr, self.df)
+        result = executor.execute_expression(sql_expr, self._sql_input(expr))
 
         # Workaround for chDB NULL handling
         # NOTE: chDB 4.0.0b3 has improved NULL handling (see GitHub issue #447),
@@ -1201,6 +1204,16 @@ class ExpressionEvaluator:
 
         return result
 
+    def _sql_input(self, expr) -> pd.DataFrame:
+        """The DataFrame chDB reads to compute ``expr``: chDB can't read
+        repeated column labels, so then only the columns ``expr`` reads."""
+        if self.df.columns.is_unique:
+            return self.df
+        reads = expr.columns_read()
+        if not reads or any((self.df.columns == name).sum() != 1 for name in reads):
+            return self.df
+        return self.df[[name for name in self.df.columns if name in reads]]
+
     def _is_null_handling_function(self, expr) -> bool:
         """
         Check if expression is a null-handling function that should NOT have
@@ -1217,7 +1230,8 @@ class ExpressionEvaluator:
         Returns:
             True if this is a null-handling function
         """
-        null_handling_funcs = {'isnull', 'isnotnull', 'ifnull'}
+        # A conditional (if/multiIf) picks its branch for NULL itself.
+        null_handling_funcs = {'isnull', 'isnotnull', 'ifnull', 'if', 'multiif'}
         func_name = getattr(expr, 'name', '').lower()
 
         # Direct null-handling function
@@ -1283,8 +1297,14 @@ class ExpressionEvaluator:
         if isinstance(expr, Field):
             return expr.name
         elif isinstance(expr, Function):
+            args = expr.args
+            # A conditional's values, not its conditions, name the result.
+            if expr.name.lower() == "if":
+                args = args[1:]
+            elif expr.name.lower() == "multiif":
+                args = args[1::2] + args[-1:]
             # Look for Field in arguments
-            for arg in expr.args:
+            for arg in args:
                 if isinstance(arg, Field):
                     return arg.name
                 elif isinstance(arg, Expression):

@@ -12,7 +12,6 @@ Focus areas:
 
 import pytest
 from tests.xfail_markers import (
-    chdb_mask_dtype_nullable,
     pandas_version_no_include_groups,
     pandas_version_first_last_offset_warning,
 )
@@ -221,14 +220,8 @@ class TestSeriesWhere:
         ds_series = get_series(ds_result)
         assert_series_equal(ds_series, pd_result)
 
-    @chdb_mask_dtype_nullable
     def test_series_mask_simple(self):
-        """Test simple Series mask operation.
-
-        Note: DataStore returns nullable Int64 (better semantics, preserves integer type),
-        while pandas returns float64 (because numpy int64 can't represent NaN).
-        This is a design difference, not a bug.
-        """
+        """Test simple Series mask operation."""
         pd_df = pd.DataFrame({'a': [1, 2, 3, 4, 5]})
         ds_df = DataStore(pd_df.copy())
 

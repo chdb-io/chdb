@@ -158,6 +158,33 @@ def _operand_without_expression_uses_method_mode(method):
     return wrapper
 
 
+def _pandas_name(expr) -> Optional[str]:
+    """
+    The name pandas gives the Series ``expr`` computes: a column's name, kept
+    by arithmetic with scalars and by functions of one column, and None when
+    columns of different names are combined.
+    """
+    from .expressions import Literal
+
+    if isinstance(expr, Field):
+        return expr.name
+    if isinstance(expr, ArithmeticExpression):
+        operands = [expr.left, expr.right]
+    elif isinstance(expr, Expression) and hasattr(expr, "args"):
+        args = list(expr.args)
+        # A conditional's values, not its conditions, name the result.
+        if expr.name.lower() == "if":
+            operands = args[1:]
+        elif expr.name.lower() == "multiif":
+            operands = args[1::2] + args[-1:]
+        else:
+            operands = args[:1]
+    else:
+        return None
+    names = {_pandas_name(operand) for operand in operands if not isinstance(operand, Literal)}
+    return names.pop() if len(names) == 1 else None
+
+
 class ColumnExpr:
     """
     A unified column expression that supports lazy evaluation in multiple modes.
@@ -335,9 +362,12 @@ class ColumnExpr:
             self._exec_mode = "agg"
             # Create AggregateFunction for SQL building (needed by agg() method)
             if source is not None and source._expr is not None:
-                from .functions import AggregateFunction
+                from .functions import AggregateFunction, aggregate
 
-                self._expr = AggregateFunction(agg_func_name, source._expr)
+                if self._pandas_agg_func in ("first", "last"):
+                    self._expr = aggregate(self._pandas_agg_func, source._expr)
+                else:
+                    self._expr = AggregateFunction(agg_func_name, source._expr)
         elif method_name is not None:
             self._exec_mode = "method"
         else:
@@ -557,12 +587,19 @@ class ColumnExpr:
             return False
         if is_performance_mode():
             return True
+        from .core import _reads_null_as_nan
+
         null_kinds = getattr(self._datastore, "_column_null_kinds", None)
-        reads = self._expr.columns_read() if self._expr is not None else None
-        if null_kinds is None or reads is None:
+        if null_kinds is None:
             return False
-        kinds = null_kinds()
-        return all(kinds.get(name) for name in reads)
+        return _reads_null_as_nan(self._expr, null_kinds())
+
+    def _value_kind(self) -> Optional[str]:
+        """The kind of values (see ``core._dtype_value_kind``) of a column of
+        this state; None for a computed value or an unknown column."""
+        if not isinstance(self._expr, Field) or self._datastore is None:
+            return None
+        return self._datastore._column_value_kinds().get(self._expr.name)
 
     def _create_window_method(
         self, method_name: str, sql_func: str, **method_kwargs
@@ -836,12 +873,9 @@ class ColumnExpr:
         """Execute method mode - call method on source result."""
         from .expressions import Field
 
-        # Execute any ColumnExpr in args or kwargs; an operator's operand
-        # stays a Series, which pandas aligns by index
-        operator = self._method_name.startswith("__") and self._method_name.endswith("__")
-        args = tuple(
-            self._execute_if_needed(arg, as_operand=operator) for arg in self._method_args
-        )
+        # Execute any ColumnExpr in args or kwargs; a column argument stays
+        # a Series, which pandas aligns by index
+        args = tuple(self._execute_if_needed(arg) for arg in self._method_args)
         kwargs = {k: self._execute_if_needed(v) for k, v in self._method_kwargs.items()}
 
         # Handle groupby + agg scenario: df.groupby('col')['value'].agg(['sum', 'mean'])
@@ -1298,285 +1332,96 @@ class ColumnExpr:
             )
 
     def _execute_groupby_aggregation(self):
-        """Execute aggregation with GROUP BY."""
-        from .config import get_execution_engine, ExecutionEngine, is_performance_mode
-        from .expressions import Field
-        from .executor import get_executor
-
-        # In performance mode, use single-SQL path via LazyGroupByAgg injection
-        if is_performance_mode():
-            return self._execute_groupby_aggregation_sql_first()
-
-        # Get groupby column names
-        groupby_col_names = []
-        for gf in self._groupby_fields:
-            if isinstance(gf, Field):
-                groupby_col_names.append(gf.name)
-            else:
-                groupby_col_names.append(str(gf))
-
-        # Temporarily clear groupby fields on datastore to prevent SQL generation issues
-        datastore = self._datastore
-        original_groupby = (
-            datastore._groupby_fields.copy() if datastore._groupby_fields else []
-        )
-        datastore._groupby_fields = []
-
-        # Get as_index and sort parameters
-        as_index = getattr(self, "_groupby_as_index", True)
-        sort = getattr(self, "_groupby_sort", True)
-
-        try:
-            col_name = self._get_column_name()
-
-            # Single-SQL path: push GROUP BY into the SQL query to avoid
-            # materializing the full intermediate DataFrame.
-            # Skip for in-memory DataStores to preserve pandas aggregation semantics
-            # (e.g., sum of all-NaN returns 0 in pandas but NULL in SQL).
-            has_sql_source = bool(
-                datastore._table_function or getattr(datastore, 'table_name', None)
-            )
-            engine = get_execution_engine()
-            # Skip when WHERE references the aggregation column — chDB resolves
-            # aliases in WHERE, so "WHERE col > X" + "agg(col) AS col" triggers
-            # ILLEGAL_AGGREGATION.
-            has_where_alias_conflict = False
-            if datastore._where_condition is not None and col_name:
-                where_sql = datastore._where_condition.to_sql(quote_char='"')
-                if f'"{col_name}"' in where_sql:
-                    has_where_alias_conflict = True
-            if has_sql_source and engine != ExecutionEngine.PANDAS and not has_where_alias_conflict:
-                from copy import copy
-                from .lazy_ops import LazyGroupByAgg
-                dropna_val = getattr(self, "_groupby_dropna", True)
-                new_ds = copy(datastore)
-                new_ds._groupby_fields = []
-                new_ds._add_lazy_op(
-                    LazyGroupByAgg(
-                        groupby_cols=groupby_col_names,
-                        agg_func=self._pandas_agg_func or self._agg_func_name,
-                        sort=sort,
-                        as_index=False,
-                        dropna=dropna_val,
-                        selected_columns=[col_name],
-                    )
-                )
-                result_df = new_ds._execute()
-                datastore._groupby_fields = original_groupby
-
-                # SQL GROUP BY doesn't support dropna — it keeps NULL/empty
-                # groups. Filter them out to match pandas dropna=True.
-                if dropna_val and len(result_df) > 0:
-                    for gc in groupby_col_names:
-                        if gc in result_df.columns:
-                            mask = result_df[gc].notna()
-                            if result_df[gc].dtype == object:
-                                mask = mask & (result_df[gc] != '')
-                            result_df = result_df[mask]
-                    result_df = result_df.reset_index(drop=True)
-
-                if as_index:
-                    if len(groupby_col_names) == 1:
-                        result_series = result_df.set_index(groupby_col_names[0])[col_name]
-                    else:
-                        result_series = result_df.set_index(groupby_col_names)[col_name]
-                    result_series.name = col_name
-                    return result_series
-                else:
-                    return result_df
-
-            df = datastore._execute()
-
-            # Column pruning: drop columns not needed for groupby + aggregation
-            # to reduce memory before passing DataFrame to chDB for SQL execution
-            needed_cols = set(groupby_col_names)
-            if col_name and col_name in df.columns:
-                needed_cols.add(col_name)
-            if needed_cols and len(needed_cols) < len(df.columns):
-                cols_to_keep = [c for c in df.columns if c in needed_cols]
-                if len(cols_to_keep) == len(needed_cols):
-                    df = df[cols_to_keep]
-
-            # Check execution engine configuration
-            engine = get_execution_engine()
-
-            if engine == ExecutionEngine.PANDAS:
-                # Use pure pandas groupby with as_index, sort, and dropna parameters
-                dropna = getattr(self, "_groupby_dropna", True)
-                grouped = df.groupby(
-                    groupby_col_names, sort=sort, as_index=as_index, dropna=dropna
-                )
-                agg_method = getattr(grouped[col_name], self._pandas_agg_func)
-                result = agg_method()
-                if as_index:
-                    # Returns Series with groupby keys as index
-                    result.name = col_name
-                else:
-                    # Returns DataFrame with groupby keys as columns
-                    if isinstance(result, pd.Series):
-                        result = result.reset_index()
-                        result.columns = list(groupby_col_names) + [col_name]
-                return result
-            else:
-                # Use chDB for CHDB or AUTO
-                col_expr_sql = (
-                    self._source._expr.to_sql(quote_char='"')
-                    if self._source and self._source._expr
-                    else '"' + col_name + '"'
-                )
-                groupby_sql = ", ".join(f'"{name}"' for name in groupby_col_names)
-
-                # Determine null check function based on column type
-                # isNaN() only works for numeric types, use isNull() for strings/other types
-                col_dtype = df[col_name].dtype if col_name in df.columns else None
-                is_numeric = col_dtype is not None and pd.api.types.is_numeric_dtype(
-                    col_dtype
-                )
-                null_check_fn = "isNaN" if is_numeric else "isNull"
-
-                # Special handling for first/last: use argMin/argMax with rowNumberInAllBlocks()
-                # to preserve row order semantics (any/anyLast don't guarantee order)
-                # NOTE: For Python() table function, connection.py replaces rowNumberInAllBlocks()
-                # with _row_id (deterministic) at execution time (chDB v4.0.0b5+)
-                # For file sources (Parquet, CSV), rowNumberInAllBlocks() works correctly as-is
-                # In performance mode, use any()/anyLast() directly (faster, non-deterministic order)
-                if is_performance_mode() and self._agg_func_name in ("any", "anyLast"):
-                    agg_sql = f"{self._agg_func_name}({col_expr_sql})"
-                elif self._agg_func_name == "any":
-                    # first() -> argMin(value, rowNumberInAllBlocks())
-                    if self._skipna:
-                        agg_sql = f"argMinIf({col_expr_sql}, rowNumberInAllBlocks(), NOT {null_check_fn}({col_expr_sql}))"
-                    else:
-                        agg_sql = f"argMin({col_expr_sql}, rowNumberInAllBlocks())"
-                elif self._agg_func_name == "anyLast":
-                    # last() -> argMax(value, rowNumberInAllBlocks())
-                    if self._skipna:
-                        agg_sql = f"argMaxIf({col_expr_sql}, rowNumberInAllBlocks(), NOT {null_check_fn}({col_expr_sql}))"
-                    else:
-                        agg_sql = f"argMax({col_expr_sql}, rowNumberInAllBlocks())"
-                elif self._skipna and not is_performance_mode():
-                    # In pandas compat mode, use -If suffix to skip NaN/NULL
-                    agg_sql = f"{self._agg_func_name}If({col_expr_sql}, NOT {null_check_fn}({col_expr_sql}))"
-                else:
-                    # In performance mode or when skipna=False, use plain aggregation
-                    # ClickHouse natively skips NULL in aggregations
-                    agg_sql = f"{self._agg_func_name}({col_expr_sql})"
-
-                # Wrap count in toInt64() to match pandas dtype (int64 instead of uint64)
-                # In performance mode, skip -- let SQL return native dtype
-                if self._agg_func_name == "count" and not is_performance_mode():
-                    agg_sql = f"toInt64({agg_sql})"
-
-                # Add ORDER BY if sort=True (pandas default behavior)
-                from .config import is_performance_mode
-
-                if is_performance_mode():
-                    order_by = ""
-                else:
-                    order_by = f" ORDER BY {groupby_sql}" if sort else ""
-
-                # Add WHERE clause for dropna=True (filter out NULL groups)
-                dropna = getattr(self, "_groupby_dropna", True)
-                where_clause = ""
-                if dropna and not is_performance_mode():
-                    null_filter_conditions = [
-                        f'"{name}" IS NOT NULL' for name in groupby_col_names
-                    ]
-                    where_clause = " WHERE " + " AND ".join(null_filter_conditions)
-
-                sql = f'SELECT {groupby_sql}, {agg_sql} AS "{col_name}" FROM __df__{where_clause} GROUP BY {groupby_sql}{order_by}'
-
-                executor = get_executor()
-                result_df = executor.query_dataframe(sql, df)
-
-                # Fix for sum of all-NaN: SQL returns NULL, pandas returns 0
-                # When using sumIf with skipna=True and all values are NaN,
-                # SQL returns NULL. Convert to 0 to match pandas behavior.
-                # In performance mode, skip -- let SQL return native NULL
-                if (
-                    self._agg_func_name == "sum"
-                    and self._skipna
-                    and not is_performance_mode()
-                ):
-                    result_df[col_name] = result_df[col_name].fillna(0)
-
-                if as_index:
-                    # Return Series with groupby keys as index
-                    if len(groupby_col_names) == 1:
-                        result_series = result_df.set_index(groupby_col_names[0])[
-                            col_name
-                        ]
-                    else:
-                        result_series = result_df.set_index(groupby_col_names)[col_name]
-                    result_series.name = col_name
-                    return result_series
-                else:
-                    # Return DataFrame with groupby keys as columns
-                    return result_df
-        finally:
-            # Restore original groupby fields
-            datastore._groupby_fields = original_groupby
-
-    def _execute_groupby_aggregation_sql_first(self):
-        """
-        Execute groupby aggregation via single-SQL path (performance mode).
-
-        Instead of materializing the intermediate DataFrame and running a second SQL query,
-        this injects a LazyGroupByAgg into the DataStore's lazy ops chain, enabling the
-        QueryPlanner to merge filter + groupby into a single SQL query.
-        """
+        """Execute aggregation with GROUP BY as a groupby aggregation step."""
         from copy import copy
+
+        from .config import get_execution_engine, ExecutionEngine
         from .expressions import Field
+        from .functions import AggregateFunction, aggregate
         from .lazy_ops import LazyGroupByAgg
+        from .utils import map_agg_func
 
-        # Get groupby column names
-        groupby_col_names = []
-        for gf in self._groupby_fields:
-            if isinstance(gf, Field):
-                groupby_col_names.append(gf.name)
-            else:
-                groupby_col_names.append(str(gf))
-
+        groupby_col_names = [
+            gf.name if isinstance(gf, Field) else str(gf) for gf in self._groupby_fields
+        ]
         col_name = self._get_column_name()
         as_index = getattr(self, "_groupby_as_index", True)
         sort = getattr(self, "_groupby_sort", True)
         dropna = getattr(self, "_groupby_dropna", True)
+        pandas_func = self._pandas_agg_func or self._agg_func_name
 
-        # Map ColumnExpr agg func names to pandas-compatible names for LazyGroupByAgg
-        agg_func_name = self._pandas_agg_func
-        if agg_func_name is None:
-            agg_func_name = self._agg_func_name
-        # Map internal names: any->first, anyLast->last
-        agg_name_map = {"any": "first", "anyLast": "last"}
-        agg_func_name = agg_name_map.get(agg_func_name, agg_func_name)
-
-        # Inject LazyGroupByAgg into DataStore lazy ops chain
-        new_ds = copy(self._datastore)
-        new_ds._groupby_fields = []  # clear to avoid interference
-        new_ds._add_lazy_op(
-            LazyGroupByAgg(
-                groupby_cols=groupby_col_names,
-                agg_func=agg_func_name,
-                sort=sort,
-                as_index=False,  # always False in SQL-first; we handle indexing below
-                dropna=dropna,
-                selected_columns=[col_name],
+        if (
+            get_execution_engine() == ExecutionEngine.PANDAS
+            or self._datastore._source_labels_repeat()
+        ):
+            source = copy(self._datastore)
+            source._groupby_fields = []
+            grouped = source._execute().groupby(
+                groupby_col_names, sort=sort, as_index=as_index, dropna=dropna
             )
+            result = getattr(grouped[col_name], pandas_func)(
+                **{
+                    k: v
+                    for k, v in self._method_kwargs.items()
+                    if k not in ("axis", "numeric_only", "skipna")
+                }
+            )
+            if as_index:
+                result.name = col_name
+            elif isinstance(result, pd.Series):
+                result = result.reset_index()
+                result.columns = list(groupby_col_names) + [col_name]
+            return result
+
+        column = (
+            self._source._expr
+            if self._source is not None and self._source._expr is not None
+            else Field(col_name)
         )
-
-        result_df = new_ds._execute()
-
-        if as_index:
-            # Return Series with groupby keys as index
-            if len(groupby_col_names) == 1:
-                result_series = result_df.set_index(groupby_col_names[0])[col_name]
-            else:
-                result_series = result_df.set_index(groupby_col_names)[col_name]
-            result_series.name = col_name
-            return result_series
+        if (
+            isinstance(column, Field)
+            and column.name == col_name
+            and map_agg_func(pandas_func) == self._agg_func_name
+        ):
+            agg = LazyGroupByAgg(
+                groupby_cols=groupby_col_names,
+                agg_func=pandas_func,
+                selected_columns=[col_name],
+                sort=sort,
+                as_index=as_index,
+                dropna=dropna,
+                **{
+                    k: v
+                    for k, v in self._method_kwargs.items()
+                    if k == "min_count"
+                },
+            )
         else:
-            # Return DataFrame with groupby keys as columns
-            return result_df
+            # A parametrized function (quantile(q), stddevPop for ddof=0), a
+            # computed column or one under another name (as_()): aggregate
+            # the SQL expression itself, first/last in row order
+            if column.alias:
+                column = column.with_attrs(alias=None)
+            if pandas_func in ("first", "last"):
+                aggregated = aggregate(pandas_func, column)
+            else:
+                aggregated = AggregateFunction(self._agg_func_name, column)
+            agg = LazyGroupByAgg(
+                groupby_cols=groupby_col_names,
+                expr_agg={col_name: aggregated},
+                sort=sort,
+                as_index=as_index,
+                dropna=dropna,
+            )
+        result = agg.run_on(self._datastore)
+        name = col_name if self._source is None or self._source._alias else _pandas_name(column)
+        if not as_index:
+            if name is not None and name != col_name:
+                result = result.rename(columns={col_name: name})
+            return result
+        series = result[col_name]
+        series.name = name
+        return series
 
     def _execute_op(self):
         """
@@ -1678,14 +1523,13 @@ class ColumnExpr:
         """Execute executor mode - call the custom executor (DEPRECATED)."""
         return self._executor()
 
-    def _execute_if_needed(self, value: Any, as_operand: bool = False) -> Any:
-        """Execute ColumnExpr arguments if needed; a single-value Series
-        argument becomes a scalar unless it is an operator's operand."""
-        if isinstance(value, ColumnExpr):
-            result = value._execute()
-            if not as_operand and isinstance(result, pd.Series) and len(result) == 1:
-                return result.iloc[0]
-            return result
+    def _execute_if_needed(self, value: Any) -> Any:
+        """Execute ColumnExpr and LazyCondition arguments if needed. A column
+        argument stays a Series even when it has one row (a one-row mask or
+        fill value for where/mask/fillna, an operand aligned by index); a
+        scalar value such as an aggregation already executes to a scalar."""
+        if isinstance(value, (ColumnExpr, LazyCondition)):
+            return value._execute()
         return value
 
     def to_pandas(self) -> pd.Series:
@@ -1725,106 +1569,6 @@ class ColumnExpr:
         executor = get_executor()
         sql_expr = self._expr.to_sql(quote_char='"')
         return executor.execute_expression(sql_expr, df)
-
-    def _aggregate_with_groupby(
-        self, agg_func_name: str, pandas_agg_func: str = None, skipna: bool = True
-    ) -> pd.Series:
-        """
-        Execute aggregation with GROUP BY and return a pandas Series.
-
-        When the DataStore has _groupby_fields set, this method executes
-        a GROUP BY aggregation query and returns a Series with the groupby
-        column(s) as index.
-
-        Respects the execution engine configuration:
-        - PANDAS: Use pure pandas groupby
-        - CHDB/AUTO: Use chDB for SQL execution
-
-        Args:
-            agg_func_name: SQL aggregate function name (e.g., 'avg', 'sum')
-            pandas_agg_func: Pandas aggregation method name (e.g., 'mean', 'sum').
-                            If None, uses agg_func_name.
-            skipna: Whether to skip NaN values (default True, matching pandas behavior)
-
-        Returns:
-            pd.Series: Aggregated values with groupby column(s) as index
-        """
-        from .config import get_execution_engine, ExecutionEngine
-
-        pandas_agg_func = pandas_agg_func or agg_func_name
-
-        # Get the groupby fields from the datastore and clear them before execution
-        # This prevents _execute() from generating SQL with GROUP BY
-        groupby_fields = self._datastore._groupby_fields.copy()
-        self._datastore._groupby_fields = []
-
-        # Get the executed DataFrame from the DataStore (without groupby applied)
-        df = self._datastore._execute()
-
-        # Get groupby column names
-        groupby_col_names = []
-        for gf in groupby_fields:
-            if isinstance(gf, Field):
-                groupby_col_names.append(gf.name)
-            else:
-                groupby_col_names.append(gf.to_sql(quote_char='"'))
-
-        # Check execution engine configuration
-        engine = get_execution_engine()
-
-        if engine == ExecutionEngine.PANDAS:
-            # Use pure pandas groupby
-            col_name = self._get_column_name()
-            grouped = df.groupby(groupby_col_names, sort=True)
-            agg_method = getattr(grouped[col_name], pandas_agg_func)
-            result_series = agg_method()
-            result_series.name = col_name
-        else:
-            # Use chDB for CHDB or AUTO
-            from .executor import get_executor
-
-            # Get the column name for the aggregation
-            col_expr_sql = self._expr.to_sql(quote_char='"')
-
-            # Build SQL query with GROUP BY
-            groupby_sql = ", ".join(f'"{name}"' for name in groupby_col_names)
-
-            # Use -If suffix to skip NaN values (matching pandas skipna=True behavior)
-            # In chDB, pandas NaN is recognized as isNaN(), not isNull()
-            if skipna:
-                # Use aggregate function with If suffix to skip NaN values
-                agg_sql = (
-                    f"{agg_func_name}If({col_expr_sql}, NOT isNaN({col_expr_sql}))"
-                )
-            else:
-                agg_sql = f"{agg_func_name}({col_expr_sql})"
-
-            # Wrap count in toInt64() to match pandas dtype (int64 instead of uint64)
-            if agg_func_name == "count":
-                agg_sql = f"toInt64({agg_sql})"
-
-            sql = f"SELECT {groupby_sql}, {agg_sql} AS __agg_result__ FROM __df__ GROUP BY {groupby_sql}"
-
-            # Execute via chDB
-            executor = get_executor()
-            result_df = executor.query_dataframe(sql, df)
-
-            # Convert result to Series with proper index
-            if len(groupby_col_names) == 1:
-                # Single groupby column - use it as index
-                result_series = result_df.set_index(groupby_col_names[0])[
-                    "__agg_result__"
-                ]
-                result_series.name = self._get_column_name()
-            else:
-                # Multiple groupby columns - use MultiIndex
-                result_series = result_df.set_index(groupby_col_names)["__agg_result__"]
-                result_series.name = self._get_column_name()
-
-            # Sort by index to match pandas default behavior (sort=True)
-            result_series = result_series.sort_index()
-
-        return result_series
 
     def _get_column_name(self) -> str:
         """Get the column name for this expression."""
@@ -2361,172 +2105,91 @@ class ColumnExpr:
             # Non-condition expression, convert to truthy check: expr = 1
             return BinaryCondition("=", self._expr, Literal(1))
 
-    @_operand_without_expression_uses_method_mode
+    def _combine_masks(self, op: str, other: Any, reflected: bool = False) -> "ColumnExpr":
+        """
+        ``self <op> other`` for a boolean combinator (``op`` is "AND", "OR" or
+        "XOR"; ``reflected``: ``other <op> self``), the one path for ``&``,
+        ``|`` and ``^`` in either order.
+
+        The result is a SQL condition when both sides are condition
+        expressions of the same state. When either side has no expression
+        (a method-mode or executor result, such as an earlier combination
+        of masks of different states, or a pandas Series / array) or the
+        sides are masks of different states, both sides are evaluated on
+        their own state and combined in pandas, aligned by index as pandas
+        combines two Series.
+        """
+        import numpy as np
+        import pandas as pd
+
+        from .conditions import CompoundCondition, Condition
+
+        symbol = {"AND": "and", "OR": "or", "XOR": "xor"}[op]
+        method_name = f"__r{symbol}__" if reflected else f"__{symbol}__"
+        other = _translate_pd_col_operand(other, op)
+        if (
+            isinstance(other, (np.ndarray, pd.Series))
+            or self._evaluated_in_pandas()
+            or (isinstance(other, ColumnExpr) and other._evaluated_in_pandas())
+            or self._is_cross_datastore(other)
+        ):
+            return ColumnExpr(source=self, method_name=method_name, method_args=(other,))
+
+        if isinstance(other, ColumnExpr):
+            other_cond = other._to_condition()
+        elif isinstance(other, LazyCondition):
+            other_cond = other.condition
+        elif isinstance(other, Condition):
+            other_cond = other
+        else:
+            raise TypeError(f"Cannot {op} ColumnExpr with {type(other).__name__}")
+        self_cond = self._to_condition()
+        left, right = (other_cond, self_cond) if reflected else (self_cond, other_cond)
+        return self._derive_expr(CompoundCondition(op, left, right))
+
+    def _evaluated_in_pandas(self) -> bool:
+        """Whether this value has no expression tree and is computed in pandas."""
+        return self._exec_mode != "expr" or self._expr is None
+
     def __and__(self, other: Any) -> "ColumnExpr":
         """
-        Combine with AND operator.
-
-        Returns a ColumnExpr wrapping CompoundCondition('AND', ...).
-        This allows chaining: (ds['a'] > 0) & (ds['b'] < 10)
+        Combine with AND operator (see ``_combine_masks``).
 
         Example:
             >>> ds.filter((ds['age'] > 18) & (ds['status'] == 'active'))
             >>> ((ds['a'] > 0) & (ds['b'] < 10)).value_counts()
         """
-        from .conditions import CompoundCondition, Condition
+        return self._combine_masks("AND", other)
 
-        # For method mode (e.g., from groupby comparison), use pandas & on executed results
-        import numpy as np
-        import pandas as pd
-
-        # Handle numpy arrays and pandas Series by deferring to method mode
-        if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name="__and__", method_args=(other,))
-
-        # pandas 3.x pd.col(...): translate to a chdb-ds Condition so the
-        # rest of __and__ treats it the same as ``ds['x'] > 0``.
-        other = _translate_pd_col_operand(other, "AND")
-
-        # For executor mode (e.g., cross-DataStore comparison result), use pandas & on executed results
-        if self._exec_mode in ("method", "executor") or (
-            isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor")
-        ):
-            return ColumnExpr(source=self, method_name="__and__", method_args=(other,))
-
-        self_cond = self._to_condition()
-
-        # Handle other operand
-        if isinstance(other, ColumnExpr):
-            other_cond = other._to_condition()
-        elif isinstance(other, LazyCondition):
-            other_cond = other.condition
-        elif isinstance(other, Condition):
-            other_cond = other
-        else:
-            raise TypeError(f"Cannot AND ColumnExpr with {type(other).__name__}")
-
-        return self._derive_expr(CompoundCondition("AND", self_cond, other_cond))
-
-    @_operand_without_expression_uses_method_mode
     def __rand__(self, other: Any) -> "ColumnExpr":
         """Right AND operator."""
-        from .conditions import CompoundCondition, Condition
-        import numpy as np
-        import pandas as pd
+        return self._combine_masks("AND", other, reflected=True)
 
-        # Handle numpy arrays and pandas Series by deferring to method mode
-        if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name="__rand__", method_args=(other,))
-
-        other = _translate_pd_col_operand(other, "AND")
-
-        self_cond = self._to_condition()
-
-        if isinstance(other, LazyCondition):
-            return self._derive_expr(
-                CompoundCondition("AND", other.condition, self_cond)
-            )
-        elif isinstance(other, Condition):
-            return self._derive_expr(CompoundCondition("AND", other, self_cond))
-        else:
-            raise TypeError(f"Cannot AND {type(other).__name__} with ColumnExpr")
-
-    @_operand_without_expression_uses_method_mode
     def __or__(self, other: Any) -> "ColumnExpr":
         """
-        Combine with OR operator.
-
-        Returns a ColumnExpr wrapping CompoundCondition('OR', ...).
+        Combine with OR operator (see ``_combine_masks``).
 
         Example:
             >>> ds.filter((ds['age'] < 18) | (ds['age'] > 65))
         """
-        from .conditions import CompoundCondition, Condition
+        return self._combine_masks("OR", other)
 
-        import numpy as np
-        import pandas as pd
-
-        # Handle numpy arrays and pandas Series by deferring to method mode
-        if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name="__or__", method_args=(other,))
-
-        other = _translate_pd_col_operand(other, "OR")
-
-        # For executor/method mode (e.g., cross-DataStore comparison result), use pandas | on executed results
-        if self._exec_mode in ("method", "executor") or (
-            isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor")
-        ):
-            return ColumnExpr(source=self, method_name="__or__", method_args=(other,))
-
-        self_cond = self._to_condition()
-
-        # Handle other operand
-        if isinstance(other, ColumnExpr):
-            other_cond = other._to_condition()
-        elif isinstance(other, LazyCondition):
-            other_cond = other.condition
-        elif isinstance(other, Condition):
-            other_cond = other
-        else:
-            raise TypeError(f"Cannot OR ColumnExpr with {type(other).__name__}")
-
-        return self._derive_expr(CompoundCondition("OR", self_cond, other_cond))
-
-    @_operand_without_expression_uses_method_mode
     def __ror__(self, other: Any) -> "ColumnExpr":
         """Right OR operator."""
-        from .conditions import CompoundCondition, Condition
-        import numpy as np
-        import pandas as pd
+        return self._combine_masks("OR", other, reflected=True)
 
-        # Handle numpy arrays and pandas Series by deferring to method mode
-        if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name="__ror__", method_args=(other,))
-
-        other = _translate_pd_col_operand(other, "OR")
-
-        self_cond = self._to_condition()
-
-        if isinstance(other, LazyCondition):
-            return self._derive_expr(
-                CompoundCondition("OR", other.condition, self_cond)
-            )
-        elif isinstance(other, Condition):
-            return self._derive_expr(CompoundCondition("OR", other, self_cond))
-        else:
-            raise TypeError(f"Cannot OR {type(other).__name__} with ColumnExpr")
-
-    @_operand_without_expression_uses_method_mode
     def __xor__(self, other: Any) -> "ColumnExpr":
-        """
-        Combine with XOR operator.
+        """Combine with XOR operator (see ``_combine_masks``)."""
+        return self._combine_masks("XOR", other)
 
-        Returns a ColumnExpr wrapping CompoundCondition('XOR', ...).
-        """
-        from .conditions import CompoundCondition, Condition
-        import numpy as np
-        import pandas as pd
-
-        # Handle numpy arrays and pandas Series by deferring to method mode
-        if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name="__xor__", method_args=(other,))
-
-        self_cond = self._to_condition()
-
-        if isinstance(other, ColumnExpr):
-            other_cond = other._to_condition()
-        elif isinstance(other, Condition):
-            other_cond = other
-        else:
-            raise TypeError(f"Cannot XOR ColumnExpr with {type(other).__name__}")
-
-        return self._derive_expr(CompoundCondition("XOR", self_cond, other_cond))
+    def __rxor__(self, other: Any) -> "ColumnExpr":
+        """Right XOR operator."""
+        return self._combine_masks("XOR", other, reflected=True)
 
     def __invert__(self) -> "ColumnExpr":
         """
-        Negate with NOT operator.
-
-        Returns a ColumnExpr wrapping NotCondition.
+        Negate with NOT operator: a NotCondition, or for a value computed in
+        pandas (see ``_combine_masks``) its negation in pandas.
 
         Example:
             >>> ds.filter(~(ds['age'] > 18))  # age <= 18
@@ -2534,8 +2197,9 @@ class ColumnExpr:
         """
         from .conditions import NotCondition
 
-        self_cond = self._to_condition()
-        return self._derive_expr(NotCondition(self_cond))
+        if self._evaluated_in_pandas():
+            return ColumnExpr(source=self, method_name="__invert__")
+        return self._derive_expr(NotCondition(self._to_condition()))
 
     # ========== Arithmetic Operators (Return ColumnExpr) ==========
 
@@ -2583,7 +2247,8 @@ class ColumnExpr:
 
     def _is_cross_datastore(self, other: Any) -> bool:
         """
-        Check if other is a ColumnExpr from a different DataStore.
+        Check if other is a ColumnExpr or LazyCondition from a different
+        DataStore state.
 
         This is used to detect cross-DataStore operations that need
         special handling (row alignment via _row_id).
@@ -2594,7 +2259,7 @@ class ColumnExpr:
         Returns:
             True if other is a ColumnExpr from a different DataStore
         """
-        if not isinstance(other, ColumnExpr):
+        if not isinstance(other, (ColumnExpr, LazyCondition)):
             return False
         if other._datastore is None or self._datastore is None:
             return False
@@ -3847,7 +3512,7 @@ class ColumnExpr:
 
         Args:
             keep: Which duplicates to keep ('first', 'last', False to drop all).
-            inplace: Not used (always returns new Series).
+            inplace: Not supported (ColumnExpr is immutable)
             ignore_index: If True, reset index in result.
 
         Returns:
@@ -3860,6 +3525,8 @@ class ColumnExpr:
             3     Management
             Name: department, dtype: object
         """
+        if inplace:
+            raise ImmutableError("ColumnExpr")
         return ColumnExpr(
             source=self,
             method_name="drop_duplicates",
@@ -4087,7 +3754,7 @@ class ColumnExpr:
         Args:
             cond: Where True, keep the original value. Where False, replace.
             other: Replacement value where cond is False.
-            inplace: Not used (always returns new Series).
+            inplace: Not supported (ColumnExpr is immutable)
             axis: Alignment axis.
             level: Alignment level.
 
@@ -4103,9 +3770,76 @@ class ColumnExpr:
             4     0
             Name: age, dtype: int64
         """
+        if inplace:
+            raise ImmutableError("ColumnExpr")
         return ColumnExpr(
             source=self,
             method_name="where",
+            method_args=(cond,),
+            method_kwargs=dict(other=other, axis=axis, level=level),
+        )
+
+    def mask(
+        self, cond, other=pd.NA, inplace=False, axis=None, level=None
+    ) -> "ColumnExpr":
+        """
+        Replace values where the condition is True (lazy).
+
+        A condition expression of this state is computed in SQL, as
+        ``if(ifNull(cond, 1), other, x)`` when ``other`` keeps the column's
+        dtype: NaN compares as pandas does and an NA condition is replaced
+        (performance mode keeps SQL's ``if(cond, other, x)``). Otherwise, as
+        for a condition without an expression (a value computed in pandas,
+        such as ``s.cumsum() > 2``) or of another state, pandas applies it,
+        as ``where()`` is.
+
+        Example:
+            >>> ds['age'].mask(ds['age'] > 30, 0)
+        """
+        if inplace:
+            raise ImmutableError("ColumnExpr")
+        from .conditions import Condition
+        from .expressions import Expression
+
+        if isinstance(cond, LazyCondition) and not self._is_cross_datastore(cond):
+            condition = cond.condition
+        elif (
+            isinstance(cond, ColumnExpr)
+            and not cond._evaluated_in_pandas()
+            and not self._is_cross_datastore(cond)
+        ):
+            condition = cond._expr
+        elif isinstance(cond, Condition):
+            condition = cond
+        else:
+            condition = None
+        from .config import is_performance_mode
+        from .core import _sql_replacement_keeps_dtype
+
+        if (
+            condition is not None
+            and not self._evaluated_in_pandas()
+            and axis is None
+            and level is None
+            # pandas computes a replacement that changes the column's dtype
+            # (a missing one, or one of another kind of value)
+            and _sql_replacement_keeps_dtype(self._value_kind(), other)
+        ):
+            from .functions import Function
+            from .lazy_ops import _null_safe_comparisons
+
+            if not is_performance_mode():
+                # NaN compares as pandas does; a NULL left stands for pandas
+                # NA, which mask() replaces (SQL's if() would keep the value).
+                nan_columns = self._datastore._nan_columns(condition)
+                condition = Function(
+                    "ifNull", _null_safe_comparisons(condition, nan_columns), Literal(1)
+                )
+            replacement = Expression.wrap(other)
+            return self._derive_expr(Function("if", condition, replacement, self._expr))
+        return ColumnExpr(
+            source=self,
+            method_name="mask",
             method_args=(cond,),
             method_kwargs=dict(other=other, axis=axis, level=level),
         )
@@ -4159,7 +3893,7 @@ class ColumnExpr:
             axis: Axis to sort.
             level: If not None, sort on values in specified index level.
             ascending: Sort ascending vs descending.
-            inplace: Not used.
+            inplace: Not supported (ColumnExpr is immutable)
             kind: Sorting algorithm.
             na_position: Where to put NaN values ('first' or 'last').
             sort_remaining: If True, sort remaining levels.
@@ -4172,6 +3906,8 @@ class ColumnExpr:
         Example:
             >>> ds['age'].sort_index(ascending=False)
         """
+        if inplace:
+            raise ImmutableError("ColumnExpr")
         return ColumnExpr(
             source=self,
             method_name="sort_index",
@@ -5890,9 +5626,12 @@ class ColumnExpr:
 
         return False
 
-    def dropna(self) -> "ColumnExpr":
+    def dropna(self, inplace=False) -> "ColumnExpr":
         """
         Return Series with missing values removed (lazy).
+
+        Args:
+            inplace: Not supported (ColumnExpr is immutable)
 
         Returns:
             ColumnExpr: Lazy wrapper returning Series with NA values removed
@@ -5900,6 +5639,8 @@ class ColumnExpr:
         Example:
             >>> ds['value'].dropna()
         """
+        if inplace:
+            raise ImmutableError("ColumnExpr")
         return ColumnExpr(source=self, method_name="dropna")
 
     def ffill(

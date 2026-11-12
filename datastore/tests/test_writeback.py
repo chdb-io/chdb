@@ -1085,6 +1085,73 @@ class TestToClickHouseLocalDataFrame:
         finally:
             _drop(target)
 
+    @pytest.mark.parametrize("index", [False, True])
+    def test_multiindex_columns_are_flattened(self, index):
+        """agg(['sum', 'max']) columns are written as amount_sum /
+        amount_max, the names the aggregation has in SQL."""
+        target = f"wb_localdf_multiindex_{int(index)}"
+        _drop(target)
+        try:
+            frame = _local_df()[["status", "amount"]]
+            DataStore(frame).groupby("status").agg(["sum", "max"]).to_clickhouse(
+                f"{DATABASE}.{target}",
+                host=HOST, user=USER, password=PASSWORD, index=index,
+            )
+            expected = frame.groupby("status").agg(["sum", "max"])
+            expected.columns = ["amount_sum", "amount_max"]
+            expected = expected.reset_index(drop=not index)
+            sort_key = "status" if index else "amount_sum"
+            _assert_written(target, expected, [sort_key])
+        finally:
+            _drop(target)
+
+    @pytest.mark.parametrize("index_name", [42, None, "status"])
+    def test_index_label_names_the_index_column(self, index_name):
+        """index_label names the index column whatever the index's name,
+        also next to flattened MultiIndex columns."""
+        target = "wb_localdf_index_label"
+        _drop(target)
+        try:
+            frame = _local_df()[["status", "amount"]]
+            result = DataStore(frame).groupby("status").agg(["sum", "max"])
+            expected = frame.groupby("status").agg(["sum", "max"])
+            expected.columns = ["amount_sum", "amount_max"]
+            expected.index.name = index_name
+            expected = expected.reset_index()
+            expected.columns = ["row_id", "amount_sum", "amount_max"]
+            to_write = result.rename_axis(index_name)
+            to_write.to_clickhouse(
+                f"{DATABASE}.{target}",
+                host=HOST, user=USER, password=PASSWORD,
+                index=True, index_label="row_id",
+            )
+            assert [c for c, _ in _columns(target)] == list(expected.columns)
+            _assert_written(target, expected, ["row_id"])
+        finally:
+            _drop(target)
+
+    def test_multiindex_flattened_name_collision_raises(self):
+        """A key column amount_sum next to ('amount', 'sum') would write two
+        columns with one name."""
+        target = "wb_localdf_multiindex_clash"
+        _drop(target)
+        try:
+            frame = _local_df()[["status", "amount"]].assign(amount_sum=1)
+            with pytest.raises(DataStoreError, match="collide"):
+                DataStore(frame).groupby(["status", "amount_sum"]).agg(
+                    ["sum", "max"]
+                ).to_clickhouse(
+                    f"{DATABASE}.{target}",
+                    host=HOST, user=USER, password=PASSWORD, index=True,
+                )
+            assert not _q(
+                f"SELECT name FROM remote('{HOST}', 'system', 'tables', "
+                f"'{USER}', '{PASSWORD}') "
+                f"WHERE database = '{DATABASE}' AND name = '{target}'"
+            ).shape[0]
+        finally:
+            _drop(target)
+
     def test_fail_when_target_exists_raises(self):
         target = "wb_localdf_exists"
         _drop(target)
@@ -2143,3 +2210,73 @@ def _count_or_zero(table: str, db: str, srv: _Server) -> int:
         return _count(table, db=db, srv=srv)
     except Exception:
         return 0
+
+
+# ============================================================================
+# A group key moved to a hidden column is not written
+# ============================================================================
+
+
+class TestHiddenGroupKeyNotWritten:
+    """groupby('city').agg(city=...) keeps the key under a hidden name only
+    to build the index; written tables and views get pandas' columns."""
+
+    CHAINS = {
+        "named": lambda d: d.groupby("city").agg(city=("amount", "sum")),
+        "expression_then_filter": lambda d: (lambda a: a[a["city"] > 400])(
+            d.groupby("city").agg(city=col("amount").sum())
+        ),
+        "dict_two_outputs": lambda d: d.groupby("city", sort=False).agg(
+            {"city": "count", "amount": "sum"}
+        ),
+    }
+    PANDAS_CHAINS = {
+        "expression_then_filter": lambda d: (lambda a: a[a["city"] > 400])(
+            d.groupby("city").agg(city=("amount", "sum"))
+        ),
+    }
+
+    def _expected(self, name):
+        source = _select_all("wb_source", order_by="city, amount")
+        chain = self.PANDAS_CHAINS.get(name, self.CHAINS[name])
+        return chain(source).reset_index(drop=True)
+
+    @pytest.mark.parametrize("name", list(CHAINS))
+    def test_server_side_to_clickhouse(self, source_table, name):
+        target = f"wb_hidden_key_{name}"
+        _drop(target)
+        try:
+            ds = self.CHAINS[name](_make_ds(source_table))
+            assert ds._is_fully_sql_pushable()
+            ds.to_clickhouse(f"{DATABASE}.{target}")
+            expected = self._expected(name)
+            assert [c for c, _ in _columns(target)] == list(expected.columns)
+            _assert_written(target, expected, list(expected.columns))
+        finally:
+            _drop(target)
+
+    @pytest.mark.parametrize("name", list(CHAINS))
+    def test_local_dataframe_to_clickhouse(self, source_table, name):
+        target = f"wb_hidden_key_local_{name}"
+        _drop(target)
+        try:
+            source = _select_all(source_table, order_by="city, amount")
+            self.CHAINS[name](DataStore(source)).to_clickhouse(
+                f"{DATABASE}.{target}", host=HOST, user=USER, password=PASSWORD
+            )
+            expected = self._expected(name)
+            assert [c for c, _ in _columns(target)] == list(expected.columns)
+            _assert_written(target, expected, list(expected.columns))
+        finally:
+            _drop(target)
+
+    def test_view(self, source_table):
+        view = "wb_hidden_key_view"
+        _drop_view(view)
+        try:
+            self.CHAINS["named"](_make_ds(source_table)).create_view(f"{DATABASE}.{view}")
+            expected = self._expected("named")
+            assert [c for c, _ in _columns(view)] == list(expected.columns)
+            _assert_written(view, expected, list(expected.columns))
+        finally:
+            _drop_view(view)

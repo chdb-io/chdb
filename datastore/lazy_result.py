@@ -289,7 +289,10 @@ class LazySeries:
             **kwargs: Keyword arguments for the method
         """
         from .column_expr import frozen_state
+        from .exceptions import ImmutableError
 
+        if kwargs.get("inplace"):
+            raise ImmutableError("LazySeries")
         self._column_expr = column_expr
         self._method_name = method_name
         self._args = args
@@ -491,73 +494,13 @@ class LazySeries:
         op_kwargs = self._op_kwargs
 
         if op_type == "groupby_size":
-            # Check if we can use SQL pushdown
-            if ds._table_function or ds.table_name:
-                # Use SQL GROUP BY for performance
-                if ds._executor is None:
-                    ds.connect()
+            from .lazy_ops import LazyGroupByAgg
 
-                # Build SELECT fields: groupby cols + COUNT(*)
-                select_parts = [f'"{col}"' for col in cols]
-                select_parts.append('COUNT(*) AS "size"')
-                select_sql = ", ".join(select_parts)
-
-                # Build GROUP BY
-                groupby_sql = ", ".join(f'"{col}"' for col in cols)
-
-                # Get base table SQL
-                if ds._table_function:
-                    table_sql = ds._table_function.to_sql()
-                else:
-                    table_sql = f'"{ds.table_name}"'
-
-                # Build WHERE clause from lazy ops if any
-                where_sql = ""
-                from .lazy_ops import LazyRelationalOp
-
-                where_conditions = []
-                for op in ds._lazy_ops:
-                    if (
-                        isinstance(op, LazyRelationalOp)
-                        and op.op_type == "WHERE"
-                        and op.condition
-                    ):
-                        where_conditions.append(op.condition.to_sql(quote_char='"'))
-                if where_conditions:
-                    where_sql = " WHERE " + " AND ".join(where_conditions)
-
-                # Add ORDER BY for sorted groupby (pandas default: sort=True)
-                orderby_sql = ""
-                if sort:
-                    orderby_sql = " ORDER BY " + ", ".join(f'"{col}"' for col in cols)
-
-                # When dropna=True, filter out NULL groups in the WHERE clause
-                if dropna:
-                    null_filter_conditions = [f'"{col}" IS NOT NULL' for col in cols]
-                    if where_sql:
-                        where_sql = (
-                            where_sql + " AND " + " AND ".join(null_filter_conditions)
-                        )
-                    else:
-                        where_sql = " WHERE " + " AND ".join(null_filter_conditions)
-
-                sql = f"SELECT {select_sql} FROM {table_sql}{where_sql} GROUP BY {groupby_sql}{orderby_sql}"
-                result_df = ds._executor.execute(sql).to_df()
-
-                # Convert to Series with groupby col as index
-                if len(cols) == 1:
-                    series = result_df.set_index(cols[0])["size"]
-                else:
-                    series = result_df.set_index(cols)["size"]
-
-                # Convert uint64 to int64 to match pandas behavior
-                if series.dtype == "uint64":
-                    series = series.astype("int64")
-                return series
-            else:
-                # Fall back to pandas - get DataFrame directly (safe)
-                df = ds._get_df()
-                return df.groupby(cols, dropna=dropna).size()
+            sizes = LazyGroupByAgg(
+                groupby_cols=cols, agg_func="size", sort=sort, dropna=dropna
+            ).run_on(ds)["size"]
+            sizes.name = None
+            return sizes
 
         elif op_type == "groupby_cumcount":
             # Execute using pandas - get DataFrame directly (safe)

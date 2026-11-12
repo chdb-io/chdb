@@ -249,8 +249,14 @@ class TestLimitOffset(unittest.TestCase):
         self.assertEqual('SELECT * FROM "customers" OFFSET 20', sql)
 
     def test_limit_and_offset(self):
-        """Test LIMIT and OFFSET together."""
+        """OFFSET after LIMIT skips rows of the first LIMIT rows, as
+        ds.head(10).iloc[20:] does; OFFSET before LIMIT is one clause."""
         sql = self.ds.limit(10).offset(20).to_sql()
+        self.assertEqual(
+            'SELECT * FROM (SELECT * FROM "customers" LIMIT 10) AS __subq1__ OFFSET 20',
+            sql,
+        )
+        sql = self.ds.offset(20).limit(10).to_sql()
         self.assertEqual('SELECT * FROM "customers" LIMIT 10 OFFSET 20', sql)
 
 
