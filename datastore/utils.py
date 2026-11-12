@@ -6,7 +6,9 @@ particular subsystem. SQL-specific utilities are in sql_executor.py.
 """
 
 from typing import TypeVar, Callable
+from contextlib import contextmanager
 from copy import copy
+import contextvars
 
 __all__ = [
     'immutable',
@@ -153,10 +155,84 @@ def format_identifier(name: str, quote_char: str = '"') -> str:
 # ========== Sort Stability Constants and Functions ==========
 # These ensure DataStore sort matches pandas stable sort (kind='stable') behavior
 
+# Position of a row in a source without its own row positions (database
+# tables, generated rows): the order the rows reach the query.
+DEFAULT_ROW_POSITION = "rowNumberInAllBlocks()"
+
 # Tie-breaker for stable sort to preserve original row order when sort keys have duplicates.
-# For Python() table function: connection.py replaces this with _row_id at execution time
-# For file sources (Parquet, CSV): rowNumberInAllBlocks() works correctly as-is
-STABLE_SORT_TIEBREAKER = "rowNumberInAllBlocks() ASC"
+STABLE_SORT_TIEBREAKER = f"{DEFAULT_ROW_POSITION} ASC"
+
+
+class RowPositionScope:
+    """
+    The SQL for a row's position in the source of the query being built:
+    ``_row_id`` for a DataFrame source, the file reader's position for a
+    file (see ``TableFunction.row_position_source``), ``DEFAULT_ROW_POSITION``
+    otherwise. ``uses`` counts how often the built SQL read it.
+    """
+
+    def __init__(self, sql: str):
+        self.sql = sql
+        self.uses = 0
+
+    @property
+    def used(self) -> bool:
+        return self.uses > 0
+
+
+_row_position_scope = contextvars.ContextVar("row_position_scope", default=None)
+
+
+def row_position_sql() -> str:
+    """SQL for a row's position in its source, in the query being built."""
+    scope = _row_position_scope.get()
+    if scope is None:
+        return DEFAULT_ROW_POSITION
+    scope.uses += 1
+    return scope.sql
+
+
+def current_row_position_scope() -> "RowPositionScope":
+    """The row position scope SQL is being built in, or None."""
+    return _row_position_scope.get()
+
+
+@contextmanager
+def row_position_scope(sql: str):
+    """Build SQL in which a row's source position is ``sql``."""
+    scope = RowPositionScope(sql)
+    token = _row_position_scope.set(scope)
+    try:
+        yield scope
+    finally:
+        _row_position_scope.reset(token)
+
+
+def dataframe_sql(expr, quote_char: str = '"') -> str:
+    """
+    SQL for ``expr`` evaluated on a DataFrame through Python(), where a
+    row's source position is the DataFrame's virtual ``_row_id`` column.
+    """
+    with row_position_scope("_row_id"):
+        return expr.to_sql(quote_char=quote_char)
+
+
+def compose_slice(offset, limit, op_type: str, n: int):
+    """
+    ``(offset, limit)`` of the rows an ``op_type`` (``"OFFSET"`` or
+    ``"LIMIT"``) of ``n`` keeps from the rows ``OFFSET offset LIMIT limit``
+    selects. Each applies to the previous result, as ``df.iloc[n:]`` and
+    ``df.head(n)`` do, so any chain of offsets and limits is one slice.
+    ``None`` means no offset or no limit.
+    """
+    if op_type == "OFFSET":
+        offset = (offset or 0) + n
+        if limit is not None:
+            limit = max(limit - n, 0)
+    elif op_type == "LIMIT":
+        limit = n if limit is None else min(limit, n)
+    return offset, limit
+
 
 # Sort kinds that guarantee stability (matching pandas behavior)
 STABLE_SORT_KINDS = ('stable', 'mergesort')
@@ -205,7 +281,7 @@ def build_orderby_clause(orderby_fields: list, quote_char: str = '"', stable: bo
     from .config import is_performance_mode
 
     if stable and not is_performance_mode():
-        order_parts.append(STABLE_SORT_TIEBREAKER)
+        order_parts.append(f"{row_position_sql()} ASC")
 
     return ', '.join(order_parts)
 

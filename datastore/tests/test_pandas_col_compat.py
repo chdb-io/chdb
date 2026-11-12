@@ -1011,22 +1011,21 @@ class TestGroupbyAggMirrorsPandas(unittest.TestCase):
         self.ds = DataStore(self.df.copy())
 
     def test_groupby_agg_single_sum_returns_expected_columns_and_values(self):
-        pd_out = self.df.groupby("region").agg(total=("revenue", "sum")).reset_index()
+        pd_out = self.df.groupby("region").agg(total=("revenue", "sum"))
         ds_out = self.ds.groupby("region").agg(total=pd.col("revenue").sum())
-        assert_datastore_equals_pandas(ds_out, pd_out, check_row_order=False)
+        assert_datastore_equals_pandas(ds_out, pd_out, check_index=True)
 
     def test_groupby_agg_multiple_named_aggregations(self):
         pd_out = (
             self.df
             .groupby("region")
             .agg(total=("revenue", "sum"), avg_qty=("qty", "mean"))
-            .reset_index()
         )
         ds_out = self.ds.groupby("region").agg(
             total=pd.col("revenue").sum(),
             avg_qty=pd.col("qty").mean(),
         )
-        assert_datastore_equals_pandas(ds_out, pd_out, check_row_order=False)
+        assert_datastore_equals_pandas(ds_out, pd_out, check_index=True)
 
     def test_groupby_agg_pushes_down_aggregate_sql(self):
         _, sqls = _capture_executed_sql(

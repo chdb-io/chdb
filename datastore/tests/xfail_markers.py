@@ -101,10 +101,11 @@ chdb_array_string_conversion = pytest.mark.xfail(
 # )
 
 # Function Limitations
-chdb_no_product_function = pytest.mark.xfail(
-    reason="chDB does not support product() aggregate function",
-    strict=True,
-)
+# FIXED: groupby prod() runs as a fold over groupArray() in the aggregation step
+# chdb_no_product_function = pytest.mark.xfail(
+#     reason="chDB does not support product() aggregate function",
+#     strict=True,
+# )
 
 chdb_no_normalize_utf8 = pytest.mark.xfail(
     condition=not _chdb_has_function("normalizeUTF8NFD"),
@@ -425,7 +426,7 @@ MARKER_REGISTRY = {
     "chdb_array_nullable": ("chdb", None, "Array cannot be inside Nullable type"),
     "chdb_array_string_conversion": ("chdb", None, "numpy arrays may be converted to strings in SQL operations"),
     # Functions
-    "chdb_no_product_function": ("chdb", None, "product() aggregate not available"),
+    "chdb_no_product_function": ("fixed", None, "groupby prod() folds groupArray() in SQL - FIXED"),
     "chdb_no_normalize_utf8": ("chdb", None, "normalizeUTF8NFD availability depends on the chdb-core wheel"),
     "chdb_no_quantile_array": ("chdb", None, "quantile with array parameter not supported"),
     "chdb_median_in_where": ("chdb", None, "Aggregate in WHERE requires subquery"),

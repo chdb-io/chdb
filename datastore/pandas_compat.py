@@ -41,6 +41,42 @@ _PANDAS_HAS_LIMIT_AREA = _parse_pandas_version() >= (2, 1)
 # pandas 3.0 removed axis parameter from rolling(), expanding(), ewm()
 _PANDAS_3_PLUS = _parse_pandas_version() >= (3, 0)
 
+# Anti joins were added to pandas.merge in pandas 3.0.
+_PANDAS_HAS_ANTI_JOIN = _PANDAS_3_PLUS
+
+
+def _pandas_merge(left, right, *, how="inner", **kwargs):
+    """Merge on supported pandas versions, including anti joins on pandas 2.x.
+
+    Backport pandas 3's unmatched-indexer filtering to pandas 2's merge
+    operation. Filtering before pandas constructs the result preserves its
+    dtypes (including empty results), labels, suffixes and indicator, without
+    introducing a marker column that could collide with user columns.
+    """
+    if _PANDAS_HAS_ANTI_JOIN or how not in ("left_anti", "right_anti"):
+        return pd.merge(left, right, how=how, **kwargs)
+
+    import numpy as np
+    from pandas.core.reshape.merge import _MergeOperation
+
+    class AntiMergeOperation(_MergeOperation):
+        def _get_join_info(self):
+            index, left_indexer, right_indexer = super()._get_join_info()
+            if left_indexer is None:
+                left_indexer = np.arange(len(self.left))
+            if right_indexer is None:
+                right_indexer = np.arange(len(self.right))
+            unmatched = right_indexer == -1 if self.how == "left" else left_indexer == -1
+            return index[unmatched], left_indexer[unmatched], right_indexer[unmatched]
+
+    copy = kwargs.pop("copy", True)
+    operation = AntiMergeOperation(
+        left, right, how=how[:-5], sort=kwargs.pop("sort", False), **kwargs,
+    )
+    # pandas 3 no longer accepts copy; this also lets its native anti joins
+    # serve as an oracle for the compatibility path in regression tests.
+    return operation.get_result() if _PANDAS_3_PLUS else operation.get_result(copy=copy)
+
 
 def _translate_pd_col_in_key(key):
     """Translate ``pd.col(...)`` in a loc/iloc/getitem key into chdb-ds
@@ -229,8 +265,6 @@ class DataStoreLocIndexer:
         from .lazy_result import LazyCondition
         from .lazy_ops import LazyRelationalOp
         from .expressions import Field
-        from copy import copy
-
         # Translate pd.col(...) so loc pushdown sees a chdb-ds Condition.
         key = _translate_pd_col_in_key(key)
 
@@ -250,22 +284,8 @@ class DataStoreLocIndexer:
                 condition = self._extract_condition(row_key)
 
                 if condition is not None:
-                    # Create a copy of the DataStore for immutability
-                    result = copy(self._datastore)
-                    result._cached_result = None
-                    result._cache_version = 0
-                    result._cached_at_version = -1
-                    result._cache_timestamp = None
-
-                    # Add WHERE operation (filter)
-                    cond_desc = condition.to_sql(quote_char='"') if hasattr(condition, 'to_sql') else str(condition)
-                    result._add_lazy_op(
-                        LazyRelationalOp(
-                            op_type='WHERE',
-                            description=f"loc filter: {cond_desc}",
-                            condition=condition,
-                        )
-                    )
+                    # Rows as ds[row_key] selects them
+                    result = self._datastore.filter(row_key)
 
                     # Add SELECT operation (column selection)
                     single_column = isinstance(col_key, str)
@@ -292,20 +312,8 @@ class DataStoreLocIndexer:
         if self._can_pushdown_condition(key):
             condition = self._extract_condition(key)
             if condition is not None:
-                result = copy(self._datastore)
-                result._cached_result = None
-                result._cache_version = 0
-                result._cached_at_version = -1
-                result._cache_timestamp = None
-                cond_desc = condition.to_sql(quote_char='"') if hasattr(condition, 'to_sql') else str(condition)
-                result._add_lazy_op(
-                    LazyRelationalOp(
-                        op_type='WHERE',
-                        description=f"loc filter: {cond_desc}",
-                        condition=condition,
-                    )
-                )
-                return result
+                # Rows as ds[key] selects them
+                return self._datastore.filter(key)
 
         # Fall back to pandas execution for non-pushable cases
         # (label-based indexing, slice indexing, method-mode conditions, etc.)
@@ -799,16 +807,19 @@ class PandasCompatMixin:
         from .column_expr import ColumnExpr
         from .conditions import Condition
         from .lazy_ops import LazyWhere
+        from .lazy_result import LazyCondition
         from copy import copy
 
         # Check if we can use lazy execution
         # Lazy mode: ColumnExpr or Condition with scalar other
-        can_lazy = isinstance(cond, (ColumnExpr, Condition)) and not isinstance(other, (pd.DataFrame, pd.Series))
+        can_lazy = isinstance(cond, (ColumnExpr, Condition, LazyCondition)) and not isinstance(
+            other, (pd.DataFrame, pd.Series)
+        )
 
         if can_lazy:
             # Lazy execution: create LazyWhere operation
             new_ds = copy(self)
-            new_ds._add_lazy_op(LazyWhere(cond, other))
+            new_ds._add_lazy_op(LazyWhere(cond, other, alignment=self._mask_alignment(cond)))
             return new_ds
         else:
             # Immediate execution: pandas Series/DataFrame condition
@@ -844,15 +855,18 @@ class PandasCompatMixin:
         from .column_expr import ColumnExpr
         from .conditions import Condition
         from .lazy_ops import LazyMask
+        from .lazy_result import LazyCondition
         from copy import copy
 
         # Check if we can use lazy execution
-        can_lazy = isinstance(cond, (ColumnExpr, Condition)) and not isinstance(other, (pd.DataFrame, pd.Series))
+        can_lazy = isinstance(cond, (ColumnExpr, Condition, LazyCondition)) and not isinstance(
+            other, (pd.DataFrame, pd.Series)
+        )
 
         if can_lazy:
             # Lazy execution: create LazyMask operation
             new_ds = copy(self)
-            new_ds._add_lazy_op(LazyMask(cond, other))
+            new_ds._add_lazy_op(LazyMask(cond, other, alignment=self._mask_alignment(cond)))
             return new_ds
         else:
             # Immediate execution: pandas Series/DataFrame condition
@@ -1189,7 +1203,7 @@ class PandasCompatMixin:
             new_ds = copy(self)
             if subset is not None:
                 # Use LIMIT 1 BY for subset-based deduplication
-                new_ds._distinct_subset = list(subset) if not isinstance(subset, list) else subset
+                new_ds._distinct_subset = [subset] if isinstance(subset, str) else list(subset)
             else:
                 # Use SELECT DISTINCT for full-row deduplication
                 new_ds._distinct = True
@@ -1679,7 +1693,10 @@ class PandasCompatMixin:
         and no advanced pandas-only features are needed. Falls back to
         pandas merge otherwise.
         """
+        from .enums import JoinType
+
         DataStore = type(self)
+        join_type = JoinType.parse(how)
 
         # Try lazy SQL JOIN path when both sides are DataStores with SQL sources
         # and no pandas-only merge features are used
@@ -1723,7 +1740,7 @@ class PandasCompatMixin:
 
         if can_use_sql_join:
             try:
-                return self.join(right, on=on, how=how,
+                return self.join(right, on=on, how=join_type,
                                  left_on=left_on, right_on=right_on)
             except Exception:
                 pass  # Fall back to pandas merge
@@ -1732,9 +1749,10 @@ class PandasCompatMixin:
         if hasattr(right, '_get_df'):
             right = right._get_df()
         return self._wrap_result(
-            self._get_df().merge(
+            _pandas_merge(
+                self._get_df(),
                 right,
-                how=how,
+                how=join_type.pandas_how,
                 on=on,
                 left_on=left_on,
                 right_on=right_on,
@@ -3141,6 +3159,10 @@ class PandasCompatMixin:
         # labels (it is NOT reset to a contiguous RangeIndex), so the shortcut
         # would return the wrong labels -- it must fall back to full execution.
         # Custom/group indexes fall back too.
+        #
+        # Rows read from a file keep their file positions as labels, so a
+        # filtered, deduplicated or offset file pipeline is not labelled
+        # 0..n-1 either: its labels are read without the rows.
         has_order_by = bool(self._orderby_fields) or any(
             isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY"
             for op in (self._lazy_ops or [])
@@ -3153,7 +3175,12 @@ class PandasCompatMixin:
             and self._cached_result is None
         ):
             try:
-                return pd.RangeIndex(start=0, stop=self.count_rows(), step=1)
+                reads_file = getattr(self._table_function, "reads_files", False)
+                if not reads_file or self._single_sql_query() is not None:
+                    labels = self._source_row_labels() if reads_file else None
+                    if labels is not None:
+                        return labels
+                    return pd.RangeIndex(start=0, stop=self.count_rows(), step=1)
             except Exception:
                 pass
         return self._get_df().index

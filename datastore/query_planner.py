@@ -118,6 +118,31 @@ class QueryPlan:
         """Check if SQL needs nested subqueries (multiple layers)."""
         return len(self.layers) > 1
 
+    def columns_recomputed_around_aggregation(
+        self,
+    ) -> Tuple[Optional[Set[str]], Optional[Set[str]]]:
+        """
+        ``(before, after)``: the columns this plan's ops compute before and
+        after ``groupby_agg``; None when an op changes every column (another
+        aggregation, where/mask) or the aggregation is not among the ops.
+        """
+        ops = [op for layer in self.layers for op in layer]
+        position = next(
+            (i for i, op in enumerate(ops) if op is self.groupby_agg), None
+        )
+        if position is None:
+            return None, None
+        computed: List[Optional[Set[str]]] = [set(), set()]
+        for i, op in enumerate(ops):
+            if i == position:
+                continue
+            side = 0 if i < position else 1
+            if isinstance(op, (LazyGroupByAgg, LazyWhere, LazyMask)):
+                computed[side] = None
+            elif computed[side] is not None:
+                computed[side] |= set(QueryPlanner._computed_columns_of(op))
+        return computed[0], computed[1]
+
     def describe(self) -> str:
         """Return a human-readable description of the plan."""
         lines = []
@@ -268,15 +293,24 @@ class QueryPlanner:
           (WHERE, ORDER BY, computed expression) or computes. Within one
           SELECT, ClickHouse binds every reference to a name to that
           SELECT's alias, so the earlier op would see the new value.
-        - A column assignment (``LazyColumnAssignment`` or an
-          assignment-style ``SELECT *, expr``) follows a LazyGroupByAgg:
-          it computes on the aggregated rows, while in the GROUP BY layer
-          its fields would be taken as the aggregation targets.
+        - Any op follows a LazyGroupByAgg. The aggregation is a closed
+          step whose output is exactly its result rows (group keys and
+          aggregates); everything after it reads those rows from a
+          subquery, as pandas reads the aggregated frame.
+        - A where/mask follows a WHERE, ORDER BY, LIMIT or OFFSET, or any op
+          follows a where/mask. The where/mask rewrites every column in its
+          layer's SELECT, so it is a closed step like an aggregation: it
+          reads the filtered, sorted or sliced rows from a subquery, and
+          what follows it reads its result from one.
         - An op computes an expression that reads a column computed in the
           same layer. ClickHouse inlines an alias wherever it is referenced,
           so chains of aliases referencing aliases grow the query tree
           without bound (exponentially when a column is read twice); in a
           new layer the reference is to a real column of the inner layer.
+        - A where/mask follows an op that changes the columns (SELECT or
+          column assignment), or such an op follows a where/mask. The
+          CASE WHEN replaces the layer's projection with one expression per
+          column it reads from the layer's input.
 
         This preserves pandas-like execution order semantics in SQL.
 
@@ -293,6 +327,18 @@ class QueryPlanner:
         pending_column_assignments = []  # Column assignments after LIMIT/OFFSET
         computed_columns_after_limit = set()  # Computed columns added after LIMIT
         seen_groupby = False  # Has the current layer a LazyGroupByAgg?
+        seen_mask = False  # Has the current layer a LazyWhere / LazyMask?
+        seen_distinct = False  # Has the current layer a LazyDistinct?
+
+        def _changes_columns(op):
+            return isinstance(op, LazyColumnAssignment) or (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "SELECT"
+                and bool(op.fields)
+            )
+
+        def _has_where_mask(layer):
+            return any(isinstance(prev, (LazyWhere, LazyMask)) for prev in layer)
 
         def _is_pure_projection_select(op):
             """Pure projection SELECT = ``SELECT col1, col2, ...`` with no
@@ -337,10 +383,14 @@ class QueryPlanner:
             return bool((read & computed) - op_set)
 
         def _append(op):
-            nonlocal seen_limit, seen_offset, seen_groupby
+            nonlocal seen_limit, seen_offset, seen_groupby, seen_mask, seen_distinct
             current_layer.append(op)
             if isinstance(op, LazyGroupByAgg):
                 seen_groupby = True
+            if isinstance(op, (LazyWhere, LazyMask)):
+                seen_mask = True
+            if isinstance(op, LazyDistinct):
+                seen_distinct = True
             if isinstance(op, LazyRelationalOp):
                 if op.op_type == "LIMIT":
                     seen_limit = True
@@ -348,11 +398,11 @@ class QueryPlanner:
                     seen_offset = True
 
         def _open_layer_with(op):
-            nonlocal current_layer, seen_limit, seen_offset, seen_groupby
-            nonlocal computed_columns_after_limit
+            nonlocal current_layer, seen_limit, seen_offset, seen_groupby, seen_mask
+            nonlocal seen_distinct, computed_columns_after_limit
             layers.append(current_layer)
             current_layer = []
-            seen_limit = seen_offset = seen_groupby = False
+            seen_limit = seen_offset = seen_groupby = seen_mask = seen_distinct = False
             computed_columns_after_limit = set()
             _append(op)
 
@@ -393,11 +443,53 @@ class QueryPlanner:
             else:
                 _open_layer_with(op)
 
+        def _filters_sorts_and_projections_only(layer):
+            return all(
+                isinstance(prev, LazyRelationalOp)
+                and (prev.op_type in ("WHERE", "ORDER BY") or _is_pure_projection_select(prev))
+                for prev in layer
+            )
+
+        def _commutes_with_layer_dedup(op):
+            # Equal rows pass a filter together and keep their order in a
+            # stable sort, so a full-row dedup gives the same rows before or
+            # after either; a layer sorts once
+            dedup = next(prev for prev in current_layer if isinstance(prev, LazyDistinct))
+            if dedup.subset is not None or seen_limit or seen_offset:
+                return False
+            return op.op_type == "WHERE" or not any(
+                isinstance(prev, LazyRelationalOp) and prev.op_type == "ORDER BY" for prev in current_layer
+            )
+
         for op in ops:
-            if isinstance(op, LazyRelationalOp):
+            if seen_groupby or seen_mask:
+                _start_new_layer_with(op)
+            elif seen_distinct and not (
+                isinstance(op, LazyRelationalOp)
+                and (
+                    op.op_type in ("LIMIT", "OFFSET")
+                    or (op.op_type in ("WHERE", "ORDER BY") and _commutes_with_layer_dedup(op))
+                )
+            ):
+                # A layer's SELECT, WHERE and ORDER BY run before its DISTINCT
+                # (or LIMIT 1 BY); an op after drop_duplicates() reads its result
+                _start_new_layer_with(op)
+            elif isinstance(op, LazyDistinct):
+                # drop_duplicates() reads the rows the earlier ops leave: it
+                # shares a layer only with filters, sorts and column
+                # selections before it
+                if current_layer and (
+                    pending_column_assignments or not _filters_sorts_and_projections_only(current_layer)
+                ):
+                    _start_new_layer_with(op)
+                else:
+                    _place(op)
+            elif isinstance(op, LazyRelationalOp):
                 needs_new_layer = False
 
-                if op.op_type == "WHERE" and (seen_limit or seen_offset):
+                if _changes_columns(op) and _has_where_mask(current_layer):
+                    needs_new_layer = True
+                elif op.op_type == "WHERE" and (seen_limit or seen_offset):
                     # WHERE after LIMIT/OFFSET - start new layer
                     needs_new_layer = True
                 elif op.op_type == "ORDER BY" and (seen_limit or seen_offset):
@@ -410,17 +502,6 @@ class QueryPlanner:
                 elif op.op_type == "LIMIT" and seen_limit:
                     # Second LIMIT means chained limits like [:50][:20]
                     # The second limit operates on the result of the first
-                    needs_new_layer = True
-                elif (
-                    seen_groupby
-                    and op.op_type == "SELECT"
-                    and (
-                        not _is_pure_projection_select(op)
-                        or self._computed_columns_of(op)
-                    )
-                ):
-                    # Assignment after an aggregation computes on its result,
-                    # also when it overwrites a column in an explicit projection
                     needs_new_layer = True
                 elif _is_pure_projection_select(op):
                     proj_fields = _projection_field_names(op)
@@ -440,8 +521,8 @@ class QueryPlanner:
 
             elif isinstance(op, LazyColumnAssignment):
                 # Column assignment after LIMIT/OFFSET needs special handling
-                if seen_groupby:
-                    # Assignment after an aggregation computes on its result
+                if _has_where_mask(current_layer):
+                    # Assignment after a where/mask computes on its result
                     _start_new_layer_with(op)
                 elif seen_limit or seen_offset:
                     # Track the column for dependency checking
@@ -460,6 +541,19 @@ class QueryPlanner:
                 # new layer so the LIMIT applies to the inner subquery
                 # (i.e. ``SELECT ... FROM (SELECT ... LIMIT N) GROUP BY``).
                 _start_new_layer_with(op)
+            elif isinstance(op, (LazyWhere, LazyMask)) and any(
+                isinstance(prev, LazyRelationalOp)
+                and prev.op_type in ("WHERE", "ORDER BY", "LIMIT", "OFFSET")
+                for prev in current_layer
+            ):
+                _start_new_layer_with(op)
+            elif isinstance(op, LazyGroupByAgg) and any(
+                self._computes_window(prev) for prev in current_layer
+            ):
+                # The aggregation inlines the layer's computed columns, and a
+                # window function (shift, cumsum, ...) cannot sit inside an
+                # aggregate function: aggregate it from a subquery.
+                _start_new_layer_with(op)
             elif isinstance(op, LazyGroupByAgg) and any(
                 isinstance(prev, (LazyWhere, LazyMask)) for prev in current_layer
             ):
@@ -474,6 +568,12 @@ class QueryPlanner:
                 # masked output:
                 # ``SELECT ... agg() FROM (SELECT CASE WHEN ...) GROUP BY``.
                 _start_new_layer_with(op)
+            elif isinstance(op, (LazyWhere, LazyMask)):
+                _flush_pending()
+                if any(_changes_columns(prev) for prev in current_layer):
+                    _open_layer_with(op)
+                else:
+                    _place(op)
             else:
                 # Other operations - add pending column assignments first, then this op
                 _flush_pending()
@@ -660,6 +760,11 @@ class QueryPlanner:
                 preceding_ops,
                 following_ops,
                 local_source=local_source,
+            ) and not (
+                # SQL over an intermediate DataFrame carries its _row_id
+                # through every SELECT, which DISTINCT would compare
+                isinstance(op, LazyDistinct)
+                and any(kind == "pandas" for kind, _ in op_types)
             ):
                 op_types.append(("sql", op))
             else:
@@ -738,6 +843,14 @@ class QueryPlanner:
                 if not isinstance(f, str) and getattr(f, "alias", None)
             }
         return {}
+
+    def _computes_window(self, op: LazyOp) -> bool:
+        """Whether an op computes a column with a window function."""
+        if isinstance(op, LazyColumnAssignment):
+            exprs = [op.get_sql_expression()] if op.can_push_to_sql() else []
+        else:
+            exprs = list(self._computed_columns_of(op).values())
+        return any(" OVER (" in expr.to_sql(quote_char='"') for expr in exprs)
 
     def _columns_read_by(self, op: LazyOp) -> Set[str]:
         """Columns an op's condition, sort keys or computed expressions read.

@@ -104,7 +104,7 @@ def _order_by_clause_end(sql: str) -> int:
             depth -= 1
         elif depth == 0 and (
             char == ";"
-            or masked.startswith((" LIMIT ", " OFFSET ", " SETTINGS "), i)
+            or re.match(r"\s(LIMIT|OFFSET|SETTINGS)\s", masked[i : i + 10])
         ):
             return i
     return len(masked.rstrip())
@@ -372,64 +372,14 @@ class Connection:
             df_for_sql
         )
 
-        sql_upper = _mask_quoted(sql).upper().strip()
-
-        # Determine how to handle row order preservation
-        # _row_id is used to preserve original row order in Python() table function
-        has_order_by = self._has_outer_order_by(sql_upper)
-        has_group_by = "GROUP BY" in sql_upper
-        is_aggregate = self._is_aggregate_query(sql_upper)
-
-        # Determine row order handling strategy using _row_id
-        add_order_by_row_id = (
-            False  # Whether to add ORDER BY _row_id (no existing ORDER BY)
-        )
-        add_row_id_as_tiebreaker = (
-            False  # Whether to append _row_id to existing ORDER BY
-        )
-        need_row_id_in_result = (
-            False  # Whether we need _row_id in result for index restoration
-        )
-
-        if not preserve_order:
-            pass  # All False
-        elif has_group_by or is_aggregate:
-            # GROUP BY/aggregate: rows don't correspond to original rows
-            # _row_id is meaningless after aggregation
-            pass  # All False
-        elif has_order_by:
-            # Has explicit ORDER BY: add _row_id as tie-breaker for stable sort
-            # This ensures rows with equal sort keys maintain original relative order
-            add_row_id_as_tiebreaker = True
-            need_row_id_in_result = True
-        else:
-            # No explicit ORDER BY and no GROUP BY/aggregate: preserve original row order
-            # This applies to all queries including column selection (SELECT col1, col2)
-            # chDB doesn't guarantee row order, so we must add _row_id ordering
-            add_order_by_row_id = True
-            need_row_id_in_result = True
-
         # Auto-wrap table reference if not already wrapped
         processed_sql = sql
         if f"Python({df_name})" not in sql:
             processed_sql = sql.replace(df_name, f"Python({df_name})")
 
-        # Replace rowNumberInAllBlocks() with _row_id for Python() table function
-        # rowNumberInAllBlocks() is non-deterministic with Python() table function
-        # but _row_id is a built-in deterministic virtual column in chDB v4.0.0b5+
-        processed_sql = processed_sql.replace("rowNumberInAllBlocks()", "_row_id")
-
-        # Handle ORDER BY modifications using _row_id
-        if add_order_by_row_id:
-            # No existing ORDER BY: add ORDER BY _row_id to preserve row order
-            processed_sql = self._add_order_by_row_id(processed_sql)
-        elif add_row_id_as_tiebreaker:
-            # Has existing ORDER BY: append _row_id as tie-breaker for stable sort
-            processed_sql = self._append_row_id_tiebreaker(processed_sql)
-
-        # Add _row_id to SELECT if we need it for index restoration
-        if need_row_id_in_result:
-            processed_sql = self._add_row_id_to_select(processed_sql)
+        processed_sql, need_row_id_in_result = self._carry_row_column(
+            processed_sql, "_row_id", preserve_order
+        )
 
         self._log_query(processed_sql, "DataFrame")
 
@@ -605,7 +555,8 @@ class Connection:
 
         return False
 
-    def _has_outer_order_by(self, sql_upper: str) -> bool:
+    @staticmethod
+    def _has_outer_order_by(sql_upper: str) -> bool:
         """
         Check if SQL has ORDER BY at the outer query level (not in subquery).
         """
@@ -624,7 +575,8 @@ class Connection:
         # If balanced or more opens than closes, ORDER BY is at outer level
         return open_count >= close_count
 
-    def _is_aggregate_query(self, sql_upper: str) -> bool:
+    @staticmethod
+    def _is_aggregate_query(sql_upper: str) -> bool:
         """
         Check if the query is an aggregate query (has aggregate functions but no GROUP BY).
 
@@ -837,7 +789,38 @@ class Connection:
         # Insert tie-breaker before the end of ORDER BY clause
         return sql[:order_by_end] + f', "{tiebreaker_col}" ASC' + sql[order_by_end:]
 
-    def _add_order_by_row_id(self, sql: str) -> str:
+    def _carry_row_column(
+        self, sql: str, row_col: str, preserve_order: bool
+    ) -> Tuple[str, bool]:
+        """
+        Make every SELECT of ``sql`` output the source row position
+        ``row_col`` (a virtual column of the source) and order the result
+        by it, so the caller can restore the source row labels.
+
+        Rows of a GROUP BY or aggregate query don't correspond to source
+        rows, so such queries are returned unchanged.
+
+        Returns:
+            (sql, whether the result carries ``row_col``)
+        """
+        sql_upper = _mask_quoted(sql).upper().strip()
+        if (
+            not preserve_order
+            # A query that reads no table (e.g. SELECT 1): its rows aren't
+            # rows of the DataFrame, and the source has no row column
+            or not re.search(r"\bFROM\b", sql_upper)
+            or "GROUP BY" in sql_upper
+            or self._is_aggregate_query(sql_upper)
+        ):
+            return sql, False
+        if self._has_outer_order_by(sql_upper):
+            # Tie-breaker: rows with equal sort keys keep their source order
+            sql = self._append_row_id_tiebreaker(sql, row_col)
+        else:
+            sql = self._add_order_by_row_id(sql, row_col)
+        return self._add_row_id_to_all_selects(sql, row_col), True
+
+    def _add_order_by_row_id(self, sql: str, row_col: str = "_row_id") -> str:
         """
         Add ORDER BY _row_id clause to preserve original row order.
 
@@ -868,13 +851,14 @@ class Connection:
             clause_start = min(trailing_positions)
             base_query = sql[:clause_start].strip()
             trailing_clause = sql[clause_start:].strip()
-            return f"{base_query} ORDER BY _row_id {trailing_clause}"
+            return f"{base_query} ORDER BY {row_col} {trailing_clause}"
         else:
             # No trailing clauses: add ORDER BY after the last token
             end = _query_end(sql)
-            return f"{sql[:end]} ORDER BY _row_id{sql[end:]}"
+            return f"{sql[:end]} ORDER BY {row_col}{sql[end:]}"
 
-    def _append_row_id_tiebreaker(self, sql: str) -> str:
+    @staticmethod
+    def _append_row_id_tiebreaker(sql: str, row_col: str = "_row_id") -> str:
         """
         Append _row_id as tie-breaker to existing ORDER BY clause for stable sort.
 
@@ -890,34 +874,20 @@ class Connection:
         if order_by_end == -1:
             # No ORDER BY found, shouldn't happen but handle gracefully
             return sql
+        masked = _mask_quoted(sql)
+        start = masked.upper().rfind("ORDER BY") + len("ORDER BY")
+        keys = [k.split()[0] for k in sql[start:order_by_end].split(",") if k.strip()]
+        if row_col in keys:
+            # Already a sort key: later keys can't break ties
+            return sql
 
         # Insert _row_id tie-breaker before the end of ORDER BY clause
-        return sql[:order_by_end] + ", _row_id ASC" + sql[order_by_end:]
+        return sql[:order_by_end] + f", {row_col} ASC" + sql[order_by_end:]
 
-    def _add_row_id_to_select(self, sql: str) -> str:
-        """
-        Add _row_id to SELECT clauses for index restoration after query.
-
-        For queries with subqueries, _row_id must be added to ALL SELECT clauses
-        because _row_id is a virtual column that is NOT included in SELECT *.
-        The innermost query (with Python()) needs _row_id explicitly selected,
-        and each outer query needs it too for propagation.
-
-        Example:
-            Input:  SELECT id, value FROM Python(df)
-            Output: SELECT id, value, _row_id FROM Python(df)
-
-            Input:  SELECT * FROM Python(df)
-            Output: SELECT *, _row_id FROM Python(df)
-
-            Input:  SELECT * FROM (SELECT * FROM Python(df)) AS sub
-            Output: SELECT *, _row_id FROM (SELECT *, _row_id FROM Python(df)) AS sub
-        """
-        # For queries with subqueries, we need to add _row_id to ALL SELECT clauses
-        # because _row_id is a virtual column not included in SELECT *
-        return self._add_row_id_to_all_selects(sql)
-
-    def _add_row_id_to_all_selects(self, sql: str) -> str:
+    @staticmethod
+    def _add_row_id_to_all_selects(
+        sql: str, row_col: str = "_row_id", star_carries: bool = False
+    ) -> str:
         """
         Add _row_id to all SELECT clauses in the SQL.
 
@@ -925,6 +895,13 @@ class Connection:
         available on Python() table function, and SELECT * doesn't include it.
         We need to explicitly select it at every level for it to be available
         in outer queries.
+
+        Example:
+            Input:  SELECT * FROM (SELECT id FROM Python(df)) AS sub
+            Output: SELECT *, _row_id FROM (SELECT id, _row_id FROM Python(df)) AS sub
+
+        With ``star_carries`` (``row_col`` is a real column of the source),
+        SELECT lists with a ``*`` item already output it and are left as is.
         """
         masked = _mask_quoted(sql).upper()
         selects = [m.start() for m in _keyword_pattern("SELECT").finditer(masked)]
@@ -935,23 +912,26 @@ class Connection:
             if select_pos == -1:
                 continue
             select_list = sql[select_pos + len("SELECT") : from_pos]
-            if self._selects_row_id(select_list):
+            if Connection._selects_row_id(select_list, row_col, star_carries):
                 continue
             # After the SELECT list's last token, before a trailing comment
             insert_at = start + len(masked[start:from_pos].rstrip())
             pieces.append(sql[start:insert_at])
-            pieces.append(", _row_id ")
+            pieces.append(f", {row_col} ")
             pieces.append(sql[insert_at:from_pos].lstrip(" "))
             start = from_pos
         pieces.append(sql[start:])
         return "".join(pieces)
 
     @staticmethod
-    def _selects_row_id(select_list: str) -> bool:
-        """Whether a SELECT list outputs ``_row_id`` as one of its items.
+    def _selects_row_id(
+        select_list: str, row_col: str = "_row_id", star_carries: bool = False
+    ) -> bool:
+        """Whether a SELECT list outputs ``row_col`` as one of its items.
 
-        A ``_row_id`` read inside an item (e.g. ``OVER (ORDER BY _row_id)``)
-        does not make it a column of the result.
+        A ``row_col`` read inside an item (e.g. ``OVER (ORDER BY _row_id)``)
+        does not make it a column of the result. With ``star_carries``, a
+        ``*`` item (``*``, ``* EXCEPT (...)``, ``t.*``) outputs it.
         """
         masked = _mask_quoted(select_list)
         spans, depth, start = [], 0, 0
@@ -965,11 +945,13 @@ class Connection:
                 start = i + 1
         spans.append((start, len(masked)))
         for start, end in spans:
+            if star_carries and re.match(r"\s*(\S+\.)?\*", masked[start:end]):
+                return True
             last = re.search(r"(\S+)\s*$", masked[start:end])
             if last is None:
                 continue
             name = select_list[start + last.start(1) : start + last.end(1)]
-            if name.strip('"`').lower() == "_row_id":
+            if name.strip('"`').lower() == row_col.lower():
                 return True
         return False
 
@@ -1048,7 +1030,9 @@ class Connection:
         rows than the input and index alignment is skipped.
 
         Args:
-            expr_sql: SQL expression to evaluate (e.g., "CAST(value AS Float64)")
+            expr_sql: SQL expression to evaluate (e.g., "CAST(value AS Float64)"),
+                rendered with ``utils.dataframe_sql`` so a row's position is
+                ``_row_id``
             df: DataFrame to operate on
             result_column: Name for the result column (default: '__result__')
 
@@ -1088,10 +1072,7 @@ class Connection:
             # (don't assume ORDER BY _row_id returns exact 0,1,2... order due to
             # potential parallel execution in chDB)
             __df__ = df_to_use  # noqa: F841
-            # Replace rowNumberInAllBlocks() with _row_id for window function ordering
-            # This ensures window functions use the original DataFrame row order
-            expr_sql_fixed = expr_sql.replace("rowNumberInAllBlocks()", "_row_id")
-            query = f"SELECT {expr_sql_fixed} AS {result_column}, _row_id FROM Python(__df__) ORDER BY _row_id"
+            query = f"SELECT {expr_sql} AS {result_column}, _row_id FROM Python(__df__) ORDER BY _row_id"
 
         self._log_query(query, "Expression")
 

@@ -16,7 +16,9 @@ Design Goals:
 """
 
 from copy import copy
+from contextlib import ExitStack
 from dataclasses import dataclass, field
+import functools
 import re
 from typing import List, Optional, Dict, Any, Set, Tuple, TYPE_CHECKING
 import pandas as pd
@@ -24,7 +26,9 @@ import pandas as pd
 from .expressions import (
     Field,
     Expression,
+    Literal,
     Star,
+    RowPosition,
     bind_projection_item,
     is_star_item,
     projection_name,
@@ -38,6 +42,7 @@ from .lazy_ops import (
     LazyJoin,
     LazyWhere,
     LazyMask,
+    LazyDistinct,
 )
 from .sql_builder import SQLBuilder
 from .utils import (
@@ -46,6 +51,11 @@ from .utils import (
     build_orderby_clause,
     is_stable_sort,
     format_identifier,
+    compose_slice,
+    current_row_position_scope,
+    row_position_scope,
+    row_position_sql,
+    DEFAULT_ROW_POSITION,
 )
 from .config import get_logger
 
@@ -330,11 +340,12 @@ def extract_clauses_from_ops(
                 else:
                     result.orderby_fields.append((f, asc))
 
-        elif op.op_type == "LIMIT":
-            result.limit_value = op.limit_value
-
-        elif op.op_type == "OFFSET":
-            result.offset_value = op.offset_value
+        elif op.op_type in ("LIMIT", "OFFSET"):
+            n = op.limit_value if op.op_type == "LIMIT" else op.offset_value
+            if n is not None:
+                result.offset_value, result.limit_value = compose_slice(
+                    result.offset_value, result.limit_value, op.op_type, n
+                )
 
         elif op.op_type == "SELECT":
             # Handle empty column selection (fields=[]) - return empty DataFrame
@@ -395,149 +406,6 @@ class _SQLText(Expression):
         return self.sql
 
 
-def rewrite_column_refs_in_expression(expr: Any, rename_map: Dict[str, str]) -> Any:
-    """
-    Recursively rewrite ``Field`` references in an Expression/Condition tree.
-
-    Used inside a single SELECT scope: when an aggregation emits ``SUM(int_col)
-    AS __agg_int_col__``, a HAVING condition on the visible name ``int_col``
-    must reference the temp alias instead.
-
-    The rewrite is structural and immutable: a new tree is returned and the
-    original is not mutated. Subqueries inside ``InCondition`` are not
-    descended into (they have their own column scope).
-
-    Args:
-        expr: A Condition, BinaryCondition, CompoundCondition, NotCondition,
-              UnaryCondition, InCondition, BetweenCondition, LikeCondition,
-              NullSafeCondition, ArithmeticExpression, Field, Literal, or
-              any other Expression-like value. ``None`` returns ``None``.
-        rename_map: Dict mapping ``original_name -> new_name``.
-
-    Returns:
-        A rewritten expression (new instance if anything changed, otherwise
-        the original).
-    """
-    if expr is None or not rename_map:
-        return expr
-
-    from .conditions import (
-        BinaryCondition,
-        CompoundCondition,
-        NotCondition,
-        UnaryCondition,
-        InCondition,
-        BetweenCondition,
-        LikeCondition,
-        NullSafeCondition,
-    )
-    from .expressions import ArithmeticExpression, Literal
-
-    if isinstance(expr, Field):
-        original = expr.name.strip("\"'")
-        if original in rename_map:
-            return expr.with_attrs(name=rename_map[original])
-        return expr
-
-    if isinstance(expr, Literal):
-        return expr
-
-    if isinstance(expr, BinaryCondition):
-        new_left = rewrite_column_refs_in_expression(expr.left, rename_map)
-        new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
-        if new_left is expr.left and new_right is expr.right:
-            return expr
-        return expr.with_attrs(left=new_left, right=new_right)
-
-    if isinstance(expr, CompoundCondition):
-        new_left = rewrite_column_refs_in_expression(expr.left, rename_map)
-        new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
-        if new_left is expr.left and new_right is expr.right:
-            return expr
-        return expr.with_attrs(left=new_left, right=new_right)
-
-    if isinstance(expr, NotCondition):
-        new_inner = rewrite_column_refs_in_expression(expr.condition, rename_map)
-        if new_inner is expr.condition:
-            return expr
-        return expr.with_attrs(condition=new_inner)
-
-    if isinstance(expr, UnaryCondition):
-        new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
-        if new_expr is expr.expression:
-            return expr
-        return expr.with_attrs(expression=new_expr)
-
-    if isinstance(expr, InCondition):
-        # Don't descend into subqueries (different column scope)
-        new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
-        if new_expr is expr.expression:
-            return expr
-        return expr.with_attrs(expression=new_expr)
-
-    if isinstance(expr, BetweenCondition):
-        new_e = rewrite_column_refs_in_expression(expr.expression, rename_map)
-        new_l = rewrite_column_refs_in_expression(expr.lower, rename_map)
-        new_u = rewrite_column_refs_in_expression(expr.upper, rename_map)
-        if (
-            new_e is expr.expression
-            and new_l is expr.lower
-            and new_u is expr.upper
-        ):
-            return expr
-        return expr.with_attrs(expression=new_e, lower=new_l, upper=new_u)
-
-    if isinstance(expr, LikeCondition):
-        new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
-        if new_expr is expr.expression:
-            return expr
-        return expr.with_attrs(expression=new_expr)
-
-    if isinstance(expr, NullSafeCondition):
-        new_inner = rewrite_column_refs_in_expression(expr.condition, rename_map)
-        if new_inner is expr.condition:
-            return expr
-        return expr.with_attrs(condition=new_inner)
-
-    if isinstance(expr, ArithmeticExpression):
-        new_left = rewrite_column_refs_in_expression(expr.left, rename_map)
-        new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
-        if new_left is expr.left and new_right is expr.right:
-            return expr
-        return expr.with_attrs(left=new_left, right=new_right)
-
-    return expr
-
-
-def rewrite_column_refs_in_orderby(
-    orderby_fields: List[Tuple[Any, bool]], rename_map: Dict[str, str]
-) -> List[Tuple[Any, bool]]:
-    """
-    Rewrite Field references in an ORDER BY field list.
-
-    Args:
-        orderby_fields: List of ``(field, ascending)`` tuples
-        rename_map: Dict mapping ``original_name -> new_name``
-
-    Returns:
-        New list with Field references rewritten where applicable.
-    """
-    if not rename_map or not orderby_fields:
-        return orderby_fields
-
-    new_orderby = []
-    for field_obj, asc in orderby_fields:
-        if isinstance(field_obj, Field):
-            rewritten = rewrite_column_refs_in_expression(field_obj, rename_map)
-            new_orderby.append((rewritten, asc))
-        elif isinstance(field_obj, str) and field_obj in rename_map:
-            new_orderby.append((Field(rename_map[field_obj]), asc))
-        else:
-            new_orderby.append((field_obj, asc))
-
-    return new_orderby
-
-
 def layer_computed_columns(
     ops: List[LazyOp], quote_char: str = '"'
 ) -> Dict[str, Expression]:
@@ -581,11 +449,48 @@ def _referenced_identifiers(expr: Any) -> Set[str]:
     return {m.replace('""', '"') for m in _QUOTED_IDENTIFIER.findall(sql)}
 
 
+def _sql_type_of(expr: Expression, column_types: Dict[str, str]) -> Optional[str]:
+    """
+    ClickHouse type of ``expr`` over columns of ``column_types``, or None
+    when a column it reads has no known type. A column's type is read
+    directly; an expression's is asked of ClickHouse over the columns'
+    default values, so no data is read.
+    """
+    if isinstance(expr, Field):
+        return column_types.get(expr.name)
+    names = _referenced_identifiers(expr)
+    if not names or not names <= set(column_types):
+        return None
+    return _type_of_expression_sql(
+        expr.to_sql(quote_char='"'),
+        tuple(sorted((name, column_types[name]) for name in names)),
+    )
+
+
+@functools.lru_cache(maxsize=256)
+def _type_of_expression_sql(expr_sql: str, typed_columns: Tuple[Tuple[str, str], ...]) -> Optional[str]:
+    import chdb
+
+    columns = ", ".join(
+        "defaultValueOfTypeName('{}') AS {}".format(
+            column_type.replace("\\", "\\\\").replace("'", "\\'"),
+            format_identifier(name, '"'),
+        )
+        for name, column_type in typed_columns
+    )
+    try:
+        result = chdb.query(f"SELECT toTypeName({expr_sql}) FROM (SELECT {columns})", "CSV")
+    except Exception:
+        return None
+    return result.bytes().decode().strip().strip('"') or None
+
+
 def build_groupby_select_fields(
     groupby_agg: LazyGroupByAgg,
     reserved_names: Optional[Set[str]] = None,
     all_columns: List[str] = None,
     computed_columns: Dict[str, Expression] = None,
+    column_types: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[Field], List[Expression], Dict[str, str]]:
     """
     Build GROUP BY and SELECT fields from a LazyGroupByAgg operation.
@@ -607,6 +512,7 @@ def build_groupby_select_fields(
             COUNT(col) per column)
         computed_columns: Dict mapping computed column names to their
             expressions (for expanding assign() columns in aggregations)
+        column_types: ClickHouse types of the input columns, if known
 
     Returns:
         Tuple of (groupby_fields, select_fields, emitted_renames).
@@ -617,6 +523,7 @@ def build_groupby_select_fields(
 
     emitted_renames: Dict[str, str] = {}
     computed_columns = computed_columns or {}
+    column_types = column_types or {}
 
     def resolve_column(col_name: str) -> Expression:
         """Resolve column name - return expression if computed column, else Field."""
@@ -624,77 +531,212 @@ def build_groupby_select_fields(
             return computed_columns[col_name]
         return Field(col_name)
 
+    min_count = groupby_agg.kwargs.get("min_count") or 0
+
+    def with_min_count(func: str, col_expr: Expression) -> Expression:
+        """
+        sum() / prod() with pandas' min_count: a group with fewer than
+        min_count values is NULL, otherwise the values' sum (0 without
+        values) or product (1 without values). SQL's sum() of no values is
+        NULL, and SQL has no product aggregate: the values are folded from 1.
+
+        arrayFold needs ``acc * v`` to keep the accumulator's type. The seed
+        is 1 in the type multiplication widens the values' type to (64-bit
+        integers of their signedness, Float64), which ``* 1`` reaches from
+        any narrower one. It is built from the type's default value, never
+        from a value (inf * 0 is NaN). A Decimal's scale grows with every
+        product, so a Decimal expression is multiplied as Float64; ClickHouse
+        has no exact product aggregate (arrayProduct is Float64 for every
+        type, and 0 for no values).
+        """
+        from .config import is_performance_mode
+
+        if func == 'sum':
+            expr = AggregateFunction('sum', col_expr)
+            if min_count <= 0 and not is_performance_mode():
+                expr = Function('ifNull', expr, Literal(0))
+        else:
+            value = col_expr
+            if "Decimal" in (_sql_type_of(col_expr, column_types) or ""):
+                value = Function('toFloat64', col_expr)
+            one = Function(
+                'multiply',
+                Function(
+                    'ifNull',
+                    Function(
+                        'plus',
+                        Function(
+                            'multiply',
+                            Function('defaultValueOfArgumentType', value),
+                            Literal(0),
+                        ),
+                        Literal(1),
+                    ),
+                    Literal(1),
+                ),
+                Literal(1),
+            )
+            expr = Function(
+                'arrayFold',
+                _SQLText('(acc, v) -> acc * v'),
+                AggregateFunction('groupArray', value),
+                one,
+            )
+        if min_count > 0:
+            enough = Function(
+                'greaterOrEquals',
+                AggregateFunction('count', col_expr),
+                Literal(min_count),
+            )
+            expr = Function('if', enough, expr, Literal(None))
+        return expr
+
     def create_agg_expr(func: str, col_expr: Expression) -> AggregateFunction:
         """
         Create aggregation expression, handling special cases for first/last.
 
-        For first/last, we use argMin/argMax with rowNumberInAllBlocks() to preserve
-        row order semantics. ClickHouse's any()/anyLast() return arbitrary values,
-        not row-order based first/last.
+        For first/last, we use argMin/argMax over the rows' source positions
+        to preserve row order semantics. ClickHouse's any()/anyLast() return
+        arbitrary values, not row-order based first/last.
 
         In performance mode, use any()/anyLast() directly (faster, non-deterministic).
-
-        NOTE: For Python() table function, connection.py replaces rowNumberInAllBlocks()
-        with _row_id (deterministic) at execution time (chDB v4.0.0b5+).
         """
         from .config import is_performance_mode
 
         if func == 'first':
             if is_performance_mode():
                 return AggregateFunction('any', col_expr)
-            # first() -> argMin(col, rowNumberInAllBlocks())
-            row_num_func = Function('rowNumberInAllBlocks')
-            return AggregateFunction('argMin', col_expr, row_num_func)
+            return AggregateFunction('argMin', col_expr, RowPosition())
         elif func == 'last':
             if is_performance_mode():
                 return AggregateFunction('anyLast', col_expr)
-            # last() -> argMax(col, rowNumberInAllBlocks())
-            row_num_func = Function('rowNumberInAllBlocks')
-            return AggregateFunction('argMax', col_expr, row_num_func)
+            return AggregateFunction('argMax', col_expr, RowPosition())
+        elif func == 'size':
+            # size() counts ALL rows including NULL
+            return AggregateFunction('count', Star())
+        elif func in ('sum', 'prod'):
+            return with_min_count(func, col_expr)
         else:
             sql_func = map_agg_func(func)
             return AggregateFunction(sql_func, col_expr)
 
-    # Build GROUP BY fields
-    # Use resolve_column to expand computed columns in groupby keys
-    groupby_fields = []
-    for col in groupby_agg.groupby_cols:
-        col_expr = resolve_column(col)
-        # If computed column, alias it with the column name for SELECT
-        if col in computed_columns:
-            col_expr = col_expr.as_(col)
-        groupby_fields.append(col_expr)
-
-    # Build SELECT fields with aggregations
-    select_fields = list(groupby_fields)  # Include group keys
+    # Group keys, expanded when computed, with their result columns
+    keys = [
+        (resolve_column(col), column, col in computed_columns)
+        for col, column in zip(groupby_agg.groupby_cols, groupby_agg.key_columns())
+    ]
 
     outputs = groupby_agg.aggregate_outputs(all_columns)
-    agg_exprs = [create_agg_expr(func, resolve_column(col)) for _, func, col in outputs]
-    taken = set(reserved_names or ()) | {name for name, _, _ in outputs}
-    for expr in groupby_fields + agg_exprs:
+    if groupby_agg.expr_agg:
+        agg_exprs = [
+            resolve_computed_references(expr, computed_columns).with_attrs(alias=None)
+            for expr in groupby_agg.expr_agg.values()
+        ]
+    else:
+        agg_exprs = [
+            create_agg_expr(func, None if col is None else resolve_column(col))
+            for _, func, col in outputs
+        ]
+    taken = (
+        set(reserved_names or ())
+        | {name for name, _, _ in outputs}
+        | {column for _, column, _ in keys}
+    )
+    for expr in [expr for expr, _, _ in keys] + agg_exprs:
         taken |= _referenced_identifiers(expr)
-    for (name, _, _), agg_expr in zip(outputs, agg_exprs):
-        temp_alias = f"__agg_{name}__"
+
+    def temp_alias_for(stem: str, name: str) -> str:
+        temp_alias = f"__{stem}_{name}__"
         suffix = 1
         while temp_alias in taken:
-            temp_alias = f"__agg_{name}_{suffix}__"
+            temp_alias = f"__{stem}_{name}_{suffix}__"
             suffix += 1
         taken.add(temp_alias)
-        agg_expr.alias = temp_alias
         emitted_renames[temp_alias] = name
+        return temp_alias
+
+    # A computed key, and a key under a hidden result column (an aggregate
+    # output takes its name), are also emitted under a temp alias: an alias
+    # equal to an input column, as in ``upper(k) AS k`` or
+    # ``g AS __key_g__`` next to ``sum(__key_g__)``, would make the
+    # aggregation's references to that column resolve to the alias.
+    groupby_fields = []
+    for expr, column, computed in keys:
+        if computed or column != expr.name:
+            expr = expr.as_(temp_alias_for("key", column))
+        groupby_fields.append(expr)
+
+    select_fields = list(groupby_fields)
+    for (name, _, _), agg_expr in zip(outputs, agg_exprs):
+        agg_expr.alias = temp_alias_for("agg", name)
         select_fields.append(agg_expr)
 
-    func = groupby_agg.agg_func
     if (
         not groupby_agg.named_agg
         and not isinstance(groupby_agg.agg_dict, dict)
-        and (func == "size" or (func == "count" and not all_columns))
+        and groupby_agg.agg_func == "count"
+        and not all_columns
     ):
-        # size() counts ALL rows including NULL; without known columns
-        # count() falls back to the same COUNT(*)
-        select_fields.append(AggregateFunction(map_agg_func(func), Star()))
+        # Without known columns count() falls back to COUNT(*)
+        select_fields.append(AggregateFunction("count", Star()))
 
     return groupby_fields, select_fields, emitted_renames
+
+
+# Base name of the hidden column a labelled file source's row positions
+# are read into; a source column of that name gets a numbered variant.
+ROW_LABEL_BASE = "__row_label__"
+
+# Ops after which the rows are not a contiguous run of the source in
+# source order, so pandas' labels are their source positions.
+_ROW_SELECTING_OPS = ("WHERE", "ORDER BY")
+
+
+def _plan_ops(plan) -> List[LazyOp]:
+    return [op for layer in (plan.layers or [plan.sql_ops]) for op in layer]
+
+
+def _plan_keeps_source_rows(plan, ds) -> bool:
+    """
+    Whether the plan's result rows are source rows other than a
+    contiguous run of the source: rows filtered, sorted or deduplicated,
+    not aggregated. pandas labels such rows by their source positions.
+    """
+    if _plan_aggregates(plan):
+        return False
+    return any(
+        isinstance(op, LazyDistinct)
+        or (isinstance(op, LazyRelationalOp) and op.op_type in _ROW_SELECTING_OPS)
+        for op in _plan_ops(plan)
+    )
+
+
+def _plan_aggregates(plan) -> bool:
+    """Whether the plan's result rows are groups rather than source rows."""
+    return plan.groupby_agg is not None or any(
+        isinstance(op, LazyGroupByAgg) for op in _plan_ops(plan)
+    )
+
+
+def _plan_row_offset(plan) -> int:
+    """
+    Position of the first row of a plan that only offsets and limits the
+    source rows: the sum of the OFFSETs its layers' SQL applies, each to
+    the rows of the layer below (a LIMIT only trims the end).
+    """
+    return sum(
+        extract_clauses_from_ops(layer).offset_value or 0
+        for layer in (plan.layers or [plan.sql_ops])
+    )
+
+
+
+def _plan_sorts(plan) -> bool:
+    """Whether the plan sorts its rows."""
+    return any(
+        isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY"
+        for op in _plan_ops(plan)
+    )
 
 
 @dataclass
@@ -712,6 +754,16 @@ class SQLBuildResult:
     # second SETTINGS clause is only accepted at the top level, so callers
     # must not append another one.
     has_settings: bool = False
+    # Column of the result holding the rows' source positions: the caller
+    # makes it the index (see SQLExecutionEngine.build_sql_from_plan).
+    row_label_column: Optional[str] = None
+    # Whether the SQL sorts the rows; otherwise they come in source order.
+    rows_sorted: bool = False
+    # Source position of the first result row, for a result that is a
+    # contiguous run of a labelled source's rows (labels count from it).
+    row_label_start: int = 0
+    # Hidden column the SQL reads the source's row positions into, if any
+    position_column: Optional[str] = None
 
 
 @dataclass
@@ -737,10 +789,24 @@ class SQLExecutionEngine:
     duplicated in _execute() and _build_execution_sql() methods.
     """
 
-    def __init__(self, datastore: "DataStore"):
+    def __init__(self, datastore: "DataStore", row_labels: bool = False):
         self.ds = datastore
         self.quote_char = datastore.quote_char
         self._logger = get_logger()
+        # The LazyDistinct of the layer being built and the columns entering
+        # it, when known (see _build_layer)
+        self._layer_distinct = None
+        self._layer_columns = None
+        # An execution build: the result rows get their source positions
+        # as labels where the source has them (see build_sql_from_plan).
+        self.row_labels = row_labels
+        # Hidden column the source is read with its row positions into
+        self.position_column: Optional[str] = None
+        # Read a file source with its rows in file order
+        self.ordered_read = False
+        # The SQL reads a DataFrame (Python(__df__)), whose rows' positions
+        # are its virtual _row_id column
+        self.reads_dataframe = False
 
     def is_python_table_function(self) -> bool:
         """Check if the data source is a Python() table function.
@@ -754,14 +820,8 @@ class SQLExecutionEngine:
         return isinstance(self.ds._table_function, PythonTableFunction)
 
     def get_row_number_expr(self) -> str:
-        """Get the appropriate row number expression for the current data source.
-
-        Returns _row_id for Python() table function (deterministic),
-        rowNumberInAllBlocks() for other sources.
-        """
-        if self.is_python_table_function():
-            return "_row_id"
-        return "rowNumberInAllBlocks()"
+        """SQL for a row's position in the source of the SQL being built."""
+        return row_position_sql()
 
     def source_preserves_row_order(self) -> bool:
         """
@@ -780,6 +840,10 @@ class SQLExecutionEngine:
         if self.is_python_table_function():
             return False
 
+        # The labelled source reads the file in order
+        if self.position_column is not None:
+            return True
+
         # Check if table function supports row order preservation
         if self.ds._table_function:
             return self.ds._table_function.preserves_row_order(self.ds._format_settings)
@@ -788,6 +852,12 @@ class SQLExecutionEngine:
 
     def get_table_source(self) -> str:
         """Get the SQL table source (table function or table name)."""
+        if self.position_column is not None:
+            return self.ds._table_function.row_position_source(
+                self.position_column, self.quote_char
+            )
+        if self.ordered_read:
+            return self.ds._table_function.ordered_source(self.quote_char)
         if self.ds._table_function:
             return self.ds._table_function.to_sql()
         elif self.ds.table_name:
@@ -799,47 +869,41 @@ class SQLExecutionEngine:
 
         Returns the clause string (e.g. 'LIMIT 1 BY "a", "b"') or None.
         """
-        if not self.ds._distinct_subset:
+        subset = self._distinct_subset()
+        if not subset:
             return None
-        limit_by_cols = ", ".join(
-            format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
-        )
+        limit_by_cols = ", ".join(format_identifier(c, self.quote_char) for c in subset)
         return f"LIMIT 1 BY {limit_by_cols}"
 
-    def _split_wheres_by_groupby_position(
-        self, layer_ops: List[LazyOp]
-    ) -> Tuple[List[Any], List[Any]]:
+    def _build_layer(self, layer_ops: List[LazyOp], **kwargs) -> "LayerBuildResult":
         """
-        Split WHERE conditions in a layer into pre-aggregation and
-        post-aggregation buckets, using the position of the LazyGroupByAgg
-        op (if any) within the layer.
-
-        - WHEREs before the LazyGroupByAgg act on source rows -> WHERE clause
-        - WHEREs after the LazyGroupByAgg act on aggregation output ->
-          HAVING clause (SQL HAVING runs after GROUP BY)
-
-        Returns:
-            (pre_agg_conditions, post_agg_conditions)
+        Build SQL for one layer (see ``_build_layer_sql``), deduplicating its
+        rows when it holds a ``LazyDistinct``: ``SELECT DISTINCT`` for all
+        columns, ``LIMIT 1 BY`` a subset. The planner places the op so the
+        layer's other clauses run in SQL's order around it.
         """
-        pre_agg: List[Any] = []
-        post_agg: List[Any] = []
-        seen_groupby = False
-        for op in layer_ops:
-            if isinstance(op, LazyGroupByAgg):
-                seen_groupby = True
-                continue
-            if (
-                isinstance(op, LazyRelationalOp)
-                and op.op_type == "WHERE"
-                and op.condition is not None
-            ):
-                if seen_groupby:
-                    post_agg.append(op.condition)
-                else:
-                    pre_agg.append(op.condition)
-        return pre_agg, post_agg
+        distinct = next((op for op in layer_ops if isinstance(op, LazyDistinct)), None)
+        outer = self._layer_distinct, self._layer_columns
+        self._layer_distinct = distinct
+        # A deduplicating layer only filters, sorts and limits its input
+        self._layer_columns = kwargs.get("input_columns")
+        try:
+            return self._build_layer_sql(layer_ops, **kwargs)
+        finally:
+            self._layer_distinct, self._layer_columns = outer
 
-    def _build_layer(
+    def _distinct_all(self) -> bool:
+        """Whether the layer being built drops duplicate rows over all columns."""
+        return self._layer_distinct is not None and self._distinct_subset() is None
+
+    def _distinct_subset(self) -> Optional[List[str]]:
+        """Columns the layer being built drops duplicate rows by, if a subset."""
+        if self._layer_distinct is None or self._layer_distinct.subset is None:
+            return None
+        subset = self._layer_distinct.subset
+        return [subset] if isinstance(subset, str) else list(subset)
+
+    def _build_layer_sql(
         self,
         layer_ops: List[LazyOp],
         *,
@@ -851,6 +915,13 @@ class SQLExecutionEngine:
         preserved_orderby: Optional[List[Tuple[Any, bool]]] = None,
         preserved_orderby_kind: Optional[str] = None,
         star_except: Optional[List[str]] = None,
+        group_position: Optional[str] = None,
+        expose_group_position: bool = False,
+        input_position: Optional[Expression] = None,
+        orderby_tiebreak: Optional[List[Tuple[Any, bool]]] = None,
+        keep_hidden_keys: bool = True,
+        input_columns: Optional[List[str]] = None,
+        passthrough_columns: Optional[List[str]] = None,
     ) -> "LayerBuildResult":
         """
         Build SQL for a single nested-subquery layer (unified entry point).
@@ -893,6 +964,25 @@ class SQLExecutionEngine:
             preserved_orderby_kind: Sort kind for stable sort detection.
             star_except: Inherited columns a ``*`` of this layer leaves out
                 (wrapper layers only).
+            group_position: Name of the aggregation's group position: the
+                rank of each group in the aggregation's row order (by key
+                when ``sort=True``, by first appearance in the input when
+                ``sort=False``).
+            expose_group_position: Whether the layer outputs the group
+                position, so outer layers can keep the aggregation's order.
+            input_position: Position of each input row in the input's order;
+                the first appearance of a group is its smallest position.
+            orderby_tiebreak: Sort keys appended to this layer's ORDER BY so
+                ties keep the input's order (a stable sort).
+            keep_hidden_keys: Whether the aggregation outputs its hidden key
+                columns (``LazyGroupByAgg.hidden_key_columns``), which only
+                execution reads to build the group index.
+            input_columns: Columns the layer reads, in order, if known. The
+                CASE WHEN of a where/mask and an aggregation over every
+                column cover the columns entering that op.
+            passthrough_columns: Input columns a where/mask leaves as they
+                are: the index keys of an aggregation result, which pandas
+                does not mask, and hidden columns.
 
         Returns:
             LayerBuildResult containing the SQL text and every temp alias
@@ -903,16 +993,17 @@ class SQLExecutionEngine:
 
         groupby_agg_op, where_ops = self._extract_special_ops_from_layer(layer_ops)
         clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
+        if orderby_tiebreak and clauses.orderby_fields:
+            clauses.orderby_fields = list(clauses.orderby_fields) + list(
+                orderby_tiebreak
+            )
+            clauses.orderby_kind = None
 
-        # 1) Split WHEREs by GroupByAgg position (pre-agg -> WHERE, post-agg
-        # -> HAVING). ``_split_wheres_by_groupby_position`` re-reads from
-        # ``layer_ops`` to preserve position.
+        # 1) An aggregation is the last op of its layer, so every WHERE of
+        # the layer filters the aggregation's input rows.
         having_conditions: List[Any] = []
         agg_outer_clauses: Optional[ExtractedClauses] = None
         if groupby_agg_op is not None:
-            pre_wheres, post_wheres = self._split_wheres_by_groupby_position(
-                layer_ops
-            )
             # pandas default ``dropna=True`` excludes NULL group keys; SQL
             # ``GROUP BY`` would group them. Emit ``col IS NOT NULL``
             # filters as pre-agg WHEREs unless the user opted out via
@@ -924,12 +1015,9 @@ class SQLExecutionEngine:
                 and getattr(groupby_agg_op, "dropna", True)
                 and groupby_agg_op.groupby_cols
             ):
-                dropna_conditions = [
+                clauses.where_conditions = clauses.where_conditions + [
                     Field(col).notnull() for col in groupby_agg_op.groupby_cols
                 ]
-                pre_wheres = pre_wheres + dropna_conditions
-            clauses.where_conditions = pre_wheres
-            having_conditions = post_wheres
 
         # 2) Build SELECT / GROUP BY / WHERE CASE-WHEN tooling.
         select_fields_for_sql: List[Expression] = sql_select_fields
@@ -943,50 +1031,77 @@ class SQLExecutionEngine:
         if where_ops:
             # LazyWhere/LazyMask CASE WHEN: emit a temp-alias SELECT over
             # every column then rename back on the outer wrapper.
-            all_columns = self.ds._get_all_column_names() if is_first_layer else []
+            all_columns = self._columns_entering(
+                layer_ops, input_columns, (LazyWhere, LazyMask)
+            )
+            if all_columns is None:
+                all_columns = (
+                    self.ds._get_all_column_names() if is_first_layer else []
+                )
             if not all_columns and not is_first_layer:
                 # Wrapper-layer CASE WHEN falls back to schema-driven cols if
                 # the source-bound helper has no schema (rare path).
                 all_columns = list(schema.keys())
             if all_columns:
                 where_needs_temp_alias = True
-                for col in all_columns:
+                # Index keys and hidden columns pass through unmasked; the
+                # last layer leaves the hidden ones out
+                passthrough = [
+                    c for c in passthrough_columns or [] if c not in (star_except or [])
+                ]
+                select_fields_for_sql = []
+                for col in list(all_columns) + [
+                    c for c in passthrough_columns or [] if c not in all_columns
+                ]:
+                    if col in (passthrough_columns or []):
+                        if col in passthrough:
+                            where_temp_alias_columns.append((col, col))
+                        select_fields_for_sql.append(Field(col))
+                        continue
                     temp_alias = f"__tmp_{col}__"
                     where_temp_alias_columns.append((temp_alias, col))
-                select_fields_for_sql = [
-                    CaseWhenExpr(
-                        col,
-                        where_ops,
-                        self.quote_char,
-                        schema.get(col, "Unknown"),
-                        alias=f"__tmp_{col}__",
+                    select_fields_for_sql.append(
+                        CaseWhenExpr(
+                            col,
+                            where_ops,
+                            self.quote_char,
+                            schema.get(col, "Unknown"),
+                            alias=temp_alias,
+                        )
                     )
-                    for col in all_columns
-                ]
                 if clauses.where_conditions:
                     where_needs_subquery = True
 
         if groupby_agg_op is not None:
-            # Determine target columns for aggregation (priority: explicit
-            # SELECT in clauses > caller-supplied select fields > agg spec >
-            # source schema).
-            if clauses.select_fields:
-                all_cols = self._infer_column_names(clauses.select_fields)
-            elif sql_select_fields:
-                all_cols = self._infer_column_names(sql_select_fields)
-            elif (
-                groupby_agg_op.agg_dict is not None
-                and isinstance(groupby_agg_op.agg_dict, dict)
-            ):
-                all_cols = list(groupby_agg_op.agg_dict.keys())
-            elif groupby_agg_op.selected_columns:
-                all_cols = list(groupby_agg_op.selected_columns)
+            # Determine target columns for aggregation: none for SQL
+            # expression aggregates, which name their own outputs; the columns
+            # the aggregation reads when the layer's input is known; otherwise
+            # (priority) explicit SELECT in clauses > caller-supplied select
+            # fields > agg spec > source schema.
+            if groupby_agg_op.expr_agg:
+                all_cols = []
             else:
-                all_cols = (
-                    self.ds._get_all_column_names()
-                    if hasattr(self.ds, "_get_all_column_names")
-                    else None
-                ) or []
+                all_cols = self._columns_entering(
+                    layer_ops, input_columns, LazyGroupByAgg
+                )
+            if all_cols is None:
+                if clauses.select_fields:
+                    all_cols = self._infer_column_names(clauses.select_fields)
+                elif sql_select_fields:
+                    all_cols = self._infer_column_names(sql_select_fields)
+                elif (
+                    groupby_agg_op.agg_dict is not None
+                    and isinstance(groupby_agg_op.agg_dict, dict)
+                ):
+                    all_cols = list(groupby_agg_op.agg_dict.keys())
+                elif groupby_agg_op.selected_columns:
+                    all_cols = list(groupby_agg_op.selected_columns)
+                else:
+                    all_cols = (
+                        self.ds._get_all_column_names()
+                        if hasattr(self.ds, "_get_all_column_names")
+                        else None
+                    ) or []
 
             computed_cols = layer_computed_columns(layer_ops, self.quote_char)
             # The pre-aggregation WHERE filters the layer's input rows, where
@@ -997,7 +1112,7 @@ class SQLExecutionEngine:
                 for cond in clauses.where_conditions
             ]
             reserved_names = set(all_cols)
-            scope_conditions = clauses.where_conditions + having_conditions
+            scope_conditions = list(clauses.where_conditions)
             if is_first_layer and self.ds._having_condition is not None:
                 scope_conditions = scope_conditions + [self.ds._having_condition]
             for cond in scope_conditions:
@@ -1011,30 +1126,58 @@ class SQLExecutionEngine:
                 reserved_names=reserved_names,
                 all_columns=all_cols,
                 computed_columns=computed_cols,
+                column_types=schema,
             )
 
-            # HAVING is evaluated inside the aggregation's SELECT scope, so
-            # it must reference the temp aliases (visible_name -> temp_alias).
-            agg_visible_to_temp = {
-                orig: temp for temp, orig in emitted_renames.items()
-            }
-            if agg_visible_to_temp:
-                having_conditions = [
-                    rewrite_column_refs_in_expression(c, agg_visible_to_temp)
-                    for c in having_conditions
-                ]
+            from .functions import AggregateFunction, Function, WindowFunction
 
-            if groupby_agg_op.sort and not clauses.orderby_fields:
-                clauses.orderby_fields = [
-                    (Field(col), True) for col in groupby_agg_op.groupby_cols
-                ]
+            key_columns = groupby_agg_op.key_columns()
+            # Inside the GROUP BY query a renamed key has its temp alias; the
+            # renaming projection reads that name too, also for a key it
+            # leaves out
+            inner_name = {visible: temp for temp, visible in emitted_renames.items()}
+            inner_key_order = [
+                (Field(inner_name.get(col, col)), True) for col in key_columns
+            ]
+            if group_position is not None:
+                if groupby_agg_op.sort:
+                    position_expr = WindowFunction(
+                        "row_number", alias=group_position
+                    ).over(
+                        order_by=[
+                            _SQLText(
+                                build_orderby_clause(inner_key_order, self.quote_char)
+                            )
+                        ]
+                    )
+                else:
+                    position_expr = AggregateFunction(
+                        "min",
+                        input_position
+                        if input_position is not None
+                        else RowPosition(),
+                        alias=group_position,
+                    )
+                select_fields_for_sql = select_fields_for_sql + [position_expr]
+            if not clauses.orderby_fields:
+                if groupby_agg_op.sort:
+                    clauses.orderby_fields = inner_key_order
+                elif group_position is not None:
+                    clauses.orderby_fields = [(Field(group_position), True)]
             # GROUP BY reshapes rows; inner-layer ORDER BY no longer applies.
             preserved_orderby = None
             preserved_orderby_kind = None
 
+            # A key whose name an output takes is dropped with as_index=False,
+            # and from results read outside execution
+            dropped_keys = (
+                set()
+                if groupby_agg_op.as_index and keep_hidden_keys
+                else set(groupby_agg_op.hidden_key_columns())
+            )
             # ORDER BY / LIMIT / OFFSET bind to user-visible names, so they
             # move to the outer projection that renames the temp aliases.
-            if emitted_renames:
+            if emitted_renames or group_position is not None:
                 agg_outer_clauses = ExtractedClauses(
                     orderby_fields=clauses.orderby_fields,
                     orderby_kind=clauses.orderby_kind,
@@ -1101,7 +1244,7 @@ class SQLExecutionEngine:
                 having_conditions,
                 preserved_orderby,
                 preserved_orderby_kind,
-                add_row_order_fallback=is_first_layer,
+                add_row_order_fallback=is_first_layer and groupby_agg_op is None,
                 include_star=include_star,
                 where_temp_alias_columns=(
                     where_temp_alias_columns if where_needs_temp_alias else None
@@ -1111,7 +1254,16 @@ class SQLExecutionEngine:
 
         if agg_outer_clauses is not None:
             sql = self._wrap_agg_temp_aliases(
-                sql, select_fields_for_sql, emitted_renames, agg_outer_clauses
+                sql,
+                select_fields_for_sql,
+                emitted_renames,
+                agg_outer_clauses,
+                hidden=dropped_keys
+                | (
+                    {group_position}
+                    if group_position is not None and not expose_group_position
+                    else set()
+                ),
             )
 
         # Temp aliases this layer used internally. Empty when the layer has
@@ -1127,6 +1279,7 @@ class SQLExecutionEngine:
         select_fields: List[Expression],
         temp_to_visible: Dict[str, str],
         outer_clauses: ExtractedClauses,
+        hidden: Set[str] = frozenset(),
     ) -> str:
         """
         Project an aggregation layer's temp aliases back to their visible names.
@@ -1136,7 +1289,8 @@ class SQLExecutionEngine:
         WHERE or in other aggregate arguments. The aggregation therefore emits
         ``AS __agg_price__`` and this projection restores ``price`` in SQL,
         so execution, ``to_sql()``, explain and server-side writeback all see
-        the same columns.
+        the same columns. ``hidden`` outputs are left out of the projection;
+        the ORDER BY may still read them.
         """
         qc = self.quote_char
         projection = []
@@ -1148,6 +1302,8 @@ class SQLExecutionEngine:
                 )
             name = name.strip(qc)
             visible = temp_to_visible.get(name)
+            if name in hidden or visible in hidden:
+                continue
             if visible is None:
                 projection.append(format_identifier(name, qc))
             else:
@@ -1160,11 +1316,13 @@ class SQLExecutionEngine:
             f"FROM ({inner_sql}) AS __rename_subq__",
         ]
         if outer_clauses.orderby_fields:
-            orderby_sql = build_orderby_clause(
-                outer_clauses.orderby_fields,
-                qc,
-                stable=is_stable_sort(outer_clauses.orderby_kind),
-            )
+            # Aggregated rows have no source positions
+            with row_position_scope(DEFAULT_ROW_POSITION):
+                orderby_sql = build_orderby_clause(
+                    outer_clauses.orderby_fields,
+                    qc,
+                    stable=is_stable_sort(outer_clauses.orderby_kind),
+                )
             parts.append(f"ORDER BY {orderby_sql}")
         if outer_clauses.limit_value is not None:
             parts.append(f"LIMIT {outer_clauses.limit_value}")
@@ -1257,7 +1415,7 @@ class SQLExecutionEngine:
         # When DISTINCT is active, don't use include_star because it would
         # expand * to all source columns (defeating column selection +
         # DISTINCT). Column assignments are already in select_fields.
-        use_include_star = None if self.ds._distinct else has_column_assignments
+        use_include_star = None if self._distinct_all() else has_column_assignments
 
         return self.assemble_sql(
             select_fields,
@@ -1266,7 +1424,7 @@ class SQLExecutionEngine:
             clauses.limit_value,
             clauses.offset_value,
             joins=self.ds._joins,
-            distinct=self.ds._distinct,
+            distinct=self._distinct_all(),
             groupby_fields=groupby_fields,
             having_condition=effective_having,
             include_star=use_include_star,
@@ -1334,7 +1492,19 @@ class SQLExecutionEngine:
         else:
             select_sql = star
 
-        parts = [f"SELECT {select_sql}", f"FROM {from_source}"]
+        # Rows are deduplicated by the layer's columns, not by the hidden
+        # columns an inner layer passes through ``*``
+        limit_by = self._build_limit_by_clause()
+        distinct_keyword = ""
+        if self._distinct_all():
+            if self._layer_columns:
+                limit_by = "LIMIT 1 BY " + ", ".join(
+                    format_identifier(c, self.quote_char) for c in self._layer_columns
+                )
+            else:
+                distinct_keyword = "DISTINCT "
+
+        parts = [f"SELECT {distinct_keyword}{select_sql}", f"FROM {from_source}"]
 
         # When LazyMask/LazyWhere temp aliases wrap this layer, any
         # WHERE in ``clauses.where_conditions`` semantically filters the
@@ -1425,6 +1595,8 @@ class SQLExecutionEngine:
             # is chDB's deterministic virtual column for Python() sources.
             parts.append("ORDER BY _row_id")
 
+        if limit_by:
+            parts.append(limit_by)
         if clauses.limit_value is not None:
             parts.append(f"LIMIT {clauses.limit_value}")
         if clauses.offset_value is not None:
@@ -1530,6 +1702,14 @@ class SQLExecutionEngine:
         sql_parts.append("ORDER BY __orig_row_num__")
 
         limit_by = self._build_limit_by_clause()
+        if self._distinct_all():
+            # The first row of each distinct output row, in source order
+            names = [projection_name(f) for f in select_fields or []]
+            if names and not include_star and all(names):
+                by = ", ".join(format_identifier(n, self.quote_char) for n in names)
+            else:
+                by = "* EXCEPT(__orig_row_num__)"
+            limit_by = f"LIMIT 1 BY {by}"
         if limit_by:
             sql_parts.append(limit_by)
 
@@ -1751,7 +1931,10 @@ class SQLExecutionEngine:
         return " ".join(outer_parts)
 
     def build_sql_from_plan(
-        self, plan: "QueryPlan", schema: Dict[str, str] = None
+        self,
+        plan: "QueryPlan",
+        schema: Dict[str, str] = None,
+        for_execution: bool = False,
     ) -> SQLBuildResult:
         """
         Build SQL from a QueryPlan.
@@ -1759,14 +1942,139 @@ class SQLExecutionEngine:
         This is the unified entry point for SQL building, used by both
         _execute() and _build_execution_sql() to eliminate code duplication.
 
+        A row's source position (``row_position_sql``) is ``_row_id`` for a
+        DataFrame source. For a file whose reader numbers its rows, an
+        execution build (``row_labels``) reads the source with its position
+        as a hidden column when the result is labelled by it (rows are
+        filtered, sorted, deduplicated or offset) or the SQL reads positions
+        (first()/last(), tie-breakers, windows); the column then reaches the
+        result as ``row_label_column``. Other sources use
+        ``DEFAULT_ROW_POSITION``.
+
         Args:
             plan: QueryPlan from QueryPlanner
             schema: Column schema for type-aware SQL building
+            for_execution: True for the SQL _execute() runs, which also
+                outputs the hidden group key columns it builds the index
+                from. Every other reader (to_sql(), writeback, views, schema
+                probes) gets the result columns only.
 
         Returns:
             SQLBuildResult containing the SQL string and metadata
         """
+        from .config import is_performance_mode
+
         schema = schema or {}
+        renames = dict(plan.alias_renames)
+        # Row-wise results of a file keep its row order, as pandas reads it
+        self.ordered_read = (
+            self.row_labels
+            and getattr(self.ds._table_function, "reads_files", False)
+            and not self.ds._joins
+            and not is_performance_mode()
+            and not _plan_aggregates(plan)
+        )
+        column = self._position_column_for(schema)
+        labelled = column is not None and _plan_keeps_source_rows(plan, self.ds)
+        self.position_column = column if labelled else None
+        with row_position_scope(self._source_row_position()) as scope:
+            result = self._build_sql(plan, schema, for_execution)
+        if column is not None and not labelled and scope.used:
+            # The SQL reads positions: read them from the file. Row-wise
+            # result rows are then labelled by them too.
+            plan.alias_renames.clear()
+            plan.alias_renames.update(renames)
+            self.position_column = column
+            labelled = not _plan_aggregates(plan)
+            with row_position_scope(self._source_row_position()):
+                result = self._build_sql(plan, schema, for_execution)
+        if self.position_column is not None:
+            self._add_query_settings(
+                result, self.ds._table_function.row_position_query_settings()
+            )
+        # A subquery source or JOIN operand may need settings at the top level
+        self._add_query_settings(
+            result,
+            [
+                setting
+                for ds in [self.ds] + [other for other, _, _ in self.ds._joins]
+                for setting in getattr(ds._table_function, "query_settings", ())
+            ],
+        )
+        result.position_column = self.position_column
+        if labelled:
+            result.sql, carried = self._carry_position_column(result.sql)
+            if carried:
+                result.row_label_column = column
+                result.rows_sorted = _plan_sorts(plan)
+        elif column is not None and plan.groupby_agg is None:
+            # A contiguous run of the source: labels count from its start
+            result.row_label_start = _plan_row_offset(plan)
+        return result
+
+    def _position_column_for(self, schema: Dict[str, str]) -> Optional[str]:
+        """
+        Name of the hidden column an execution build reads this source's
+        row positions into, or None when it doesn't label rows: not an
+        execution build, a JOIN, performance mode, or a source without row
+        positions (see ``TableFunction.has_row_positions``).
+        """
+        from .config import is_performance_mode
+
+        has_row_positions = getattr(self.ds._table_function, "has_row_positions", None)
+        if (
+            not self.row_labels
+            or has_row_positions is None
+            or self.ds._joins
+            or is_performance_mode()
+            or not schema
+            or not has_row_positions(list(schema))
+        ):
+            return None
+        return self._unique_hidden_name(ROW_LABEL_BASE, set(schema))
+
+    def _add_query_settings(self, result: SQLBuildResult, settings: List[str]) -> None:
+        """Add ``settings`` to the top-level SETTINGS clause of ``result``."""
+        settings = list(dict.fromkeys(settings))
+        if not settings:
+            return
+        if result.has_settings:
+            # The SQL ends with its SETTINGS clause
+            result.sql = f"{result.sql}, {', '.join(settings)}"
+        else:
+            result.sql = f"{self._append_settings(result.sql)}, {', '.join(settings)}"
+            result.has_settings = True
+
+    def _source_row_position(self) -> str:
+        """SQL for a row's position in this engine's source."""
+        if self.position_column is not None:
+            return format_identifier(self.position_column, self.quote_char)
+        if self.reads_dataframe or self.is_python_table_function():
+            return "_row_id"
+        return DEFAULT_ROW_POSITION
+
+    def _carry_position_column(self, sql: str) -> Tuple[str, bool]:
+        """
+        Make every SELECT of ``sql`` output the position column, and break
+        ties of the outer ORDER BY by it. Return ``(sql, carried)``;
+        ``carried`` is False when the result rows aren't source rows (GROUP
+        BY, aggregates) and ``sql`` is unchanged.
+        """
+        from .connection import Connection, _mask_quoted
+
+        masked = _mask_quoted(sql).upper()
+        if "GROUP BY" in masked or Connection._is_aggregate_query(masked.strip()):
+            return sql, False
+        column = format_identifier(self.position_column, self.quote_char)
+        if Connection._has_outer_order_by(masked.strip()):
+            sql = Connection._append_row_id_tiebreaker(sql, column)
+        return Connection._add_row_id_to_all_selects(sql, column, star_carries=True), True
+
+    def _build_sql(
+        self, plan: "QueryPlan", schema: Dict[str, str], for_execution: bool
+    ) -> SQLBuildResult:
+        """Build SQL from ``plan`` with this engine's source and position
+        (``for_execution``: see ``build_sql_from_plan``)."""
         layers = plan.layers
         groupby_agg_op = plan.groupby_agg
         where_ops = plan.where_ops
@@ -1783,10 +2091,18 @@ class SQLExecutionEngine:
         # SQLBuilder is needed when:
         # 1. Multiple assignments to the same column (override scenario)
         # 2. Computed column is referenced in subsequent operations (WHERE, ORDER BY)
-        # Skip SQLBuilder if there is a groupby operation (SQLBuilder does not support GROUP BY yet)
+        # Skip SQLBuilder if there is a groupby or where/mask operation
+        # (SQLBuilder renders neither GROUP BY nor the CASE WHEN of where/mask)
         if (
             column_assignments
             and not groupby_agg_op
+            and not where_ops
+            # SQLBuilder doesn't place drop_duplicates()
+            and not any(
+                isinstance(op, LazyDistinct)
+                for layer in (plan.layers or [plan.sql_ops])
+                for op in layer
+            )
             and self._needs_sql_builder(plan.sql_ops, column_assignments, schema)
         ):
             sql = self._build_sql_with_builder(plan, schema)
@@ -1812,6 +2128,7 @@ class SQLExecutionEngine:
             schema,
             has_column_assignments,
             source_columns=source_columns,
+            keep_hidden_keys=for_execution,
         )
 
         return SQLBuildResult(sql=sql, groupby_agg=groupby_agg_op)
@@ -1852,10 +2169,6 @@ class SQLExecutionEngine:
 
         # Don't use SQLBuilder if there are GROUP BY operations (not supported yet)
         if self.ds._groupby_fields:
-            return False
-
-        # Don't use SQLBuilder if DISTINCT is used (not supported yet)
-        if self.ds._distinct:
             return False
 
         # Get existing column names from schema
@@ -2134,13 +2447,27 @@ class SQLExecutionEngine:
     def _layer_output_columns(
         layer_ops: List[LazyOp], input_columns: Optional[List[str]]
     ) -> Optional[List[str]]:
-        """Columns a non-aggregating layer outputs, if its input is known."""
-        if input_columns is None or any(
-            isinstance(op, LazyGroupByAgg) for op in layer_ops
-        ):
+        """Columns a layer outputs, if known. An aggregation outputs its key
+        columns and named outputs, also when its input is not known."""
+        columns = None if input_columns is None else list(input_columns)
+        for op in layer_ops:
+            if isinstance(op, LazyGroupByAgg):
+                columns = op.transform_columns(columns)
+            elif columns is not None:
+                columns = op.transform_columns(columns)
+        return columns
+
+    @staticmethod
+    def _columns_entering(
+        layer_ops: List[LazyOp], input_columns: Optional[List[str]], op_types
+    ) -> Optional[List[str]]:
+        """Columns entering the layer's first op of ``op_types``, if known."""
+        if input_columns is None:
             return None
         columns = list(input_columns)
         for op in layer_ops:
+            if isinstance(op, op_types):
+                break
             columns = op.transform_columns(columns)
         return columns
 
@@ -2153,7 +2480,56 @@ class SQLExecutionEngine:
         has_column_assignments: bool,
         first_layer_from_source: Optional[str] = None,
         source_columns: Optional[List[str]] = None,
+        keep_hidden_keys: bool = True,
     ) -> str:
+        """
+        Build SQL for ``layers`` (see ``_build_layers``). A layer that reads
+        the rows' source position (``RowPosition``: first()/last(), group
+        order of first appearance, windows, tie-breakers) reads it as a
+        column of its input, so every layer below it outputs the position
+        column; the layers are built a second time to carry it when the
+        first build shows an outer layer reads it.
+        """
+        renames = dict(alias_renames)
+        args = (layers, sql_select_fields, alias_renames, schema, has_column_assignments)
+        kwargs = dict(
+            first_layer_from_source=first_layer_from_source,
+            source_columns=source_columns,
+            keep_hidden_keys=keep_hidden_keys,
+        )
+        sql, reads = self._build_layers(*args, **kwargs)
+        carry_below = max(reads, default=0)
+        if carry_below and self._carried_position() is not None:
+            alias_renames.clear()
+            alias_renames.update(renames)
+            sql, _ = self._build_layers(*args, carry_below=carry_below, **kwargs)
+        return sql
+
+    def _carried_position(self) -> Optional[Tuple[str, bool]]:
+        """
+        ``(name, virtual)`` of the column an outer layer reads the source
+        position from: the labelled file source's hidden column, or a
+        DataFrame source's ``_row_id`` (virtual: ``SELECT *`` leaves it out).
+        None when the position is not a column of the source.
+        """
+        if self.position_column is not None:
+            return self.position_column, False
+        if self.reads_dataframe or self.is_python_table_function():
+            return "_row_id", True
+        return None
+
+    def _build_layers(
+        self,
+        layers: List[List[LazyOp]],
+        sql_select_fields: List[Expression],
+        alias_renames: Dict[str, str],
+        schema: Dict[str, str],
+        has_column_assignments: bool,
+        first_layer_from_source: Optional[str] = None,
+        source_columns: Optional[List[str]] = None,
+        keep_hidden_keys: bool = True,
+        carry_below: int = 0,
+    ) -> Tuple[str, List[int]]:
         """
         Build SQL by chaining ``_build_layer`` calls, one per nested
         subquery layer. This is the canonical implementation of the
@@ -2181,6 +2557,9 @@ class SQLExecutionEngine:
                 ``_build_layer`` derives FROM from ``self.ds``.
             source_columns: Columns of the layer 0 source, if known; used to
                 overwrite inherited columns in place.
+            keep_hidden_keys: Whether the last layer outputs the hidden group
+                key columns (``LazyGroupByAgg.hidden_key_columns``); only
+                execution outside performance mode reads them.
 
         Returns:
             The full nested SQL string.
@@ -2194,120 +2573,213 @@ class SQLExecutionEngine:
         # next layer keeps also outputs the sorted row position under a
         # hidden alias, and outer layers order by that position. Hidden
         # columns in the current output; the last layer leaves them out.
-        from .functions import WindowFunction
+        # An aggregation orders its groups by key, or by first appearance
+        # with ``sort=False``, and outputs that rank as a hidden group
+        # position when outer layers follow: they keep the order by it and a
+        # sort breaks ties with it. Its group keys become the index, so outer
+        # projections keep them.
+        from .functions import Function, WindowFunction
 
         hidden_columns: List[str] = []
         taken_names: set = set(source_columns or [])
         last_idx = len(layers) - 1
+        index_keys: List[str] = []
+        # Index keys under a hidden name; outside execution the result leaves
+        # them out, and so does execution in performance mode, which keeps
+        # group keys as columns instead of building the index
+        from .config import is_performance_mode
 
-        for layer_idx, layer_ops in enumerate(layers):
-            is_first = layer_idx == 0
-            from_source = (
-                first_layer_from_source
-                if is_first
-                else f"({sql}) AS __subq{layer_idx}__"
-            )
-            layer_has_agg = any(isinstance(o, LazyGroupByAgg) for o in layer_ops)
-            layer_orderby, layer_orderby_kind = (
-                (None, None)
-                if layer_has_agg
-                else self._layer_orderby(layer_ops)
-            )
+        keep_hidden_keys = keep_hidden_keys and not is_performance_mode()
+        hidden_keys: List[str] = []
+        aggs = [self._extract_special_ops_from_layer(l)[0] for l in layers]
 
-            # Derive per-layer select fields so each layer only emits its
-            # own projection. The caller-supplied ``sql_select_fields``
-            # (passed by ``build_sql_from_plan``) is only used for the
-            # first source-bound layer.
-            (
-                layer_sql_select_fields,
-                layer_has_column_assignments,
-            ) = self._collect_select_fields_from_sql_ops(layer_ops, input_columns)
-            input_columns = self._layer_output_columns(layer_ops, input_columns)
-            if is_first and first_layer_from_source is None:
-                effective_select_fields = sql_select_fields
-                effective_has_assignments = has_column_assignments
-            else:
-                effective_select_fields = layer_sql_select_fields
-                effective_has_assignments = layer_has_column_assignments
-            effective_select_fields = list(effective_select_fields or [])
-            taken_names.update(input_columns or [])
-            taken_names.update(
-                name
-                for name in (projection_name(f) for f in effective_select_fields)
-                if name
-            )
-            projects = bool(effective_select_fields) and not effective_has_assignments
-            is_last = layer_idx == last_idx
-
-            # The preserved order's position column, carried through an
-            # explicit projection of an inner layer.
-            carried = [
-                name
-                for name, _ in (preserved_orderby or [])
-                if isinstance(name, Field) and name.name in hidden_columns
-            ]
-            if layer_has_agg:
-                hidden_columns = []
-            elif projects:
-                hidden_columns = []
-                if not is_last and not layer_orderby:
-                    for f in carried:
-                        effective_select_fields.append(Field(f.name))
-                        hidden_columns.append(f.name)
-
-            sort_position = None
-            if (
-                layer_orderby
-                and not is_last
-                and self._keeps_inner_order(layers[layer_idx + 1])
-            ):
-                sort_position = self._unique_hidden_name("__sort_pos__", taken_names)
-                order_sql = build_orderby_clause(
-                    layer_orderby,
-                    self.quote_char,
-                    stable=is_stable_sort(layer_orderby_kind),
+        aggregated = False
+        # Layers (before any aggregation) whose SQL reads the source position
+        reads: List[int] = []
+        with ExitStack() as after_aggregation:
+            for layer_idx, layer_ops in enumerate(layers):
+                position_scope = None if aggregated else current_row_position_scope()
+                position_uses = position_scope.uses if position_scope else 0
+                is_first = layer_idx == 0
+                incoming_hidden = list(hidden_columns)
+                from_source = (
+                    first_layer_from_source
+                    if is_first
+                    else f"({sql}) AS __subq{layer_idx}__"
                 )
-                effective_select_fields.append(
-                    WindowFunction("row_number", alias=sort_position).over(
-                        order_by=[_SQLText(order_sql)]
+                layer_agg = aggs[layer_idx]
+                layer_has_agg = layer_agg is not None
+                layer_orderby, layer_orderby_kind = (
+                    (None, None)
+                    if layer_has_agg
+                    else self._layer_orderby(layer_ops)
+                )
+                # The input's order, when an inner layer outputs it as a position.
+                input_position = None
+                if (
+                    preserved_orderby
+                    and len(preserved_orderby) == 1
+                    and isinstance(preserved_orderby[0][0], Field)
+                    and preserved_orderby[0][0].name in hidden_columns
+                ):
+                    input_position = Field(preserved_orderby[0][0].name)
+                orderby_tiebreak = None
+                if layer_orderby and input_position is not None:
+                    orderby_tiebreak = [(input_position, True)]
+                    layer_orderby = list(layer_orderby) + orderby_tiebreak
+                    layer_orderby_kind = None
+
+                # Derive per-layer select fields so each layer only emits its
+                # own projection. The caller-supplied ``sql_select_fields``
+                # (passed by ``build_sql_from_plan``) is only used for the
+                # first source-bound layer.
+                (
+                    layer_sql_select_fields,
+                    layer_has_column_assignments,
+                ) = self._collect_select_fields_from_sql_ops(layer_ops, input_columns)
+                layer_input_columns = input_columns
+                input_columns = self._layer_output_columns(layer_ops, input_columns)
+                if is_first and first_layer_from_source is None:
+                    effective_select_fields = sql_select_fields
+                    effective_has_assignments = has_column_assignments
+                else:
+                    effective_select_fields = layer_sql_select_fields
+                    effective_has_assignments = layer_has_column_assignments
+                effective_select_fields = list(effective_select_fields or [])
+                taken_names.update(input_columns or [])
+                taken_names.update(
+                    name
+                    for name in (projection_name(f) for f in effective_select_fields)
+                    if name
+                )
+                projects = bool(effective_select_fields) and not effective_has_assignments
+                is_last = layer_idx == last_idx
+
+                # The preserved order's position column, carried through an
+                # explicit projection of an inner layer.
+                carried = [
+                    name
+                    for name, _ in (preserved_orderby or [])
+                    if isinstance(name, Field) and name.name in hidden_columns
+                ]
+                group_position = None
+                if layer_has_agg:
+                    hidden_columns = []
+                    if not is_last or not layer_agg.sort:
+                        group_position = self._unique_hidden_name(
+                            "__group_pos__", taken_names
+                        )
+                        if not is_last:
+                            hidden_columns.append(group_position)
+                elif projects:
+                    hidden_columns = []
+                    if not is_last and not layer_orderby:
+                        for f in carried:
+                            effective_select_fields.append(Field(f.name))
+                            hidden_columns.append(f.name)
+                    projected = {projection_name(f) for f in effective_select_fields}
+                    effective_select_fields.extend(
+                        Field(key)
+                        for key in index_keys
+                        if key not in projected
+                        and (keep_hidden_keys or not is_last or key not in hidden_keys)
                     )
+
+                sort_position = None
+                if (
+                    layer_orderby
+                    and not is_last
+                    and self._keeps_inner_order(layers[layer_idx + 1])
+                ):
+                    sort_position = self._unique_hidden_name("__sort_pos__", taken_names)
+                    order_sql = build_orderby_clause(
+                        layer_orderby,
+                        self.quote_char,
+                        stable=is_stable_sort(layer_orderby_kind),
+                    )
+                    effective_select_fields.append(
+                        WindowFunction("row_number", alias=sort_position).over(
+                            order_by=[_SQLText(order_sql)]
+                        )
+                    )
+                    if not projects:
+                        effective_has_assignments = True
+                    hidden_columns.append(sort_position)
+
+                carried_position = (
+                    self._carried_position()
+                    if layer_idx < carry_below and not layer_has_agg
+                    else None
                 )
-                if not projects:
-                    effective_has_assignments = True
-                hidden_columns.append(sort_position)
+                if carried_position is not None:
+                    # An outer layer reads the source position from this output
+                    name, virtual = carried_position
+                    if projects:
+                        projected = {projection_name(f) for f in effective_select_fields}
+                        if name not in projected:
+                            effective_select_fields.append(Field(name))
+                    elif virtual and is_first:
+                        effective_select_fields.append(Field(name))
+                        effective_has_assignments = True
 
-            star_except = None
-            if is_last and not projects and hidden_columns:
-                star_except = list(hidden_columns)
-                hidden_columns = []
+                star_except = None
+                if is_last and not projects and not layer_has_agg:
+                    excluded = list(hidden_columns)
+                    if not keep_hidden_keys:
+                        excluded += [key for key in hidden_keys if key not in excluded]
+                    if excluded:
+                        star_except = excluded
+                    hidden_columns = []
 
-            result = self._build_layer(
-                layer_ops,
-                from_source=from_source,
-                is_first_layer=is_first,
-                schema=schema,
-                sql_select_fields=effective_select_fields,
-                has_column_assignments=effective_has_assignments,
-                preserved_orderby=preserved_orderby if not is_first else None,
-                preserved_orderby_kind=(
-                    preserved_orderby_kind if not is_first else None
-                ),
-                star_except=star_except,
-            )
-            sql = result.sql
-            alias_renames.update(result.renames_introduced)
+                result = self._build_layer(
+                    layer_ops,
+                    from_source=from_source,
+                    is_first_layer=is_first,
+                    schema=schema,
+                    sql_select_fields=effective_select_fields,
+                    has_column_assignments=effective_has_assignments,
+                    preserved_orderby=preserved_orderby if not is_first else None,
+                    preserved_orderby_kind=(
+                        preserved_orderby_kind if not is_first else None
+                    ),
+                    star_except=star_except,
+                    group_position=group_position,
+                    expose_group_position=not is_last,
+                    input_position=input_position,
+                    orderby_tiebreak=orderby_tiebreak,
+                    keep_hidden_keys=keep_hidden_keys or not is_last,
+                    input_columns=layer_input_columns,
+                    passthrough_columns=index_keys + incoming_hidden,
+                )
+                sql = result.sql
+                alias_renames.update(result.renames_introduced)
+                if position_scope is not None and position_scope.uses > position_uses:
+                    reads.append(layer_idx)
 
-            if layer_has_agg:
-                preserved_orderby = None
-                preserved_orderby_kind = None
-            elif sort_position is not None:
-                preserved_orderby = [(Field(sort_position), True)]
-                preserved_orderby_kind = None
-            elif layer_orderby:
-                preserved_orderby = layer_orderby
-                preserved_orderby_kind = layer_orderby_kind
+                if layer_has_agg:
+                    preserved_orderby = (
+                        [(Field(group_position), True)] if not is_last else None
+                    )
+                    preserved_orderby_kind = None
+                    index_keys = layer_agg.key_columns() if layer_agg.as_index else []
+                    if not aggregated:
+                        # Aggregated rows have no source positions
+                        aggregated = True
+                        after_aggregation.enter_context(
+                            row_position_scope(DEFAULT_ROW_POSITION)
+                        )
+                    hidden_keys = (
+                        layer_agg.hidden_key_columns() if layer_agg.as_index else []
+                    )
+                elif sort_position is not None:
+                    preserved_orderby = [(Field(sort_position), True)]
+                    preserved_orderby_kind = None
+                elif layer_orderby:
+                    preserved_orderby = layer_orderby
+                    preserved_orderby_kind = layer_orderby_kind
 
-        return sql
+
+        return sql, reads
 
     def _layer_orderby(
         self, layer_ops: List[LazyOp]
@@ -2317,11 +2789,12 @@ class SQLExecutionEngine:
         return layer_clauses.orderby_fields, layer_clauses.orderby_kind
 
     def _keeps_inner_order(self, layer_ops: List[LazyOp]) -> bool:
-        """Whether a layer re-applies its input's order: it neither sorts
-        nor aggregates."""
-        if any(isinstance(o, LazyGroupByAgg) for o in layer_ops):
-            return False
-        return not extract_clauses_from_ops(layer_ops, self.quote_char).orderby_fields
+        """Whether a layer reads its input's order: it keeps it, breaks sort
+        ties by it, or aggregates in order of first appearance."""
+        agg = self._extract_special_ops_from_layer(layer_ops)[0]
+        if agg is not None:
+            return not agg.sort
+        return True
 
     @staticmethod
     def _unique_hidden_name(base: str, taken: set) -> str:
@@ -2441,8 +2914,8 @@ class SQLExecutionEngine:
         """
         Assemble SQL query from given components.
 
-        This is the core SQL assembly method, moved from DataStore._build_sql_from_state
-        to centralize SQL building logic.
+        This is the core SQL assembly method that centralizes SQL building
+        logic.
 
         Args:
             select_fields: Fields to select
@@ -2469,10 +2942,22 @@ class SQLExecutionEngine:
         # post-filter row numbers, not original row numbers. We need a subquery to preserve
         # the original row order.
         needs_stable_sort = orderby_fields and is_stable_sort(self.ds._orderby_kind)
+        # A labelled source's positions are taken before the WHERE already.
         needs_subquery_for_stable = (
-            needs_stable_sort and where_conditions and not groupby_fields and not joins
+            needs_stable_sort
+            and where_conditions
+            and not groupby_fields
+            and not joins
+            and self.position_column is None
         )
         use_star = include_star if include_star is not None else self.ds._select_star
+        # DISTINCT would compare the position column too; keep each row's
+        # first occurrence in position order instead, as pandas does.
+        dedupe_by_position = (
+            distinct and self.position_column is not None and not groupby_fields
+        )
+        if dedupe_by_position:
+            distinct = False
 
         if needs_subquery_for_stable:
             # Use stable sort subquery
@@ -2512,10 +2997,12 @@ class SQLExecutionEngine:
             parts.append(f"FROM {from_source}")
         elif self.ds._table_function:
             # Handle table function objects
-            if hasattr(self.ds._table_function, "to_sql"):
+            if not hasattr(self.ds._table_function, "to_sql"):
+                table_sql = str(self.ds._table_function)
+            elif joins:
                 table_sql = self.ds._table_function.to_sql()
             else:
-                table_sql = str(self.ds._table_function)
+                table_sql = self.get_table_source()
             # Add alias when joins are present (required by ClickHouse for disambiguation)
             if joins:
                 alias = self.ds._get_table_alias()
@@ -2574,6 +3061,21 @@ class SQLExecutionEngine:
                 parts.append(f"ORDER BY {orderby_sql}")
 
         limit_by = self._build_limit_by_clause()
+        if dedupe_by_position:
+            if select_fields and not use_star:
+                by = ", ".join(
+                    format_identifier(projection_name(f), self.quote_char)
+                    if projection_name(f)
+                    else f.to_sql(quote_char=self.quote_char)
+                    for f in select_fields
+                )
+            else:
+                position = format_identifier(self.position_column, self.quote_char)
+                by = f"* EXCEPT ({position})"
+            limit_by = f"LIMIT 1 BY {by}"
+        if limit_by and not orderby_fields and self.position_column is not None:
+            # The first occurrence of each key is the first in source order
+            parts.append(f"ORDER BY {self.get_row_number_expr()}")
         if limit_by:
             parts.append(limit_by)
 
@@ -2611,8 +3113,11 @@ class SQLExecutionEngine:
 
         schema = schema or {}
 
-        # Build SQL query using Python() table function
-        sql = self._build_sql_for_dataframe(df, plan, schema)
+        # Build SQL query using Python() table function; a row's position
+        # is the DataFrame's virtual _row_id
+        self.reads_dataframe = True
+        with row_position_scope("_row_id"):
+            sql = self._build_sql_for_dataframe(df, plan, schema)
 
         self._logger.debug(
             "  [SQL on DataFrame] Executing: %s",
@@ -2651,6 +3156,10 @@ class SQLExecutionEngine:
             sql, df, "__df__", preserve_order=needs_order_preservation
         )
 
+        if is_simple_limit_only and not _is_perf_exec():
+            # The first rows in order: they keep the DataFrame's first labels
+            result_df.index = df.index[: len(result_df)]
+
         # Handle empty column selection: return DataFrame with 0 columns but correct row count
         if getattr(plan, "_empty_column_select", False):
             # Remove _row_id and return empty column DataFrame
@@ -2663,16 +3172,12 @@ class SQLExecutionEngine:
         # In performance mode, skip set_index -- group keys stay as columns
         from .config import is_performance_mode as _is_perf
 
-        if plan.groupby_agg and plan.groupby_agg.groupby_cols:
-            groupby_cols = plan.groupby_agg.groupby_cols
-            # Don't set index if as_index=False (user wants group keys as columns)
-            as_index = getattr(plan.groupby_agg, "as_index", True)
-            if not _is_perf() and as_index:
-                if all(col in result_df.columns for col in groupby_cols):
-                    result_df = result_df.set_index(groupby_cols)
-                    self._logger.debug(
-                        "  Set groupby columns as index: %s", groupby_cols
-                    )
+        if plan.groupby_agg and not _is_perf():
+            result_df = plan.groupby_agg.restore_input_dtypes(
+                result_df, df, plan.columns_recomputed_around_aggregation()
+            )
+            if plan.groupby_agg.groupby_cols:
+                result_df = plan.groupby_agg.set_group_index(result_df)
 
         # Convert flat column names to MultiIndex for pandas compatibility
         # Only needed when ANY column has multiple aggregation functions (e.g., agg({'col': ['sum', 'mean']}))
