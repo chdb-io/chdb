@@ -348,6 +348,11 @@ class ExpressionEvaluator:
                 # Pandas-only or explicitly configured for Pandas
                 self._logger.debug("[ExprEval] Function '%s' -> Pandas (config)", func_name)
                 return self._evaluate_function_via_pandas(expr)
+            elif function_config.has_pandas_implementation(func_name) and self._reads_na_column(expr):
+                # pandas keeps NA in nullable extension dtypes (Int64, boolean,
+                # ...); a chDB result comes back with NaN in their place
+                self._logger.debug("[ExprEval] Function '%s' -> Pandas (NA input)", func_name)
+                return self._evaluate_function_via_pandas(expr)
             elif function_config.has_pandas_implementation(func_name):
                 # Has registered implementation - use chDB by default unless configured
                 self._logger.debug("[ExprEval] Function '%s' -> chDB (default)", func_name)
@@ -1128,6 +1133,15 @@ class ExpressionEvaluator:
         # Fallback to chDB
         self._logger.debug("[ExprEval] No dynamic method for '%s', trying chDB", func_name)
         return self._evaluate_via_chdb(expr)
+
+    def _reads_na_column(self, expr) -> bool:
+        """Whether ``expr`` reads a column whose dtype represents missing
+        values as ``pd.NA``."""
+        reads = expr.columns_read() or ()
+        return any(
+            name in self.df.columns and getattr(self.df[name].dtype, "na_value", None) is pd.NA
+            for name in reads
+        )
 
     def _evaluate_via_chdb(self, expr) -> pd.Series:
         """

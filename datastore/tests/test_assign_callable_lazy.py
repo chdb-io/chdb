@@ -902,3 +902,22 @@ def test_checkpoint_releases_replaced_values():
         tracemalloc.stop()
     # one generation of x and the frame (about 3 MB), not 30 (about 48 MB)
     assert retained < 12 * 2**20
+
+
+class TestWindowValueAfterSourceChange:
+    """A window value records the columns its OVER clause reads."""
+
+    @pytest.mark.parametrize("method", ["min", "dense", "first"])
+    @pytest.mark.parametrize("how", ["setitem", "assign"])
+    def test_rank_descending(self, method, how):
+        def chain(d):
+            if how == "setitem":
+                ranks = d["a"].rank(ascending=False, method=method)
+                d["a"] = d["a"] * -1
+                d["r"] = ranks
+                return d
+            changed = d.assign(a=d["a"] * -1)
+            return changed.assign(r=d["a"].rank(ascending=False, method=method))
+
+        data = {"a": [3, 1, 2, 5]}
+        assert_datastore_equals_pandas(chain(DataStore(data)), chain(pd.DataFrame(data)))
