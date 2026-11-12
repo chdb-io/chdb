@@ -260,6 +260,29 @@ class AggregateFunction(Function):
     is_aggregate = True
 
 
+def aggregate(func: str, expr: Expression) -> "AggregateFunction":
+    """
+    The SQL aggregate of ``expr`` for the pandas aggregation ``func``.
+
+    first()/last() read the value of the first/last row in row order:
+    argMin/argMax over the row position. ClickHouse's any()/anyLast() return
+    the value of whichever row a thread reads first or last, so only
+    performance mode uses them.
+
+    NOTE: For Python() table function, connection.py replaces rowNumberInAllBlocks()
+    with _row_id (deterministic) at execution time (chDB v4.0.0b5+).
+    """
+    from .config import is_performance_mode
+    from .utils import map_agg_func
+
+    if func in ("first", "last"):
+        if is_performance_mode():
+            return AggregateFunction("any" if func == "first" else "anyLast", expr)
+        position = Function("rowNumberInAllBlocks")
+        return AggregateFunction("argMin" if func == "first" else "argMax", expr, position)
+    return AggregateFunction(map_agg_func(func), expr)
+
+
 class OrderByItem(Expression):
     """An ORDER BY item of a window: an expression and its direction."""
 

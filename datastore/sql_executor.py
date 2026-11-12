@@ -590,32 +590,11 @@ def build_groupby_select_fields(
         return expr
 
     def create_agg_expr(func: str, col_expr: Expression) -> AggregateFunction:
-        """
-        Create aggregation expression, handling special cases for first/last.
+        """Create aggregation expression (first/last in row order, see ``aggregate``)."""
+        from .functions import aggregate
 
-        For first/last, we use argMin/argMax with rowNumberInAllBlocks() to preserve
-        row order semantics. ClickHouse's any()/anyLast() return arbitrary values,
-        not row-order based first/last.
-
-        In performance mode, use any()/anyLast() directly (faster, non-deterministic).
-
-        NOTE: For Python() table function, connection.py replaces rowNumberInAllBlocks()
-        with _row_id (deterministic) at execution time (chDB v4.0.0b5+).
-        """
-        from .config import is_performance_mode
-
-        if func == 'first':
-            if is_performance_mode():
-                return AggregateFunction('any', col_expr)
-            # first() -> argMin(col, rowNumberInAllBlocks())
-            row_num_func = Function('rowNumberInAllBlocks')
-            return AggregateFunction('argMin', col_expr, row_num_func)
-        elif func == 'last':
-            if is_performance_mode():
-                return AggregateFunction('anyLast', col_expr)
-            # last() -> argMax(col, rowNumberInAllBlocks())
-            row_num_func = Function('rowNumberInAllBlocks')
-            return AggregateFunction('argMax', col_expr, row_num_func)
+        if func in ('first', 'last'):
+            return aggregate(func, col_expr)
         elif func == 'size':
             # size() counts ALL rows including NULL
             return AggregateFunction('count', Star())

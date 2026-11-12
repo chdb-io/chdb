@@ -158,6 +158,33 @@ def _operand_without_expression_uses_method_mode(method):
     return wrapper
 
 
+def _pandas_name(expr) -> Optional[str]:
+    """
+    The name pandas gives the Series ``expr`` computes: a column's name, kept
+    by arithmetic with scalars and by functions of one column, and None when
+    columns of different names are combined.
+    """
+    from .expressions import Literal
+
+    if isinstance(expr, Field):
+        return expr.name
+    if isinstance(expr, ArithmeticExpression):
+        operands = [expr.left, expr.right]
+    elif isinstance(expr, Expression) and hasattr(expr, "args"):
+        args = list(expr.args)
+        # A conditional's values, not its conditions, name the result.
+        if expr.name.lower() == "if":
+            operands = args[1:]
+        elif expr.name.lower() == "multiif":
+            operands = args[1::2] + args[-1:]
+        else:
+            operands = args[:1]
+    else:
+        return None
+    names = {_pandas_name(operand) for operand in operands if not isinstance(operand, Literal)}
+    return names.pop() if len(names) == 1 else None
+
+
 class ColumnExpr:
     """
     A unified column expression that supports lazy evaluation in multiple modes.
@@ -335,9 +362,12 @@ class ColumnExpr:
             self._exec_mode = "agg"
             # Create AggregateFunction for SQL building (needed by agg() method)
             if source is not None and source._expr is not None:
-                from .functions import AggregateFunction
+                from .functions import AggregateFunction, aggregate
 
-                self._expr = AggregateFunction(agg_func_name, source._expr)
+                if self._pandas_agg_func in ("first", "last"):
+                    self._expr = aggregate(self._pandas_agg_func, source._expr)
+                else:
+                    self._expr = AggregateFunction(agg_func_name, source._expr)
         elif method_name is not None:
             self._exec_mode = "method"
         else:
@@ -1307,7 +1337,7 @@ class ColumnExpr:
 
         from .config import get_execution_engine, ExecutionEngine
         from .expressions import Field
-        from .functions import AggregateFunction
+        from .functions import AggregateFunction, aggregate
         from .lazy_ops import LazyGroupByAgg
         from .utils import map_agg_func
 
@@ -1348,7 +1378,11 @@ class ColumnExpr:
             if self._source is not None and self._source._expr is not None
             else Field(col_name)
         )
-        if isinstance(column, Field) and map_agg_func(pandas_func) == self._agg_func_name:
+        if (
+            isinstance(column, Field)
+            and column.name == col_name
+            and map_agg_func(pandas_func) == self._agg_func_name
+        ):
             agg = LazyGroupByAgg(
                 groupby_cols=groupby_col_names,
                 agg_func=pandas_func,
@@ -1363,20 +1397,30 @@ class ColumnExpr:
                 },
             )
         else:
-            # A parametrized function (quantile(q), stddevPop for ddof=0)
-            # or a computed column: aggregate the SQL expression itself
+            # A parametrized function (quantile(q), stddevPop for ddof=0), a
+            # computed column or one under another name (as_()): aggregate
+            # the SQL expression itself, first/last in row order
+            if column.alias:
+                column = column.with_attrs(alias=None)
+            if pandas_func in ("first", "last"):
+                aggregated = aggregate(pandas_func, column)
+            else:
+                aggregated = AggregateFunction(self._agg_func_name, column)
             agg = LazyGroupByAgg(
                 groupby_cols=groupby_col_names,
-                expr_agg={col_name: AggregateFunction(self._agg_func_name, column)},
+                expr_agg={col_name: aggregated},
                 sort=sort,
                 as_index=as_index,
                 dropna=dropna,
             )
         result = agg.run_on(self._datastore)
+        name = col_name if self._source is None or self._source._alias else _pandas_name(column)
         if not as_index:
+            if name is not None and name != col_name:
+                result = result.rename(columns={col_name: name})
             return result
         series = result[col_name]
-        series.name = col_name
+        series.name = name
         return series
 
     def _execute_op(self):
