@@ -346,7 +346,7 @@ def test_where_ops_pointer_alignment(parquet_source):
 
 
 # ---------------------------------------------------------------------------
-# Invariant 8: SELECT never has a bare orphan __agg_*__ that isn't in renames
+# Invariant 8: every __agg_*__ alias in the SQL is a declared temp alias
 # ---------------------------------------------------------------------------
 
 
@@ -357,8 +357,9 @@ def test_temp_alias_in_sql_was_registered_in_plan(
     name, builder, parquet_source
 ):
     """Every ``__agg_*__`` alias the SQL emits must also be in
-    ``plan.alias_renames`` so post-execution can rename it back. An
-    orphan SQL alias would leak the temp name to the user."""
+    ``plan.alias_renames``: only declared temp aliases get renamed back by
+    the aggregation layer's outer projection, so an orphan one would leak
+    the temp name to the user."""
     ds = DataStore.from_file(parquet_source)
     plan, sql = _plan_and_sql(builder(ds))
     sql_aliases = set(re.findall(r'__agg_\w+__', sql))
@@ -368,5 +369,5 @@ def test_temp_alias_in_sql_was_registered_in_plan(
     leaks = sql_aliases - declared
     assert not leaks, (
         f'[{name}] SQL emits temp aliases {leaks!r} that are not in '
-        f'plan.alias_renames {declared!r}; post-execution will not rename them.'
+        f'plan.alias_renames {declared!r}; they will not be renamed back.'
     )

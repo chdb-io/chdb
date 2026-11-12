@@ -597,11 +597,6 @@ class TestEmptySingleRowEdgeCases:
 class TestNullableTypeOperations:
     """Test shift/diff operations with nullable types."""
 
-    @pytest.mark.xfail(
-        reason="SQL window functions return float64, not nullable Int64. "
-               "Pandas preserves nullable Int64 dtype for shift/diff on Int64 columns.",
-        strict=True,
-    )
     def test_shift_with_na_values(self):
         """Test shift on column with NA values."""
         df = pd.DataFrame({
@@ -620,11 +615,6 @@ class TestNullableTypeOperations:
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
-    @pytest.mark.xfail(
-        reason="SQL window functions return float64, not nullable Int64. "
-               "Pandas preserves nullable Int64 dtype for shift/diff on Int64 columns.",
-        strict=True,
-    )
     def test_diff_with_na_values(self):
         """Test diff on column with NA values."""
         df = pd.DataFrame({

@@ -94,7 +94,7 @@ class ExpressionEvaluator:
         """
         from .functions import Function, CastFunction
         from .function_executor import function_config
-        from .column_expr import ColumnExpr
+        from .column_expr import ColumnExpr, named_result
         from .lazy_result import LazySeries
 
         # Helper to check if something is a lazy object
@@ -105,7 +105,7 @@ class ExpressionEvaluator:
         if isinstance(expr, ColumnExpr):
             if expr._exec_mode == 'expr' and expr._expr is not None:
                 # Expression mode - unwrap and evaluate
-                return self.evaluate(expr._expr)
+                return named_result(self.evaluate(expr._expr), expr._alias)
             elif expr._exec_mode == 'method' and expr._source is not None:
                 # Method mode - evaluate source and call method
                 # Execute arguments
@@ -347,6 +347,17 @@ class ExpressionEvaluator:
             if function_config.should_use_pandas(func_name):
                 # Pandas-only or explicitly configured for Pandas
                 self._logger.debug("[ExprEval] Function '%s' -> Pandas (config)", func_name)
+                return self._evaluate_function_via_pandas(expr)
+            elif (
+                function_config.has_pandas_implementation(func_name)
+                and expr.is_row_wise
+                and self._reads_na_column(expr)
+            ):
+                # pandas keeps NA in nullable extension dtypes (Int64, boolean,
+                # ...); a chDB result comes back with NaN in their place. Only an
+                # elementwise function: the pandas implementations of window and
+                # aggregate functions don't apply their OVER clause or grouping.
+                self._logger.debug("[ExprEval] Function '%s' -> Pandas (NA input)", func_name)
                 return self._evaluate_function_via_pandas(expr)
             elif function_config.has_pandas_implementation(func_name):
                 # Has registered implementation - use chDB by default unless configured
@@ -1128,6 +1139,15 @@ class ExpressionEvaluator:
         # Fallback to chDB
         self._logger.debug("[ExprEval] No dynamic method for '%s', trying chDB", func_name)
         return self._evaluate_via_chdb(expr)
+
+    def _reads_na_column(self, expr) -> bool:
+        """Whether ``expr`` reads a column whose dtype represents missing
+        values as ``pd.NA``."""
+        reads = expr.columns_read() or ()
+        return any(
+            name in self.df.columns and getattr(self.df[name].dtype, "na_value", None) is pd.NA
+            for name in reads
+        )
 
     def _evaluate_via_chdb(self, expr) -> pd.Series:
         """

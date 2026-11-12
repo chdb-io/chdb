@@ -31,6 +31,7 @@ DataStore has two compatibility modes that control whether output is shaped for 
 | **`toInt64` on count** | `toInt64(count())` to match pandas int64 | Disabled — native SQL dtype returned |
 | **`fillna(0)` for all-NaN sum** | Sum of all-NaN returns 0 (pandas behavior) | Disabled — returns NULL |
 | **Dtype corrections** | `abs()` unsigned→signed, etc. | Disabled — native SQL dtypes |
+| **Boolean column assignment** | A condition assigned as a column is computed in SQL only when its input columns can't hold pandas NA, as `toBool(ifNull(...))`; otherwise in pandas | Always computed in SQL as written: `UInt8` dtype, NULL inputs give NULL |
 | **Index preservation** | Restores original index after SQL execution | Disabled |
 | **`first()`/`last()`** | `argMin/argMax(col, rowNumberInAllBlocks())` | `any(col)` / `anyLast(col)` — faster but non-deterministic |
 | **Single-SQL aggregation** | ColumnExpr groupby materializes intermediate DataFrame | Injects `LazyGroupByAgg` into lazy ops chain — single SQL query |
@@ -146,6 +147,22 @@ config.use_performance_mode()
 # Count returns native uint64 (not forced int64)
 # No -If wrappers: sum() instead of sumIf()
 result = ds.groupby("cat")["val"].sum()
+```
+
+### Boolean Column Assignment {#boolean-column-assignment}
+
+A condition assigned as a column (`ds["flag"] = ds["price"] > 10`, `ds.assign(flag=...)`, or `ds.assign(flag=lambda d: ...)`) is computed differently per mode:
+
+| Input columns | Pandas mode | Performance mode |
+|---------------|-------------|------------------|
+| Never NULL (numpy int/bool, non-`Nullable` SQL types) | SQL, `bool` result | SQL, `UInt8` result |
+| NULL only as NaN/NaT (numpy float/datetime, `str`, `Nullable(Float64/String/DateTime)`) | SQL with `ifNull()` so NaN compares like pandas, `bool` result | SQL, `UInt8` result with NULL (`<NA>`) where an input is NULL |
+| Nullable extension dtypes (`Int64`, `boolean`, ...), `Nullable(Int64)` and other `Nullable(...)` SQL types, `object`, or unknown | pandas (`boolean` with `<NA>`, as pandas) | SQL, `UInt8` result with NULL where an input is NULL |
+
+```python
+config.use_performance_mode()
+
+ds["flag"] = ds["price"] > 10   # SELECT *, price > 10 AS flag  -> UInt8
 ```
 
 ### Single-SQL Execution {#single-sql}

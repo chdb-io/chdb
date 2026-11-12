@@ -2,13 +2,15 @@
 Core DataStore class - main entry point for data operations
 """
 
+import itertools
 import math
 import time
+import weakref
 from contextlib import contextmanager
 from datetime import datetime, date
 import pandas as pd
 import numpy as np
-from typing import Any, Optional, List, Dict, Union, TYPE_CHECKING
+from typing import Any, Optional, List, Dict, Tuple, Union, TYPE_CHECKING
 from copy import copy
 
 if TYPE_CHECKING:
@@ -42,7 +44,6 @@ from .lazy_ops import LazyOp, LazyRelationalOp
 from .sql_executor import (
     ExtractedClauses,
     extract_clauses_from_ops,
-    apply_alias_renames_to_orderby,
     build_groupby_select_fields,
     SQLExecutionEngine,
     SQLBuildResult,
@@ -62,6 +63,214 @@ __all__ = ["DataStore"]
 
 # Sentinel value to distinguish "no argument passed" from "None passed explicitly"
 _MISSING = object()
+
+
+def _dtype_null_is_nan(dtype) -> bool:
+    """Whether a pandas column of ``dtype`` is never NA or holds NaN/NaT for it."""
+    if isinstance(dtype, pd.StringDtype):
+        na_value = dtype.na_value
+        return isinstance(na_value, float) and math.isnan(na_value)
+    if isinstance(dtype, pd.DatetimeTZDtype):
+        return True
+    return isinstance(dtype, np.dtype) and dtype.kind in "biufmM"
+
+
+def _clickhouse_type_null_is_nan(ch_type: str) -> bool:
+    """Whether a column of ClickHouse type ``ch_type`` materializes in pandas
+    as never-NA or with NaN/NaT for NULL (Float, String, Date/DateTime)."""
+    ch_type = ch_type.strip()
+    if ch_type.startswith("LowCardinality(") and ch_type.endswith(")"):
+        ch_type = ch_type[len("LowCardinality(") : -1]
+    if not (ch_type.startswith("Nullable(") and ch_type.endswith(")")):
+        return True
+    inner = ch_type[len("Nullable(") : -1]
+    return inner.startswith(("Float", "String", "FixedString", "Date"))
+
+
+_PROVENANCE_TOKENS = itertools.count(1)
+
+
+def _token(obj) -> int:
+    """A number naming ``obj``; unlike ``id()`` it is never reused after the
+    object is gone, so lineages can name ops without keeping them alive."""
+    token = obj.__dict__.get("_provenance_token")
+    if token is None:
+        token = obj.__dict__["_provenance_token"] = next(_PROVENANCE_TOKENS)
+    return token
+
+
+_ROW_OPS = frozenset({"WHERE", "ORDER BY", "LIMIT", "OFFSET", "PANDAS_FILTER"})
+
+
+def _op_effect(op) -> tuple:
+    """
+    ``(token, effect)`` of an op in a lineage, where ``effect`` says what it
+    does to columns and rows without holding its data: ``("rows",)``,
+    ``("assign", column)``, ``("select", names, keeps_others)`` or
+    ``("other",)``.
+    """
+    from .expressions import is_star_item, projection_name
+    from .lazy_ops import LazyAssignCallable, LazyColumnAssignment
+
+    cached = op.__dict__.get("_provenance_effect")
+    if cached is not None:
+        return cached
+    effect = ("other",)
+    if isinstance(op, LazyRelationalOp):
+        if op.op_type in _ROW_OPS:
+            effect = ("rows",)
+        elif op.op_type == "SELECT":
+            fields = op.fields or []
+            if any(is_star_item(f) for f in fields):
+                computed = frozenset(projection_name(f) for f in fields if not is_star_item(f))
+                effect = ("select", computed, True)
+            else:
+                plain = frozenset(
+                    f if isinstance(f, str) else f.name
+                    for f in fields
+                    if isinstance(f, str) or (isinstance(f, Field) and not f.alias)
+                )
+                effect = ("select", plain, False)
+    elif isinstance(op, (LazyColumnAssignment, LazyAssignCallable)):
+        effect = ("assign", op.column)
+    cached = op.__dict__["_provenance_effect"] = (_token(op), effect)
+    return cached
+
+
+def _group_key_names(keys) -> set:
+    return {k.name if isinstance(k, Field) else str(k) for k in keys or ()}
+
+
+def _columns_read(value) -> Optional[set]:
+    """
+    Names of the columns a value reads, including its group keys; ``None``
+    if unknown.
+    """
+    from .column_expr import ColumnExpr
+    from .lazy_result import LazySeries
+
+    if isinstance(value, Expression):
+        return value.columns_read()
+    if isinstance(value, LazySeries):
+        if value._executor is not None:
+            return None
+        parts = [value._column_expr, *value._args, *value._kwargs.values()]
+        names = _group_key_names(value._op_groupby_cols)
+    elif isinstance(value, ColumnExpr):
+        if value._exec_mode == "expr":
+            parts = [value._expr]
+        elif value._exec_mode in ("method", "agg"):
+            parts = [value._source, *value._method_args, *value._method_kwargs.values()]
+        elif value._exec_mode == "op":
+            parts = [value._op_source, *value._op_args, *value._op_kwargs.values()]
+        else:
+            return None
+        names = _group_key_names(value._groupby_fields) | _group_key_names(
+            value._op_groupby_cols
+        )
+    else:
+        return None if _is_lazy_value(value) else set()
+    for part in parts:
+        part_names = _columns_read(part)
+        if part_names is None:
+            return None
+        names |= part_names
+    return names
+
+
+def _keeps_read_columns(effect: tuple, reads: Optional[set], rowwise: bool) -> bool:
+    """
+    Whether an op with ``effect`` (see ``_op_effect``) keeps the values of the
+    columns in ``reads`` (``None``: unknown columns) and, unless ``rowwise``,
+    the rows.
+    """
+    kind = effect[0]
+    if kind == "rows":
+        return rowwise
+    if reads is None:
+        return False
+    if kind == "assign":
+        return effect[1] not in reads
+    if kind == "select":
+        names, keeps_others = effect[1], effect[2]
+        return not reads & names if keeps_others else reads <= names
+    return False
+
+
+def _is_row_wise(value) -> bool:
+    """Whether a value is computed row by row, so a row of it depends only on
+    the same row of its input (see ``Expression.is_row_wise``)."""
+    from .column_expr import ColumnExpr
+
+    if isinstance(value, ColumnExpr):
+        if value._exec_mode != "expr" or value._expr is None:
+            return False
+        value = value._expr
+    return isinstance(value, Expression) and value.is_row_wise
+
+
+def _is_lazy_value(value) -> bool:
+    """Whether ``value`` is an unevaluated expression or lazy result."""
+    return isinstance(value, Expression) or hasattr(value, "_execute")
+
+
+def _reads_null_as_nan(expr: Expression, kinds: Dict[str, bool]) -> bool:
+    """Whether every column ``expr`` reads is True in ``kinds``; False when
+    the columns it reads aren't known."""
+    reads = expr.columns_read()
+    return reads is not None and all(kinds.get(name) for name in reads)
+
+
+def _assigned_null_as_nan(op, kinds: Dict[str, bool]) -> bool:
+    """
+    Whether the column a LazyColumnAssignment produces is never NA or NA only
+    as NaN/NaT, given ``kinds`` of the columns it reads; False if unknown.
+    """
+    from .column_expr import ColumnExpr
+
+    value = op.expr
+    if not op.reads_frame:
+        return False
+    if isinstance(value, ColumnExpr):
+        if value._exec_mode != "expr" or value._expr is None:
+            return False
+        value = value._expr
+    if isinstance(value, Expression):
+        return _reads_null_as_nan(value, kinds)
+    if isinstance(value, (pd.Series, pd.Index, np.ndarray)):
+        return _dtype_null_is_nan(value.dtype)
+    if pd.api.types.is_scalar(value):
+        return _dtype_null_is_nan(pd.Series([value]).dtype)
+    return False
+
+
+def _projected_null_kinds(fields, kinds: Dict[str, bool]) -> Dict[str, bool]:
+    """Null kinds (see ``_column_null_kinds``) of a SELECT field list's output."""
+    from .column_expr import ColumnExpr
+    from .conditions import NullSafeCondition
+    from .expressions import is_star_item, projection_name
+
+    projected = dict(kinds) if any(is_star_item(f) for f in fields) else {}
+    for item in fields:
+        if is_star_item(item):
+            continue
+        if isinstance(item, str):
+            name = item.strip('"')
+            projected[name] = kinds.get(name, False)
+            continue
+        expr = item._expr if isinstance(item, ColumnExpr) else item
+        name = projection_name(expr) if isinstance(expr, Expression) else None
+        if name is None:
+            continue
+        if isinstance(expr, NullSafeCondition):
+            # Rendered as toBool(ifNull(...)): never NULL
+            projected[name] = True
+        elif expr.find(Condition):
+            # A plain SQL comparison is NULL for a NULL input
+            projected[name] = False
+        else:
+            projected[name] = _reads_null_as_nan(expr, kinds)
+    return projected
 
 # Source types that map to a ClickHouse connection (see ADAPTER_MAP in
 # adapters.py, where 'remote'/'remotesecure' both resolve to ClickHouseAdapter).
@@ -101,6 +310,12 @@ class DataStore(PandasCompatMixin):
         }
     )
     _MASKED_VALUE = "***"
+
+    # Provenance (see _frozen and _lineage)
+    _frozen_lineage = None  # set on a frozen view: the state it was taken at
+    _frozen_origin = None  # weak reference from a frozen view to its DataStore
+    _frozen_memo = None  # this DataStore's frozen view of its current state
+    _lineage_base = None  # lineage kept when the pipeline's ops are rewritten
 
     def __init__(
         self,
@@ -1130,6 +1345,7 @@ class DataStore(PandasCompatMixin):
         """
         self._cache_version += 1
         self._metadata_memo = {}
+        self._frozen_memo = None
         self._logger.debug("Cache invalidated: version now %d", self._cache_version)
 
     def clear_cache(self):
@@ -1160,8 +1376,181 @@ class DataStore(PandasCompatMixin):
         Args:
             op: The lazy operation to add
         """
+        from .lazy_ops import LazyColumnAssignment
+
+        if isinstance(op, LazyColumnAssignment) and op.null_as_nan is None:
+            op.null_as_nan = self._null_as_nan_inputs(op.expr)
         self._lazy_ops.append(op)
         self._invalidate_cache()
+
+    def _source_identity(self) -> tuple:
+        """
+        What this DataStore reads before its lazy ops: the DataFrame of its
+        source op, or the table function or table it reads with the database
+        and connection settings it reads them through. Two DataStores whose
+        identities are equal read the same data.
+        """
+        from .lazy_ops import LazyDataFrameSource
+
+        ops = self._lazy_ops
+        if ops and isinstance(ops[0], LazyDataFrameSource):
+            return ("dataframe", _token(ops[0]))
+        table_function = self._table_function
+        if isinstance(table_function, PythonTableFunction):
+            reads = ("python", _token(table_function))
+        elif table_function is not None:
+            try:
+                reads = ("table_function", table_function.to_sql())
+            except Exception:
+                reads = ("table_function", id(table_function))
+        else:
+            reads = ("table", self.table_name)
+        settings = sorted((str(k), repr(v)) for k, v in self.connection_params.items())
+        return reads + (self.source_type, self.database, tuple(settings))
+
+    def _lineage(self) -> Tuple[tuple, tuple]:
+        """
+        ``(source identity, ops)``: the pipeline state this DataStore holds,
+        with each op as its ``_op_effect`` so a lineage names ops without
+        keeping their data alive. A frozen view keeps the state it was taken
+        at. Rewriting the ops without changing the result (executing and
+        checkpointing to a DataFrame source, turning a DataFrame source into
+        a table function) keeps the lineage of the ops it replaced.
+        """
+        if self._frozen_lineage is not None:
+            return self._frozen_lineage
+        current = tuple(_op_effect(op) for op in self._lazy_ops)
+        base = self._lineage_base
+        if base is not None:
+            identity, ops, kept, table_function = base
+            if (
+                table_function == (_token(self._table_function) if self._table_function else None)
+                and tuple(t for t, _ in current[: len(kept)]) == kept
+            ):
+                return identity, ops + current[len(kept) :]
+        return self._source_identity(), current
+
+    def _rewrite_lineage(self, lineage: Tuple[tuple, tuple]) -> None:
+        """Record that the current ops stand for ``lineage``."""
+        self._lineage_base = (
+            lineage[0],
+            lineage[1],
+            tuple(_token(op) for op in self._lazy_ops),
+            _token(self._table_function) if self._table_function else None,
+        )
+        self._frozen_memo = None
+
+    def _frozen(self) -> "DataStore":
+        """
+        This DataStore's current state as a DataStore that later in-place
+        changes to this one don't affect, as a pandas Series keeps the values
+        it was taken with. Column values (ColumnExpr, LazySeries) take it when
+        they are created and are always evaluated on it. One view is shared
+        while the state is unchanged; while this DataStore still holds the
+        state, the view runs on it, sharing its cache and checkpoints.
+        """
+        if self._frozen_lineage is not None:
+            return self
+        lineage = self._lineage()
+        memo = self._frozen_memo
+        if memo is not None and memo._frozen_lineage == lineage:
+            return memo
+        frozen = copy(self)
+        frozen._computed_columns = dict(self._computed_columns or {})
+        frozen._frozen_lineage = lineage
+        frozen._frozen_origin = weakref.ref(self)
+        self._frozen_memo = frozen
+        return frozen
+
+    def _reads_frame(self, value) -> bool:
+        """
+        Whether ``value`` can be read on this frame's rows: it is not taken
+        from a DataStore, or the state it was taken from is this frame's
+        state, or an earlier state of it whose later ops keep the columns the
+        value reads and, unless the value is row-wise (``_is_row_wise``), the
+        rows. Otherwise the value is evaluated on its own state and aligned
+        by index, as pandas assigns a Series.
+        """
+        source = getattr(value, "_datastore", None) if _is_lazy_value(value) else None
+        if not isinstance(source, DataStore):
+            return True
+        identity, frame_ops = self._lineage()
+        source_identity, ops = source._lineage()
+        if source_identity != identity:
+            return False
+        if frame_ops[: len(ops)] != ops:
+            return False
+        reads = _columns_read(value)
+        rowwise = _is_row_wise(value)
+        return all(
+            _keeps_read_columns(effect, reads, rowwise) for _, effect in frame_ops[len(ops) :]
+        )
+
+    def _null_as_nan_inputs(self, expr) -> bool:
+        """
+        Whether every column ``expr`` reads, at the current end of the
+        pipeline, is never NULL or NULL only where pandas has NaN/NaT.
+
+        Decided without executing, see ``_column_null_kinds``. Unknown columns
+        make the result False.
+        """
+        from .column_expr import ColumnExpr
+        from .conditions import Condition
+
+        if isinstance(expr, ColumnExpr):
+            expr = expr._expr
+        if not isinstance(expr, Expression) or not expr.find(Condition):
+            return True
+        return _reads_null_as_nan(expr, self._column_null_kinds())
+
+    def _column_null_kinds(self) -> Dict[str, bool]:
+        """
+        Map columns at the end of the pipeline to True when they are never
+        NULL or NULL only for NaN/NaT; columns missing from the map are
+        unknown or carry pandas NA.
+
+        Each column is followed from the source dtypes (the DataFrame's pandas
+        dtypes, or the DESCRIBE types of a SQL source) through the ops: row
+        operations keep it, a SELECT projects or computes it, and a column
+        assignment derives it from the columns its expression reads or from
+        the dtype of its value. Any other op makes every column unknown.
+        """
+        from .lazy_ops import LazyColumnAssignment, LazyDataFrameSource
+
+        ops = list(self._lazy_ops)
+        source_df = None
+        if ops and isinstance(ops[0], LazyDataFrameSource):
+            source_df = ops[0]._df
+            ops = ops[1:]
+        elif self._source_df is not None:
+            source_df = self._source_df
+        elif isinstance(self._table_function, PythonTableFunction):
+            source_df = self._table_function._df
+
+        if not all(isinstance(op, (LazyRelationalOp, LazyColumnAssignment)) for op in ops):
+            return {}
+
+        if source_df is not None:
+            kinds = {
+                str(name): _dtype_null_is_nan(dtype)
+                for name, dtype in source_df.dtypes.items()
+            }
+        else:
+            try:
+                schema = self.schema() or {}
+            except Exception:
+                return {}
+            kinds = {
+                name: _clickhouse_type_null_is_nan(ch_type)
+                for name, ch_type in schema.items()
+            }
+
+        for op in ops:
+            if isinstance(op, LazyColumnAssignment):
+                kinds[op.column] = _assigned_null_as_nan(op, kinds)
+            elif op.op_type == "SELECT" and op.fields:
+                kinds = _projected_null_kinds(op.fields, kinds)
+        return {name: kind for name, kind in kinds.items() if kind}
 
     def _get_source_df_if_pristine(self) -> "Optional[pd.DataFrame]":
         """
@@ -1252,6 +1641,15 @@ class DataStore(PandasCompatMixin):
                     if is_profiling_enabled():
                         profiler.log_report()
                     return self._cached_result
+                origin = self._frozen_origin() if self._frozen_origin else None
+                if origin is not None and origin._lineage() == self._frozen_lineage:
+                    # The DataStore this view was taken from still holds its
+                    # state: run (and cache, checkpoint) it there.
+                    result = origin._execute()
+                    self._cached_result = result
+                    self._cached_at_version = self._cache_version
+                    self._cache_timestamp = time.time()
+                    return result
 
             self._logger.debug("=" * 70)
             self._logger.debug("Starting execution (version=%d)", self._cache_version)
@@ -1334,8 +1732,12 @@ class DataStore(PandasCompatMixin):
                     needs_checkpoint = (
                         has_executed_pandas or exec_plan.sql_segment_count() > 1
                     )
+                    lineage = self._lineage()
 
-                    if needs_checkpoint:
+                    if self._frozen_lineage is not None:
+                        # A frozen view keeps its ops; its result is cached.
+                        pass
+                    elif needs_checkpoint:
                         from .lazy_ops import LazyDataFrameSource
 
                         # Replace lazy_ops with a single DataFrame source
@@ -1359,6 +1761,7 @@ class DataStore(PandasCompatMixin):
                         # source DataFrame can be garbage collected. This points
                         # to the same object as _cached_result (no extra memory).
                         self._source_df = df
+                        self._rewrite_lineage(lineage)
 
                         self._logger.debug(
                             "Pipeline checkpointed: lazy_ops replaced with DataFrame source"
@@ -1378,6 +1781,7 @@ class DataStore(PandasCompatMixin):
                             self._lazy_ops = [LazyDataFrameSource(df)]
                             self._select_fields = []
                             self._computed_columns = {}
+                            self._rewrite_lineage(lineage)
 
                         self._logger.debug("Pure SQL execution: SQL state preserved")
 
@@ -1727,7 +2131,7 @@ class DataStore(PandasCompatMixin):
         self, df: pd.DataFrame, plan: "QueryPlan"
     ) -> pd.DataFrame:
         """
-        Post-process SQL result: handle alias renames, groupby index, etc.
+        Post-process SQL result: groupby index, MultiIndex columns, etc.
 
         Args:
             df: Result DataFrame from SQL execution
@@ -1736,17 +2140,6 @@ class DataStore(PandasCompatMixin):
         Returns:
             Post-processed DataFrame
         """
-        # Rename temp aliases back to original names
-        if plan.alias_renames:
-            rename_back = {
-                temp: orig
-                for temp, orig in plan.alias_renames.items()
-                if temp in df.columns
-            }
-            if rename_back:
-                df = df.rename(columns=rename_back)
-                self._logger.debug("  Renamed temp aliases: %s", rename_back)
-
         # For GroupBy SQL pushdown: set group keys as index
         from .config import is_performance_mode
 
@@ -2994,6 +3387,14 @@ class DataStore(PandasCompatMixin):
         """
         self._logger.debug("Connecting to data source (database=%s)...", self.database)
 
+        origin = self._frozen_origin() if self._frozen_origin else None
+        if origin is not None and self._connection is None:
+            # A frozen view reads through its DataStore's connection.
+            if origin._executor is None:
+                origin.connect(test_connection)
+            self._connection, self._executor = origin._connection, origin._executor
+            return self
+
         if self._connection is None:
             # When using table functions, don't pass table function params to connection
             # Only pass database parameter
@@ -3203,13 +3604,25 @@ class DataStore(PandasCompatMixin):
             from .table_functions import PythonTableFunction
             from .lazy_ops import (
                 LazyDataFrameSource,
+                LazyGroupByAgg,
                 LazyRelationalOp,
                 LazyColumnSelection,
             )
 
-            # Use the unified column tracking method to get current columns
-            # This handles SELECT, drop, rename, and other column-changing operations
-            current_cols = self._get_current_columns()
+            # The table function stands for the DataFrame source and the ops
+            # baked into it below; the pipeline keeps their lineage.
+            lineage_identity, lineage_ops = self._lineage()
+
+            # Columns before the first aggregation: ops after it read the
+            # aggregated rows, so only the ops before it can be baked into the
+            # DataFrame below.
+            first_agg = next(
+                (i for i, op in enumerate(self._lazy_ops) if isinstance(op, LazyGroupByAgg)),
+                len(self._lazy_ops),
+            )
+            current_cols = list(self._source_df.columns)
+            for op in self._lazy_ops[:first_agg]:
+                current_cols = op.transform_columns(current_cols)
             source_cols = list(self._source_df.columns)
 
             # Check if columns have changed from the source
@@ -3277,15 +3690,18 @@ class DataStore(PandasCompatMixin):
             # - LazyColumnSelection that we've already applied
             self._lazy_ops = [
                 op
-                for op in self._lazy_ops
+                for i, op in enumerate(self._lazy_ops)
                 if not isinstance(op, LazyDataFrameSource)
                 and not (
-                    isinstance(op, LazyRelationalOp)
-                    and op.op_type == "SELECT"
+                    i < first_agg
                     and columns_changed
+                    and (
+                        isinstance(op, LazyColumnSelection)
+                        or (isinstance(op, LazyRelationalOp) and op.op_type == "SELECT")
+                    )
                 )
-                and not (isinstance(op, LazyColumnSelection) and columns_changed)
             ]
+            self._rewrite_lineage((lineage_identity, lineage_ops))
             return True
 
         return False
@@ -3586,30 +4002,15 @@ class DataStore(PandasCompatMixin):
         if build_result is None:
             return None
         sql = build_result.sql
-        alias_renames = build_result.alias_renames
 
         if self._executor is None:
             self.connect()
         self._logger.debug(
             "to_arrow native SQL: %s", sql[:2000] + "..." if len(sql) > 2000 else sql
         )
-        table = self._executor.query_arrow(sql)
-
-        # Rename temp SQL aliases (e.g. ``__agg_score__`` -> ``score``) back to
-        # their user-facing names — the same rename _execute() applies to the
-        # pandas result via _postprocess_sql_result(). Arrow has no row index, so
-        # (unlike to_df) group keys stay as regular columns.
-        if alias_renames:
-            rename_back = {
-                temp: orig
-                for temp, orig in alias_renames.items()
-                if temp in table.column_names
-            }
-            if rename_back:
-                table = table.rename_columns(
-                    [rename_back.get(c, c) for c in table.column_names]
-                )
-        return table
+        # Arrow has no row index, so (unlike to_df) group keys stay as
+        # regular columns.
+        return self._executor.query_arrow(sql)
 
     def _single_sql_query(self) -> Optional[SQLBuildResult]:
         """
@@ -3656,8 +4057,7 @@ class DataStore(PandasCompatMixin):
         It is the query ``_execute()`` runs, so every lazy op is applied in
         order. Return ``None`` when the pipeline does not run as one SQL query
         against a ClickHouse source, or when its result needs post-processing
-        (group keys moved to the index, temp aliases renamed back); callers
-        then fall back to execution.
+        (group keys moved to the index); callers then fall back to execution.
         """
         memo = self._meta_memo()
         key = ("pipeline_sql", self._cache_version)
@@ -3687,11 +4087,7 @@ class DataStore(PandasCompatMixin):
         except Exception as e:  # planning / SQL-build issue -> execution
             self._logger.debug("pipeline SQL unavailable: %s", e)
             return None
-        if (
-            build_result is None
-            or build_result.groupby_agg is not None
-            or build_result.alias_renames
-        ):
+        if build_result is None or build_result.groupby_agg is not None:
             return None
         return build_result.sql
 
@@ -6924,20 +7320,20 @@ class DataStore(PandasCompatMixin):
 
         left_sql, left_cols = left
         right_sql, right_cols = right
-        names = [name for name, _, _ in left_cols]
+        names = [name for name, _ in left_cols]
         if len(set(names)) != len(names):
             return None
-        left_types = {name: col_type for name, _, col_type in left_cols}
-        right_types = {name: col_type for name, _, col_type in right_cols}
+        left_types = dict(left_cols)
+        right_types = dict(right_cols)
         if len(right_types) != len(right_cols) or left_types != right_types:
             return None
 
         q = self.quote_char
+        out_fields = ", ".join(format_identifier(name, q) for name in names)
         # The helper aliases share each operand's SELECT scope with the
         # columns it reads and the names it outputs, so they must not equal
         # any of them.
         taken = set(names)
-        taken.update(source_name for _, source_name, _ in left_cols + right_cols)
 
         def helper_alias(base):
             alias, suffix = f"__{base}__", 1
@@ -6950,21 +7346,15 @@ class DataStore(PandasCompatMixin):
         side_alias = helper_alias("union_side")
         row_alias = helper_alias("union_row")
 
-        def operand(sql, columns, side):
-            source = {name: source_name for name, source_name, _ in columns}
-            fields = ", ".join(
-                f"{format_identifier(source[name], q)} AS {format_identifier(name, q)}"
-                for name in names
-            )
+        def operand(sql, side):
             return (
-                f"SELECT {fields}, {side} AS {side_alias}, "
+                f"SELECT {out_fields}, {side} AS {side_alias}, "
                 f"rowNumberInAllBlocks() AS {row_alias} FROM ({sql})"
             )
 
-        out_fields = ", ".join(format_identifier(name, q) for name in names)
         return (
-            f"SELECT {out_fields} FROM ({operand(left_sql, left_cols, 0)} "
-            f"UNION ALL {operand(right_sql, right_cols, 1)}) "
+            f"SELECT {out_fields} FROM ({operand(left_sql, 0)} "
+            f"UNION ALL {operand(right_sql, 1)}) "
             f"ORDER BY {side_alias}, {row_alias}"
         )
 
@@ -6972,10 +7362,9 @@ class DataStore(PandasCompatMixin):
         """
         Return ``(sql, columns)`` for using this DataStore as a union operand,
         where ``sql`` yields its complete result and ``columns`` lists
-        ``(result column name, column name in sql, type)`` in order; the type
-        ignores ``Nullable``, which UNION ALL reconciles without a type change.
-        Return ``None`` when the result needs pandas execution or
-        post-processing beyond renaming.
+        ``(column name, type)`` in order; the type ignores ``Nullable``, which
+        UNION ALL reconciles without a type change. Return ``None`` when the
+        result needs pandas execution or post-processing.
         """
         if not (self._table_function or self.table_name):
             return None
@@ -7008,12 +7397,11 @@ class DataStore(PandasCompatMixin):
         except Exception as e:  # invalid side SQL -> LazyUnion raises at execution
             self._logger.debug("union SQL operand schema unavailable: %s", e)
             return None
-        renames = build_result.alias_renames or {}
         columns = []
         for name, col_type, *_ in rows:
             if col_type.startswith("Nullable(") and col_type.endswith(")"):
                 col_type = col_type[len("Nullable("):-1]
-            columns.append((renames.get(name, name), name, col_type))
+            columns.append((name, col_type))
         return build_result.sql, columns
 
     @immutable
@@ -7040,7 +7428,13 @@ class DataStore(PandasCompatMixin):
         if is_pandas_col_expression(expr):
             expr = translate_pandas_expression(expr)
 
-        self._add_lazy_op(LazyColumnAssignment(name, expr))
+        self._add_lazy_op(
+            LazyColumnAssignment(
+                name,
+                expr,
+                reads_frame=self._reads_frame(expr),
+            )
+        )
         # Note: Don't return self - @immutable decorator will return the copy
 
     def groupby(
@@ -7384,51 +7778,26 @@ class DataStore(PandasCompatMixin):
             # Delegate to agg() for groupby + aggregate expressions
             return self.agg(**kwargs)
 
-        # Separate SQL expressions from pandas expressions (lambda, scalar, etc.)
-        sql_kwargs = {}
-        pandas_kwargs = {}
-        fallback_kwargs = {}  # pd.col fallback exprs (force LazyColumnAssignment path)
-
-        from .pandas_col_compat import PandasFallbackExpr
-
         from .case_when import CaseWhenExpr
+        from .lazy_ops import LazyAssignCallable, LazyColumnAssignment
 
-        for alias, expr in kwargs.items():
-            if isinstance(expr, PandasFallbackExpr):
-                # pd.col(...).astype/np.log/etc.: not SQL-pushable, not a
-                # scalar/lambda either. Route through LazyColumnAssignment
-                # so ExpressionEvaluator unwraps it on the live DataFrame.
-                fallback_kwargs[alias] = expr
-            elif isinstance(expr, ColumnExpr):
-                # Use canonical classification methods for clear separation
-                if expr.is_pandas_only():
-                    # Executor mode (transform), method mode without expr - must use Pandas
-                    pandas_kwargs[alias] = expr._execute()
-                elif expr.is_sql_compatible():
-                    # Has valid expression tree - can convert to SQL
-                    sql_kwargs[alias] = expr
-                else:
-                    # Fallback: execute and use result
-                    pandas_kwargs[alias] = expr._execute()
-            elif (
-                isinstance(expr, CaseWhenExpr)
-                and expr.contains_pandas_fallback()
-            ):
-                # Bare CaseWhenExpr from ``ds.when(pd.col(...).astype(...))...``
-                # — has the same SQL-serialization problem as the
-                # ColumnExpr-wrapped case above (caught via is_pandas_only).
-                # Wrap in a ColumnExpr so the planner segments it through
-                # ExpressionEvaluator, same as the ColumnExpr branch.
-                pandas_kwargs[alias] = ColumnExpr(
-                    expr=expr, datastore=self
-                )._execute()
-            elif isinstance(expr, (Function, Expression)):
-                sql_kwargs[alias] = expr
-            else:
-                # Lambda functions, scalars, Series, etc. - handle via pandas
-                pandas_kwargs[alias] = expr
+        def is_sql_value(alias, value, frame):
+            if isinstance(value, ColumnExpr):
+                if value.is_pandas_only():
+                    return False
+                # A column of a derived or unrelated DataStore (e.g.
+                # ``d.assign(z=...)['z']`` or ``d[d.a > 1]['a']``) doesn't
+                # exist on these rows, and an ancestor's column may have been
+                # overwritten since; SQL can only reference what the frame
+                # still holds.
+                if not frame._reads_frame(value):
+                    return False
+            elif not isinstance(value, Expression):
+                return False
+            return LazyColumnAssignment(
+                alias, value, null_as_nan=frame._null_as_nan_inputs(value)
+            ).can_push_to_sql()
 
-        # Start with self
         result = self
 
         # Ensure _computed_columns is a fresh copy (not shared due to shallow copy from @immutable)
@@ -7437,72 +7806,144 @@ class DataStore(PandasCompatMixin):
         else:
             result._computed_columns = result._computed_columns.copy()
 
-        # Process SQL expressions first (if any)
-        if sql_kwargs:
-            # Ensure we have a SQL source (create PythonTableFunction if needed)
-            result._ensure_sql_source()
+        # Consecutive SQL expressions become one SELECT; other values are
+        # evaluated on the DataFrame at execution time.
+        sql_kwargs = {}
+        for alias, value in kwargs.items():
+            func = deferred_func = None
+            frame = result
+            if callable(value):
+                # pandas calls each callable once, on the frame with all
+                # earlier assignments applied. Calling it on the lazy
+                # DataStore yields an expression when the result can be
+                # computed in SQL. A concrete result (array, Series, scalar)
+                # or a column of another DataStore is assigned like a value
+                # passed directly; a lazy result over this frame that SQL
+                # can't compute is evaluated by calling the function with
+                # the DataFrame at execution time, so pandas operators decide
+                # its semantics.
+                if sql_kwargs:
+                    # Preview: the pending expressions still become one SELECT.
+                    frame = copy(result)
+                    frame._computed_columns = frame._computed_columns.copy()
+                    frame = frame._assign_sql_columns(sql_kwargs)
+                    # In one SELECT, ClickHouse resolves an overwritten
+                    # column's name to its new alias, so the callable can't
+                    # share a SELECT with a pending overwrite.
+                    if set(sql_kwargs) & set(result._get_current_columns()):
+                        result, sql_kwargs = frame, {}
+                func = value
+                try:
+                    value = func(frame)
+                except Exception:
+                    # The callable needs a real DataFrame; it is called with
+                    # one at execution time.
+                    deferred_func = func
+                else:
+                    if is_pandas_col_expression(value):
+                        value = translate_pandas_expression(value)
 
-            # Get list of aliases being assigned
-            aliases_to_assign = set(sql_kwargs.keys())
+            if deferred_func is None and is_sql_value(alias, value, frame):
+                sql_kwargs[alias] = value
+                continue
+            if (
+                func is not None
+                and deferred_func is None
+                and _is_lazy_value(value)
+                and frame._reads_frame(value)
+            ):
+                deferred_func = func
 
-            # Columns after the pending lazy ops (selection, drop, rename,
-            # earlier assigns), not the source's columns
-            existing_columns = result._get_current_columns()
-            existing_columns_set = set(existing_columns)
-
-            # Check if any alias overwrites an existing column
-            columns_to_overwrite = aliases_to_assign & existing_columns_set
-
-            # New columns that don't exist yet
-            new_columns = aliases_to_assign - existing_columns_set
-
-            # Build expression map for all assigned columns first. The SELECT
-            # reads the current columns, like any later lazy op; the planner
-            # keeps it from sharing a SQL layer with an op whose column it
-            # overwrites. _computed_columns keeps the fully resolved form for
-            # consumers that expand computed columns in place (GROUP BY).
-            expr_map = {}
-            for alias, expr in sql_kwargs.items():
-                if isinstance(expr, ColumnExpr):
-                    expr = expr._expr
-                if isinstance(expr, Expression):
-                    result._computed_columns[alias] = result._resolve_expr_dependencies(
-                        expr
-                    )
-                    expr_map[alias] = expr.as_(alias)
-
-            # All values are evaluated against the frame before this call,
-            # so new columns are selected before any column is overwritten.
-            added = [alias for alias in sql_kwargs if alias in new_columns]
-            if added:
-                result = result.select("*", *[expr_map[alias] for alias in added])
-            if columns_to_overwrite:
-                # Expand '*' and replace columns in-place to preserve order
-                result = result.select(
-                    *[
-                        expr_map[col] if col in columns_to_overwrite else col
-                        for col in existing_columns + added
-                    ]
+            if sql_kwargs:
+                # A callable's result reads the previewed frame.
+                result = (
+                    frame
+                    if frame is not result
+                    else result._assign_sql_columns(sql_kwargs)
                 )
+                sql_kwargs = {}
+            if deferred_func is not None:
+                op = LazyAssignCallable(alias, deferred_func)
+            else:
+                if isinstance(value, CaseWhenExpr):
+                    # The planner segments a ColumnExpr through
+                    # ExpressionEvaluator; a bare CaseWhenExpr would be
+                    # serialized to SQL.
+                    value = ColumnExpr(expr=value, datastore=result)
+                op = LazyColumnAssignment(
+                    alias, value, reads_frame=result._reads_frame(value)
+                )
+            # Later SQL runs on the materialized DataFrame, where computed
+            # columns are real columns and must not be expanded again.
+            result._computed_columns = {}
+            result._add_lazy_op(op)
 
-        # Process pd.col fallback expressions: each as its own
-        # LazyColumnAssignment so the planner segments it correctly.
-        if fallback_kwargs:
-            from .lazy_ops import LazyColumnAssignment
+        if sql_kwargs:
+            result = result._assign_sql_columns(sql_kwargs)
 
-            for alias, expr in fallback_kwargs.items():
-                result._add_lazy_op(LazyColumnAssignment(alias, expr))
+        return result
 
-        # Process pandas expressions (if any)
-        if pandas_kwargs:
-            # Use pandas-style assignment for lambda/scalar values
-            # Need to execute SQL first to get DataFrame, then apply pandas assign
-            df = result._execute()
-            # Apply pandas assign
-            new_df = df.assign(**pandas_kwargs)
-            # Wrap back into DataStore
-            result = result._wrap_result(new_df)
+    def _assign_sql_columns(self, sql_kwargs) -> "DataStore":
+        """Assign SQL-compatible expressions, all reading the current frame."""
+        from .column_expr import ColumnExpr
+        from .lazy_ops import LazyColumnAssignment
 
+        result = self
+        # Ensure we have a SQL source (create PythonTableFunction if needed)
+        result._ensure_sql_source()
+
+        # Columns after the pending lazy ops (selection, drop, rename,
+        # earlier assigns), not the source's columns
+        existing_columns = result._get_current_columns()
+        existing_columns_set = set(existing_columns)
+        columns_to_overwrite = set(sql_kwargs) & existing_columns_set
+
+        # The SELECT reads the current columns, like any later lazy op; the
+        # planner keeps it from sharing a SQL layer with an op whose column it
+        # overwrites. _computed_columns keeps the fully resolved form for
+        # consumers that expand computed columns in place (GROUP BY).
+        expr_map = {}
+        for alias, expr in sql_kwargs.items():
+            if isinstance(expr, ColumnExpr):
+                expr = expr._expr
+            if isinstance(expr, Expression):
+                result._computed_columns[alias] = result._resolve_expr_dependencies(expr)
+                expr_map[alias] = LazyColumnAssignment(alias, expr).get_sql_expression()
+
+        # All values are evaluated against the frame before this step, so new
+        # columns are selected before any column is overwritten. In one SELECT
+        # a column's name refers to the expression that overwrites it, so an
+        # overwrite that reads another overwritten column is computed under a
+        # hidden name first, with the new columns.
+        added = [alias for alias in sql_kwargs if alias not in existing_columns_set]
+        hidden = {}
+        def reads_other_overwrite(col):
+            reads = expr_map[col].columns_read()
+            return reads is None or bool(reads & (columns_to_overwrite - {col}))
+
+        if any(reads_other_overwrite(col) for col in columns_to_overwrite):
+            taken = existing_columns_set | set(added)
+            for col in columns_to_overwrite:
+                name, suffix = f"__{col}__", 1
+                while name in taken:
+                    name, suffix = f"__{col}_{suffix}__", suffix + 1
+                taken.add(name)
+                hidden[col] = name
+        first = [expr_map[alias] for alias in added] + [
+            expr_map[col].with_attrs(alias=name) for col, name in hidden.items()
+        ]
+        if first:
+            result = result.select("*", *first)
+        if columns_to_overwrite:
+            # Expand '*' and replace columns in-place to preserve order
+            result = result.select(
+                *[
+                    (Field(hidden[col], alias=col) if col in hidden else expr_map[col])
+                    if col in columns_to_overwrite
+                    else col
+                    for col in existing_columns + added
+                ]
+            )
         return result
 
     def _is_aggregate_expr(self, expr) -> bool:
@@ -9045,6 +9486,9 @@ class DataStore(PandasCompatMixin):
         # than share/inherit the parent's answers (two children of a common
         # ancestor can otherwise collide on the same version key).
         new_ds._metadata_memo = {}
+        new_ds._frozen_lineage = None
+        new_ds._frozen_origin = None
+        new_ds._frozen_memo = None
 
         # Copy operation history
         if hasattr(self, "_operation_history"):

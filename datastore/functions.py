@@ -5,7 +5,7 @@ Function system for DataStore
 from typing import Any, Optional, Sequence
 from copy import copy
 
-from .expressions import Expression
+from .expressions import Expression, Field, SQLText
 from .utils import format_alias
 from .exceptions import ValidationError
 
@@ -260,6 +260,51 @@ class AggregateFunction(Function):
     is_aggregate = True
 
 
+class OrderByItem(Expression):
+    """An ORDER BY item of a window: an expression and its direction."""
+
+    def __init__(self, expression: Expression, descending: bool = False):
+        super().__init__()
+        self.expression = expression
+        self.descending = descending
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        direction = "DESC" if self.descending else "ASC"
+        return f"{self.expression.to_sql(quote_char=quote_char)} {direction}"
+
+
+def _over_item(item) -> Expression:
+    """
+    A PARTITION BY / ORDER BY item as an expression, so the columns a window
+    reads are part of its tree: an expression, a column expression (its
+    expression, without evaluating it), a column name ('value'), a column
+    with a direction ('value DESC'), or other SQL kept as text.
+    """
+    from .column_expr import ColumnExpr
+
+    if isinstance(item, Expression):
+        return item
+    if isinstance(item, ColumnExpr):
+        if item._exec_mode != "expr" or item._expr is None:
+            raise ValidationError(
+                "A window's PARTITION BY / ORDER BY needs a column or SQL "
+                f"expression; this column value has none: {item._exec_mode} mode"
+            )
+        return item._expr
+    if not isinstance(item, str):
+        raise ValidationError(
+            "A window's PARTITION BY / ORDER BY item must be a column name, an "
+            f"expression or a column expression, got {type(item).__name__}"
+        )
+    text = item
+    parts = text.split()
+    if len(parts) == 1:
+        return Field(parts[0])
+    if len(parts) == 2 and parts[1].upper() in ("ASC", "DESC"):
+        return OrderByItem(Field(parts[0]), descending=parts[1].upper() == "DESC")
+    return SQLText(text)
+
+
 class WindowFunction(Function):
     """
     Window function with OVER clause support.
@@ -343,16 +388,16 @@ class WindowFunction(Function):
         # Handle partition_by
         if partition_by is not None:
             if isinstance(partition_by, (list, tuple)):
-                result._partition_by = list(partition_by)
+                result._partition_by = [_over_item(i) for i in partition_by]
             else:
-                result._partition_by = [partition_by]
+                result._partition_by = [_over_item(partition_by)]
 
         # Handle order_by
         if order_by is not None:
             if isinstance(order_by, (list, tuple)):
-                result._order_by = list(order_by)
+                result._order_by = [_over_item(i) for i in order_by]
             else:
-                result._order_by = [order_by]
+                result._order_by = [_over_item(order_by)]
 
         # Handle frame
         if frame is not None:
@@ -362,20 +407,7 @@ class WindowFunction(Function):
 
     def _format_over_item(self, item, quote_char: str) -> str:
         """Format a single partition_by or order_by item."""
-        if hasattr(item, "to_sql"):
-            return item.to_sql(quote_char=quote_char)
-        # String: could be 'column' or 'column DESC'
-        item_str = str(item)
-        parts = item_str.split()
-        if len(parts) == 1:
-            # Just column name, quote it
-            return f"{quote_char}{item_str}{quote_char}"
-        elif len(parts) == 2 and parts[1].upper() in ("ASC", "DESC"):
-            # Column with direction
-            return f"{quote_char}{parts[0]}{quote_char} {parts[1].upper()}"
-        else:
-            # Complex expression, use as-is
-            return item_str
+        return item.to_sql(quote_char=quote_char)
 
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL for window function with OVER clause."""

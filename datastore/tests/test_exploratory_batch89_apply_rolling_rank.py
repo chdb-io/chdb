@@ -456,10 +456,6 @@ class TestDuplicatedOperations:
 class TestComplexChains:
     """Test complex chains combining time-series operations."""
 
-    @pytest.mark.xfail(
-        reason="chDB does not support nested window functions (e.g., shift().diff())",
-        strict=True
-    )
     def test_shift_then_diff(self):
         """Shift followed by diff - chDB nested window function limitation."""
         pd_df = pd.DataFrame({'value': [1, 2, 3, 4, 5, 6]})

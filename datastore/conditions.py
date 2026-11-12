@@ -142,7 +142,10 @@ class NullSafeCondition(Condition):
     Wrapper that applies pandas-style NULL semantics to comparisons.
 
     This wraps a BinaryCondition or CompoundCondition and generates SQL that
-    matches pandas' NULL/NaN comparison behavior using ifNull().
+    matches pandas' NULL/NaN comparison behavior using ifNull(), cast to Bool
+    so the column materializes as numpy bool rather than UInt8. Only valid when
+    a NULL input stands for NaN/NaT (pandas compares it as False); nullable
+    extension dtypes propagate NA instead.
 
     pandas follows IEEE 754:
     - =, >, >=, <, <=: comparisons with NULL return False
@@ -150,7 +153,7 @@ class NullSafeCondition(Condition):
 
     Example:
         >>> NullSafeCondition(Field('a') > Field('b'))
-        >>> # Generates: ifNull("a" > "b", 0)
+        >>> # Generates: toBool(ifNull("a" > "b", 0))
     """
 
     def __init__(self, condition: Condition, alias: Optional[str] = None):
@@ -171,9 +174,9 @@ class NullSafeCondition(Condition):
         default_value = self._get_null_default(self.condition)
 
         if default_value is not None:
-            sql = f"ifNull({inner_sql}, {default_value})"
+            sql = f"toBool(ifNull({inner_sql}, {default_value}))"
         else:
-            sql = inner_sql
+            sql = f"toBool({inner_sql})"
 
         # Add alias if present and requested
         if kwargs.get("with_alias", False) and self.alias:

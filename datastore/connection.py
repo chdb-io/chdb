@@ -15,6 +15,7 @@ All chDB execution should go through this module for:
 
 from typing import Any, Optional, Dict, List, Tuple
 import gc
+import re
 import time
 import chdb
 import pandas as pd
@@ -22,6 +23,91 @@ import numpy as np
 
 from .exceptions import ConnectionError, ExecutionError, translate_remote_error
 from .config import get_logger, get_profiler, get_chdb_settings, _freeze_chdb_settings
+
+
+def _mask_quoted(sql: str) -> str:
+    """
+    Return ``sql`` with the contents of quoted strings and identifiers
+    ('...', "...", `...`) replaced by ``_`` and comments (``--`` and ``# ``
+    to the end of the line, nested ``/* ... */``) replaced by spaces, at
+    unchanged positions, so keyword and parenthesis searches see only the
+    query structure.
+    """
+    chars = list(sql)
+    i, n = 0, len(sql)
+    while i < n:
+        char = sql[i]
+        if char in "'\"`":
+            j = i + 1
+            while j < n:
+                if sql[j] == "\\":
+                    j += 2
+                elif sql[j] == char and j + 1 < n and sql[j + 1] == char:
+                    j += 2
+                elif sql[j] == char:
+                    break
+                else:
+                    j += 1
+            for k in range(i + 1, min(j, n)):
+                chars[k] = "_"
+            i = j + 1
+        elif sql.startswith("--", i) or (char == "#" and sql[i + 1 : i + 2] in (" ", "\t", "!", "")):
+            j = sql.find("\n", i)
+            j = n if j == -1 else j
+            chars[i:j] = " " * (j - i)
+            i = j
+        elif sql.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if sql.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif sql.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            chars[i:j] = " " * (j - i)
+            i = j
+        else:
+            i += 1
+    return "".join(chars)
+
+
+def _keyword_pattern(keyword: str) -> "re.Pattern":
+    """Pattern matching ``keyword`` as a whole word in an upper-cased query."""
+    return re.compile(rf"(?<![A-Z0-9_]){keyword}(?![A-Z0-9_])")
+
+
+def _query_end(sql: str) -> int:
+    """Position after the last token of ``sql``, before trailing whitespace
+    and comments; a clause appended there is not commented out."""
+    return len(_mask_quoted(sql).rstrip())
+
+
+def _order_by_clause_end(sql: str) -> int:
+    """
+    Position where the last ORDER BY clause of ``sql`` ends: its LIMIT,
+    OFFSET, SETTINGS or ``;`` at the same nesting level, or the end of the
+    query before trailing comments. -1 if there is no ORDER BY.
+    """
+    masked = _mask_quoted(sql).upper()
+    start = masked.rfind("ORDER BY")
+    if start == -1:
+        return -1
+    depth = 0
+    for i in range(start, len(masked)):
+        char = masked[i]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif depth == 0 and (
+            char == ";"
+            or masked.startswith((" LIMIT ", " OFFSET ", " SETTINGS "), i)
+        ):
+            return i
+    return len(masked.rstrip())
 
 
 def _convert_nullable_dtypes(df: pd.DataFrame) -> pd.DataFrame:
@@ -286,7 +372,7 @@ class Connection:
             df_for_sql
         )
 
-        sql_upper = sql.upper().strip()
+        sql_upper = _mask_quoted(sql).upper().strip()
 
         # Determine how to handle row order preservation
         # _row_id is used to preserve original row order in Python() table function
@@ -471,7 +557,7 @@ class Connection:
         Order preservation only makes sense for SELECT * queries from the table,
         where we want to maintain the original DataFrame row order.
         """
-        sql_upper = sql.upper().strip()
+        sql_upper = _mask_quoted(sql).upper().strip()
 
         # Skip if query already has ORDER BY at the outer level
         if self._has_outer_order_by(sql_upper):
@@ -501,6 +587,7 @@ class Connection:
         - SELECT col1, col2 FROM table
         - SELECT col AS alias FROM table
         """
+        sql_upper = _mask_quoted(sql_upper)
         # Find SELECT ... FROM pattern
         select_pos = sql_upper.find("SELECT")
         from_pos = sql_upper.find("FROM")
@@ -522,6 +609,7 @@ class Connection:
         """
         Check if SQL has ORDER BY at the outer query level (not in subquery).
         """
+        sql_upper = _mask_quoted(sql_upper)
         # Simple approach: find ORDER BY and check if it's balanced with parentheses
         order_pos = sql_upper.rfind("ORDER BY")
         if order_pos == -1:
@@ -649,6 +737,7 @@ class Connection:
 
         Returns -1 if the clause doesn't exist or is only inside subqueries.
         """
+        sql_upper = _mask_quoted(sql_upper)
         # Find all occurrences of the clause
         search_term = f" {clause} "
         pos = 0
@@ -686,7 +775,7 @@ class Connection:
         Returns:
             Position of FROM in the SQL string, or -1 if not found.
         """
-        sql_upper = sql.upper()
+        sql_upper = _mask_quoted(sql).upper()
         pos = 0
 
         while pos < len(sql_upper):
@@ -712,18 +801,8 @@ class Connection:
                     pos = from_pos + 4
                     continue
 
-            # Check if we're inside quotes by counting quotes before this position
-            prefix = sql[:from_pos]
-            # Count unescaped double quotes
-            double_quotes = prefix.count('"')
-            single_quotes = prefix.count("'")
-
-            # If odd number of quotes, we're inside a quoted string
-            if double_quotes % 2 == 1 or single_quotes % 2 == 1:
-                pos = from_pos + 4
-                continue
-
             # Check if we're inside a subquery by counting parentheses
+            prefix = sql_upper[:from_pos]
             open_parens = prefix.count("(")
             close_parens = prefix.count(")")
 
@@ -750,20 +829,10 @@ class Connection:
             Input:  SELECT * FROM t ORDER BY name DESC
             Output: SELECT * FROM t ORDER BY name DESC, __tiebreaker__ ASC
         """
-        sql_upper = sql.upper()
-
-        # Find the last ORDER BY position (to handle subqueries)
-        order_by_pos = sql_upper.rfind("ORDER BY")
-        if order_by_pos == -1:
+        order_by_end = _order_by_clause_end(sql)
+        if order_by_end == -1:
             # No ORDER BY found, shouldn't happen but handle gracefully
             return sql
-
-        # Find where ORDER BY clause ends (LIMIT, OFFSET, or end of string)
-        order_by_end = len(sql)
-        for keyword in [" LIMIT ", " OFFSET ", ";"]:
-            pos = sql_upper.find(keyword, order_by_pos)
-            if pos != -1 and pos < order_by_end:
-                order_by_end = pos
 
         # Insert tie-breaker before the end of ORDER BY clause
         return sql[:order_by_end] + f', "{tiebreaker_col}" ASC' + sql[order_by_end:]
@@ -801,8 +870,9 @@ class Connection:
             trailing_clause = sql[clause_start:].strip()
             return f"{base_query} ORDER BY _row_id {trailing_clause}"
         else:
-            # No trailing clauses: add ORDER BY at the end
-            return f"{sql} ORDER BY _row_id"
+            # No trailing clauses: add ORDER BY after the last token
+            end = _query_end(sql)
+            return f"{sql[:end]} ORDER BY _row_id{sql[end:]}"
 
     def _append_row_id_tiebreaker(self, sql: str) -> str:
         """
@@ -816,20 +886,10 @@ class Connection:
             Input:  SELECT * FROM Python(df) ORDER BY name DESC
             Output: SELECT * FROM Python(df) ORDER BY name DESC, _row_id ASC
         """
-        sql_upper = sql.upper()
-
-        # Find the last ORDER BY position (to handle subqueries)
-        order_by_pos = sql_upper.rfind("ORDER BY")
-        if order_by_pos == -1:
+        order_by_end = _order_by_clause_end(sql)
+        if order_by_end == -1:
             # No ORDER BY found, shouldn't happen but handle gracefully
             return sql
-
-        # Find where ORDER BY clause ends (LIMIT, OFFSET, or end of string)
-        order_by_end = len(sql)
-        for keyword in [" LIMIT ", " OFFSET ", ";"]:
-            pos = sql_upper.find(keyword, order_by_pos)
-            if pos != -1 and pos < order_by_end:
-                order_by_end = pos
 
         # Insert _row_id tie-breaker before the end of ORDER BY clause
         return sql[:order_by_end] + ", _row_id ASC" + sql[order_by_end:]
@@ -866,67 +926,25 @@ class Connection:
         We need to explicitly select it at every level for it to be available
         in outer queries.
         """
-        # Find all FROM positions that are at valid SQL boundaries (not inside quoted strings)
-        # and add _row_id before each one
-        result = []
-        i = 0
-        sql_len = len(sql)
-
-        while i < sql_len:
-            # Track if we're inside a quoted string
-            if sql[i] == '"':
-                # Find closing quote
-                end = sql.find('"', i + 1)
-                if end == -1:
-                    result.append(sql[i:])
-                    break
-                result.append(sql[i : end + 1])
-                i = end + 1
+        masked = _mask_quoted(sql).upper()
+        selects = [m.start() for m in _keyword_pattern("SELECT").finditer(masked)]
+        pieces, start = [], 0
+        for match in _keyword_pattern("FROM").finditer(masked):
+            from_pos = match.start()
+            select_pos = max((p for p in selects if p < from_pos), default=-1)
+            if select_pos == -1:
                 continue
-            elif sql[i] == "'":
-                # Find closing quote
-                end = sql.find("'", i + 1)
-                if end == -1:
-                    result.append(sql[i:])
-                    break
-                result.append(sql[i : end + 1])
-                i = end + 1
+            select_list = sql[select_pos + len("SELECT") : from_pos]
+            if self._selects_row_id(select_list):
                 continue
-
-            # Check if we're at a FROM keyword (case-insensitive)
-            upper_remaining = sql[i:].upper()
-            if upper_remaining.startswith("FROM") and (
-                i == 0 or not sql[i - 1].isalnum() and sql[i - 1] != "_"
-            ):
-                # Check if FROM is followed by a non-alphanumeric character (word boundary)
-                after_from = i + 4
-                if after_from >= sql_len or (
-                    not sql[after_from].isalnum() and sql[after_from] != "_"
-                ):
-                    # This is a valid FROM keyword
-                    # Check the preceding content for _row_id
-                    preceding = "".join(result)
-
-                    # Find the last SELECT before this FROM
-                    select_pos = preceding.upper().rfind("SELECT")
-                    if select_pos != -1:
-                        # Check if _row_id is already in this SELECT clause
-                        select_clause = preceding[select_pos + len("SELECT"):]
-                        if not self._selects_row_id(select_clause):
-                            # Add _row_id before FROM
-                            # Remove trailing whitespace and add _row_id
-                            while result and result[-1].isspace():
-                                result.pop()
-                            result.append(", _row_id ")
-
-                    result.append(sql[i : i + 4])  # Add FROM
-                    i = i + 4
-                    continue
-
-            result.append(sql[i])
-            i += 1
-
-        return "".join(result)
+            # After the SELECT list's last token, before a trailing comment
+            insert_at = start + len(masked[start:from_pos].rstrip())
+            pieces.append(sql[start:insert_at])
+            pieces.append(", _row_id ")
+            pieces.append(sql[insert_at:from_pos].lstrip(" "))
+            start = from_pos
+        pieces.append(sql[start:])
+        return "".join(pieces)
 
     @staticmethod
     def _selects_row_id(select_list: str) -> bool:
@@ -935,18 +953,22 @@ class Connection:
         A ``_row_id`` read inside an item (e.g. ``OVER (ORDER BY _row_id)``)
         does not make it a column of the result.
         """
-        items, depth, start = [], 0, 0
-        for i, ch in enumerate(select_list):
+        masked = _mask_quoted(select_list)
+        spans, depth, start = [], 0, 0
+        for i, ch in enumerate(masked):
             if ch == "(":
                 depth += 1
             elif ch == ")":
                 depth -= 1
             elif ch == "," and depth == 0:
-                items.append(select_list[start:i])
+                spans.append((start, i))
                 start = i + 1
-        items.append(select_list[start:])
-        for item in items:
-            name = item.strip().split()[-1] if item.strip() else ""
+        spans.append((start, len(masked)))
+        for start, end in spans:
+            last = re.search(r"(\S+)\s*$", masked[start:end])
+            if last is None:
+                continue
+            name = select_list[start + last.start(1) : start + last.end(1)]
             if name.strip('"`').lower() == "_row_id":
                 return True
         return False

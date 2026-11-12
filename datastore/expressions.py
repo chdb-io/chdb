@@ -3,6 +3,7 @@ Expression system for DataStore - inspired by pypika but independent implementat
 """
 
 import math
+import numpy as np
 from typing import Any, Optional, Iterator, List, Type, TYPE_CHECKING
 from copy import copy
 
@@ -58,8 +59,63 @@ class Expression(Node):
     - Conditions
     """
 
+    # Attributes that refer to the context an expression was built in (e.g.
+    # its DataStore) rather than holding children of the expression.
+    _context_attributes: frozenset = frozenset()
+
     def __init__(self, alias: Optional[str] = None):
         self.alias = alias
+
+    @property
+    def is_row_wise(self) -> bool:
+        """
+        Whether each output row is computed from the same input row only: no
+        window (``OVER``) or aggregate function anywhere in the tree, and no
+        lazy value that may depend on the rows it is computed over (see
+        ``OpaqueValue``). A value that isn't row-wise depends on which rows
+        it is computed over.
+        """
+        return not any(
+            getattr(node, "is_window", False)
+            or getattr(node, "is_aggregate", False)
+            or (isinstance(node, OpaqueValue) and not node.subquery)
+            for node in self.subtree()
+        )
+
+    def subtree(self) -> Iterator["Expression"]:
+        """
+        Every node of this tree, from every attribute that holds children:
+        function arguments and keyword arguments, window specifications, CASE
+        branches, IN lists, ... (``nodes()`` doesn't descend into all of
+        them). A column expression or lazy condition contributes its
+        expression; any other lazy value is an ``OpaqueValue`` leaf.
+        """
+        seen, stack = set(), [self]
+        while stack:
+            node = stack.pop()
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            yield node
+            if isinstance(node, OpaqueValue):
+                continue
+            for name, value in vars(node).items():
+                if name not in node._context_attributes:
+                    stack.extend(_child_nodes(value))
+
+    def columns_read(self) -> Optional[set]:
+        """
+        Names of the columns this expression reads, from every node of its
+        tree (``subtree()``). ``None`` when a part can't be inspected: SQL
+        text, or a lazy value with no expression (``OpaqueValue``).
+        """
+        names = set()
+        for node in self.subtree():
+            if isinstance(node, (SQLText, OpaqueValue)):
+                return None
+            if isinstance(node, Field) and node.name not in ROW_POSITION_COLUMNS:
+                names.add(node.name)
+        return names
 
     def with_attrs(self, **attrs: Any) -> "Expression":
         """Return a shallow copy of this node with ``attrs`` replaced.
@@ -126,6 +182,11 @@ class Expression(Node):
         from .column_expr import ColumnExpr
 
         if isinstance(value, ColumnExpr):
+            if value._expr is None:
+                raise TypeError(
+                    "This column value is computed in pandas and has no SQL expression; "
+                    "it can't be part of a SQL expression"
+                )
             return value._expr
 
         return Literal(value)
@@ -623,6 +684,71 @@ class Field(Expression):
         return Field(self.name, self.table, self.alias)
 
 
+# chDB's virtual row-position column, which windows order by to keep the
+# source's row order; it is not a column of the data.
+ROW_POSITION_COLUMNS = frozenset({"_row_id"})
+
+
+def _child_nodes(value) -> Iterator[Expression]:
+    """
+    The expression nodes held in one attribute of an expression node, through
+    nested lists, tuples, sets and dicts. A column expression or lazy
+    condition contributes its expression and any other lazy value an
+    ``OpaqueValue``; plain data (literals, arrays, pandas objects) holds none.
+    """
+    from .column_expr import ColumnExpr
+    from .core import DataStore
+    from .lazy_ops import LazyOp
+    from .lazy_result import LazyCondition
+    from .pandas_col_compat import PandasFallbackExpr
+
+    if isinstance(value, Expression):
+        yield value
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            yield from _child_nodes(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _child_nodes(item)
+    elif isinstance(value, ColumnExpr) and value._exec_mode == "expr" and value._expr is not None:
+        yield value._expr
+    elif isinstance(value, LazyCondition):
+        yield from _child_nodes(value.condition)
+    elif isinstance(value, (DataStore, LazyOp, PandasFallbackExpr)) or hasattr(value, "_execute"):
+        yield OpaqueValue(value)
+
+
+class OpaqueValue(Expression):
+    """
+    A child of an expression that is not an expression: a lazy value with no
+    expression behind it (a pandas method result, a lazy Series, a pd.col
+    chain left to pandas, a lazy op) or a subquery. The columns it reads are
+    not known. Only a subquery has SQL and is row-wise (computed once for
+    every row); any other one is evaluated in pandas.
+    """
+
+    def __init__(self, value: Any):
+        from .core import DataStore
+
+        super().__init__()
+        self.value = value
+        self.subquery = isinstance(value, DataStore)
+
+    def __repr__(self):
+        return f"OpaqueValue({type(self.value).__name__})"
+
+
+class SQLText(Expression):
+    """Already-rendered SQL; the columns it reads are not known."""
+
+    def __init__(self, sql: str, alias: Optional[str] = None):
+        super().__init__(alias)
+        self.sql = sql
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        return self.sql
+
+
 class Star(Expression):
     """
     Represents * in SQL (e.g., SELECT *, COUNT(*)).
@@ -670,41 +796,56 @@ class Literal(Expression):
         if isinstance(self.value, Expression):
             return self.value.to_sql(quote_char=quote_char, **kwargs)
 
+        value = self.value
+        if isinstance(value, (np.number, np.bool_)) and not isinstance(
+            value, np.timedelta64
+        ):
+            value = value.item()
+        elif isinstance(value, np.datetime64):
+            import pandas as pd
+
+            value = None if np.isnat(value) else pd.Timestamp(value)
+
         # Convert Python value to SQL literal
-        if self.value is None:
+        if value is None:
             sql = "NULL"
-        elif isinstance(self.value, bool):
-            sql = "TRUE" if self.value else "FALSE"
-        elif isinstance(self.value, float) and math.isnan(self.value):
+        elif isinstance(value, bool):
+            sql = "TRUE" if value else "FALSE"
+        elif isinstance(value, float) and math.isnan(value):
             sql = "NULL"
-        elif isinstance(self.value, (int, float)):
-            sql = str(self.value)
-        elif isinstance(self.value, str):
+        elif isinstance(value, (int, float)):
+            sql = str(value)
+        elif isinstance(value, str):
             # Escape single quotes
-            escaped = self.value.replace("'", "''")
+            escaped = value.replace("'", "''")
             sql = f"'{escaped}'"
         else:
             # Handle special types
             import datetime
             import uuid
 
-            if isinstance(self.value, datetime.datetime):
-                # Format datetime as ISO string
-                sql = f"'{self.value.strftime('%Y-%m-%d %H:%M:%S')}'"
-                if self.value.microsecond:
-                    sql = f"'{self.value.strftime('%Y-%m-%d %H:%M:%S.%f')}'"
-            elif isinstance(self.value, datetime.date):
+            if isinstance(value, datetime.datetime):
+                # Format datetime as ISO string; pd.Timestamp also carries
+                # nanoseconds
+                text = value.strftime("%Y-%m-%d %H:%M:%S")
+                nanosecond = getattr(value, "nanosecond", 0)
+                if nanosecond:
+                    text += f".{value.microsecond:06d}{nanosecond:03d}"
+                elif value.microsecond:
+                    text += f".{value.microsecond:06d}"
+                sql = f"'{text}'"
+            elif isinstance(value, datetime.date):
                 # Format date as ISO string
-                sql = f"'{self.value.strftime('%Y-%m-%d')}'"
-            elif isinstance(self.value, datetime.time):
+                sql = f"'{value.strftime('%Y-%m-%d')}'"
+            elif isinstance(value, datetime.time):
                 # Format time as ISO string
-                sql = f"'{self.value.strftime('%H:%M:%S')}'"
-            elif isinstance(self.value, uuid.UUID):
+                sql = f"'{value.strftime('%H:%M:%S')}'"
+            elif isinstance(value, uuid.UUID):
                 # Format UUID as string
-                sql = f"'{str(self.value)}'"
+                sql = f"'{str(value)}'"
             else:
                 # Fallback: convert to string (use repr to avoid triggering __str__ side effects)
-                sql = f"'{repr(self.value)}'"
+                sql = f"'{repr(value)}'"
 
         # Add alias if present and requested
         if kwargs.get("with_alias", False) and self.alias:
@@ -901,14 +1042,31 @@ def resolve_computed_references(
     Returns:
         Expression with computed column references expanded
     """
-    from .functions import Function
+    return _resolve_computed(
+        expr, computed, set() if _visited is None else _visited, {}
+    )
 
+
+def _resolve_computed(expr, computed: dict, _visited: set, memo: dict):
+    """
+    Memoized step of :func:`resolve_computed_references`: a subexpression
+    shared by several references (e.g. ``c2 = c1 + c1``) is resolved once
+    per set of names being expanded, so a chain of computed columns is
+    resolved in linear rather than exponential time.
+    """
     if expr is None:
         return None
+    key = (id(expr), frozenset(_visited))
+    hit = memo.get(key)
+    if hit is not None and hit[0] is expr:
+        return hit[1]
+    resolved = _resolve_computed_node(expr, computed, _visited, memo)
+    memo[key] = (expr, resolved)
+    return resolved
 
-    # Initialize visited set on first call
-    if _visited is None:
-        _visited = set()
+
+def _resolve_computed_node(expr, computed: dict, _visited: set, memo: dict):
+    from .functions import Function
 
     # If it's a Field that references a computed column, expand it
     if isinstance(expr, Field):
@@ -923,8 +1081,8 @@ def resolve_computed_references(
             _visited.add(col_name)
             try:
                 # Recursively resolve the computed column's expression
-                resolved = resolve_computed_references(
-                    computed[col_name], computed, _visited
+                resolved = _resolve_computed(
+                    computed[col_name], computed, _visited, memo
                 )
                 # Preserve any alias from the original Field
                 if expr.alias:
@@ -937,8 +1095,8 @@ def resolve_computed_references(
 
     # For ArithmeticExpression, recursively resolve left and right
     if isinstance(expr, ArithmeticExpression):
-        resolved_left = resolve_computed_references(expr.left, computed, _visited)
-        resolved_right = resolve_computed_references(expr.right, computed, _visited)
+        resolved_left = _resolve_computed(expr.left, computed, _visited, memo)
+        resolved_right = _resolve_computed(expr.right, computed, _visited, memo)
         # Only create new expression if something changed
         if resolved_left is expr.left and resolved_right is expr.right:
             return expr
@@ -947,7 +1105,7 @@ def resolve_computed_references(
     # For Function, recursively resolve all arguments
     if isinstance(expr, Function):
         resolved_args = [
-            resolve_computed_references(arg, computed, _visited) for arg in expr.args
+            _resolve_computed(arg, computed, _visited, memo) for arg in expr.args
         ]
         # Only create new function if something changed
         if all(r is o for r, o in zip(resolved_args, expr.args)):
@@ -958,25 +1116,45 @@ def resolve_computed_references(
     from .conditions import BinaryCondition, CompoundCondition, NullSafeCondition
 
     if isinstance(expr, BinaryCondition):
-        resolved_left = resolve_computed_references(expr.left, computed, _visited)
-        resolved_right = resolve_computed_references(expr.right, computed, _visited)
+        resolved_left = _resolve_computed(expr.left, computed, _visited, memo)
+        resolved_right = _resolve_computed(expr.right, computed, _visited, memo)
         if resolved_left is expr.left and resolved_right is expr.right:
             return expr
         return expr.with_attrs(left=resolved_left, right=resolved_right)
 
     # For CompoundCondition (AND, OR), resolve both sides
     if isinstance(expr, CompoundCondition):
-        resolved_left = resolve_computed_references(expr.left, computed, _visited)
-        resolved_right = resolve_computed_references(expr.right, computed, _visited)
+        resolved_left = _resolve_computed(expr.left, computed, _visited, memo)
+        resolved_right = _resolve_computed(expr.right, computed, _visited, memo)
         if resolved_left is expr.left and resolved_right is expr.right:
             return expr
         return expr.with_attrs(left=resolved_left, right=resolved_right)
 
-    if isinstance(expr, NullSafeCondition):
-        resolved = resolve_computed_references(expr.condition, computed, _visited)
-        if resolved is expr.condition:
+    # Conditions wrapping one or more expressions (an IN subquery is not
+    # descended into: it has its own column scope)
+    from .conditions import (
+        BetweenCondition,
+        InCondition,
+        LikeCondition,
+        NotCondition,
+        UnaryCondition,
+    )
+
+    children = None
+    if isinstance(expr, (NotCondition, NullSafeCondition)):
+        children = ("condition",)
+    elif isinstance(expr, (UnaryCondition, InCondition, LikeCondition)):
+        children = ("expression",)
+    elif isinstance(expr, BetweenCondition):
+        children = ("expression", "lower", "upper")
+    if children:
+        resolved = {
+            name: _resolve_computed(getattr(expr, name), computed, _visited, memo)
+            for name in children
+        }
+        if all(resolved[name] is getattr(expr, name) for name in children):
             return expr
-        return expr.with_attrs(condition=resolved)
+        return expr.with_attrs(**resolved)
 
     # For Literal and other types, return as-is
     return expr
