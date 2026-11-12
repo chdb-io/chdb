@@ -24,7 +24,7 @@ from typing import Any, List, Tuple, Optional, TYPE_CHECKING, Union
 import numpy as np
 import pandas as pd
 
-from .expressions import Expression, Literal
+from .expressions import Expression, Literal, OpaqueValue
 from .conditions import Condition
 from .utils import dataframe_sql, format_identifier
 from .config import get_logger
@@ -56,6 +56,8 @@ class CaseWhenExpr(Expression):
         >>> ds['grade'] = expr
     """
 
+    _context_attributes = frozenset({"_datastore"})
+
     def __init__(
         self,
         cases: List[Tuple[Any, Any]],
@@ -72,10 +74,12 @@ class CaseWhenExpr(Expression):
             datastore: Reference to the DataStore for context
             alias: Optional output column alias
         """
+        from .column_expr import frozen_state
+
         super().__init__(alias=alias)
         self._cases = cases
         self._default = default
-        self._datastore = datastore
+        self._datastore = frozen_state(datastore)
 
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """
@@ -84,6 +88,10 @@ class CaseWhenExpr(Expression):
         Returns:
             SQL string like: CASE WHEN score >= 90 THEN 'A' WHEN score >= 80 THEN 'B' ELSE 'F' END
         """
+        if self.contains_pandas_fallback():
+            raise NotImplementedError(
+                "This CASE WHEN holds a value that is evaluated in pandas and has no SQL"
+            )
         parts = ["CASE"]
 
         for condition, value in self._cases:
@@ -147,7 +155,9 @@ class CaseWhenExpr(Expression):
 
     def contains_pandas_fallback(self) -> bool:
         """True iff any condition / replacement / default in this CASE
-        contains a :class:`PandasFallbackExpr` — meaning the expression
+        holds a value with no SQL (an ``OpaqueValue`` other than a
+        subquery: a :class:`PandasFallbackExpr`, or a lazy value such as a
+        window computed by its pandas method) — meaning the expression
         cannot be serialized to SQL and must be evaluated in pandas.
 
         Used by ``evaluate`` (force np.select) and by
@@ -155,16 +165,9 @@ class CaseWhenExpr(Expression):
         with_column() through the pandas segment, so the planner never
         tries to splice this CASE into a SELECT clause).
         """
-        from .pandas_col_compat import PandasFallbackExpr
-
-        for cond, val in self._cases:
-            if isinstance(cond, PandasFallbackExpr):
-                return True
-            if isinstance(val, PandasFallbackExpr):
-                return True
-        if isinstance(self._default, PandasFallbackExpr):
-            return True
-        return False
+        return any(
+            isinstance(node, OpaqueValue) and not node.subquery for node in self.subtree()
+        )
 
     def evaluate(self, df: pd.DataFrame) -> pd.Series:
         """

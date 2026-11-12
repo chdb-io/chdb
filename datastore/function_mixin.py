@@ -184,15 +184,22 @@ def generate_column_expr_method(spec: FunctionSpec) -> Callable:
     @wraps(builder)
     def column_expr_method(self, *args, **kwargs):
         from .column_expr import ColumnExpr
+        from .expressions import OpaqueValue, _child_nodes
 
-        if self._expr is not None:
+        pandas_only_argument = any(
+            isinstance(node, OpaqueValue) and not node.subquery
+            for node in _child_nodes((args, kwargs))
+        )
+        if self._expr is not None and not pandas_only_argument:
             # Expression mode: apply builder to expression
             result = builder(self._expr, *args, **kwargs)
             return ColumnExpr(result, self._datastore)
         else:
             # Method mode: chain as another method call on top of current source
             # This enables chaining like: ds['a'].fillna(0).abs()
-            # Where fillna returns method-mode ColumnExpr, and abs() chains on it
+            # Where fillna returns method-mode ColumnExpr, and abs() chains on it.
+            # Also when an argument is computed in pandas (e.g. a window run
+            # by its pandas method), which SQL can't reference.
             return ColumnExpr(
                 source=self,
                 method_name=f'_chain_{func_name}',  # Prefix to distinguish from pandas methods

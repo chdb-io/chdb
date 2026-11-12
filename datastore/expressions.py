@@ -59,6 +59,10 @@ class Expression(Node):
     - Conditions
     """
 
+    # Attributes that refer to the context an expression was built in (e.g.
+    # its DataStore) rather than holding children of the expression.
+    _context_attributes: frozenset = frozenset()
+
     def __init__(self, alias: Optional[str] = None):
         self.alias = alias
 
@@ -66,18 +70,25 @@ class Expression(Node):
     def is_row_wise(self) -> bool:
         """
         Whether each output row is computed from the same input row only: no
-        window (``OVER``) or aggregate function anywhere in the tree. A value
-        that isn't row-wise depends on which rows it is computed over.
+        window (``OVER``) or aggregate function anywhere in the tree, and no
+        lazy value that may depend on the rows it is computed over (see
+        ``OpaqueValue``). A value that isn't row-wise depends on which rows
+        it is computed over.
         """
         return not any(
-            getattr(node, "is_window", False) or getattr(node, "is_aggregate", False)
+            getattr(node, "is_window", False)
+            or getattr(node, "is_aggregate", False)
+            or (isinstance(node, OpaqueValue) and not node.subquery)
             for node in self.subtree()
         )
 
     def subtree(self) -> Iterator["Expression"]:
         """
-        Every expression node of this tree, including function arguments and
-        window specifications, which ``nodes()`` doesn't descend into.
+        Every node of this tree, from every attribute that holds children:
+        function arguments and keyword arguments, window specifications, CASE
+        branches, IN lists, ... (``nodes()`` doesn't descend into all of
+        them). A column expression or lazy condition contributes its
+        expression; any other lazy value is an ``OpaqueValue`` leaf.
         """
         seen, stack = set(), [self]
         while stack:
@@ -86,31 +97,24 @@ class Expression(Node):
                 continue
             seen.add(id(node))
             yield node
-            for value in vars(node).values():
-                items = value if isinstance(value, (list, tuple)) else (value,)
-                for item in items:
-                    if isinstance(item, (list, tuple)):
-                        stack.extend(i for i in item if isinstance(i, Expression))
-                    elif isinstance(item, Expression):
-                        stack.append(item)
+            if isinstance(node, OpaqueValue):
+                continue
+            for name, value in vars(node).items():
+                if name not in node._context_attributes:
+                    stack.extend(_child_nodes(value))
 
     def columns_read(self) -> Optional[set]:
         """
         Names of the columns this expression reads, from every node of its
         tree (``subtree()``). ``None`` when a part can't be inspected: SQL
-        text, or a value that isn't an expression (e.g. a nested ColumnExpr).
+        text, or a lazy value with no expression (``OpaqueValue``).
         """
         names = set()
         for node in self.subtree():
-            if isinstance(node, SQLText):
+            if isinstance(node, (SQLText, OpaqueValue)):
                 return None
             if isinstance(node, Field) and node.name not in ROW_POSITION_COLUMNS:
                 names.add(node.name)
-            for value in vars(node).values():
-                items = value if isinstance(value, (list, tuple)) else (value,)
-                for item in items:
-                    if hasattr(item, "to_sql") and not isinstance(item, Expression):
-                        return None
         return names
 
     def with_attrs(self, **attrs: Any) -> "Expression":
@@ -178,6 +182,11 @@ class Expression(Node):
         from .column_expr import ColumnExpr
 
         if isinstance(value, ColumnExpr):
+            if value._expr is None:
+                raise TypeError(
+                    "This column value is computed in pandas and has no SQL expression; "
+                    "it can't be part of a SQL expression"
+                )
             return value._expr
 
         return Literal(value)
@@ -678,6 +687,55 @@ class Field(Expression):
 # chDB's virtual row-position column, which windows order by to keep the
 # source's row order; it is not a column of the data.
 ROW_POSITION_COLUMNS = frozenset({"_row_id"})
+
+
+def _child_nodes(value) -> Iterator[Expression]:
+    """
+    The expression nodes held in one attribute of an expression node, through
+    nested lists, tuples, sets and dicts. A column expression or lazy
+    condition contributes its expression and any other lazy value an
+    ``OpaqueValue``; plain data (literals, arrays, pandas objects) holds none.
+    """
+    from .column_expr import ColumnExpr
+    from .core import DataStore
+    from .lazy_ops import LazyOp
+    from .lazy_result import LazyCondition
+    from .pandas_col_compat import PandasFallbackExpr
+
+    if isinstance(value, Expression):
+        yield value
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            yield from _child_nodes(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _child_nodes(item)
+    elif isinstance(value, ColumnExpr) and value._exec_mode == "expr" and value._expr is not None:
+        yield value._expr
+    elif isinstance(value, LazyCondition):
+        yield from _child_nodes(value.condition)
+    elif isinstance(value, (DataStore, LazyOp, PandasFallbackExpr)) or hasattr(value, "_execute"):
+        yield OpaqueValue(value)
+
+
+class OpaqueValue(Expression):
+    """
+    A child of an expression that is not an expression: a lazy value with no
+    expression behind it (a pandas method result, a lazy Series, a pd.col
+    chain left to pandas, a lazy op) or a subquery. The columns it reads are
+    not known. Only a subquery has SQL and is row-wise (computed once for
+    every row); any other one is evaluated in pandas.
+    """
+
+    def __init__(self, value: Any):
+        from .core import DataStore
+
+        super().__init__()
+        self.value = value
+        self.subquery = isinstance(value, DataStore)
+
+    def __repr__(self):
+        return f"OpaqueValue({type(self.value).__name__})"
 
 
 class SQLText(Expression):
