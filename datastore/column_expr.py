@@ -542,6 +542,28 @@ class ColumnExpr:
             result._op_func = func
         return result
 
+    def _window_inputs_match_pandas(self) -> bool:
+        """
+        Whether a SQL window function over this expression gives the pandas
+        result: the expression is row-wise (SQL can't nest a window in a
+        window), and, unless in performance mode, no column it reads can hold
+        pandas NA (see ``DataStore._column_null_kinds``). SQL windows skip NULL
+        and return a value for its row, while pandas returns NA there
+        (cumsum, shift, rank, ...). Otherwise the pandas method runs.
+        """
+        from .config import is_performance_mode
+
+        if self._expr is None or not self._expr.is_row_wise:
+            return False
+        if is_performance_mode():
+            return True
+        null_kinds = getattr(self._datastore, "_column_null_kinds", None)
+        reads = self._expr.columns_read() if self._expr is not None else None
+        if null_kinds is None or reads is None:
+            return False
+        kinds = null_kinds()
+        return all(kinds.get(name) for name in reads)
+
     def _create_window_method(
         self, method_name: str, sql_func: str, **method_kwargs
     ) -> "ColumnExpr":
@@ -593,7 +615,7 @@ class ColumnExpr:
         has_sql_source = (
             self._datastore._table_function is not None if self._datastore else False
         )
-        if not has_sql_source:
+        if not has_sql_source or not self._window_inputs_match_pandas():
             # Fall back to pandas for DataFrame-based sources
             # This avoids row order issues with Python() table function
             return ColumnExpr(
@@ -4615,6 +4637,7 @@ class ColumnExpr:
             and fill_value is None
             and self._expr is not None
             and not self._groupby_fields  # Groupby context uses different path
+            and self._window_inputs_match_pandas()
         )
 
         # Check if the column is numeric (skip SQL for string columns)
@@ -4733,8 +4756,10 @@ class ColumnExpr:
         # 1. We have a valid expression (Field) to diff
         # 2. Not in groupby context (groupby diff has special handling in _execute)
         can_use_sql = (
-            self._expr is not None and not self._groupby_fields
-        )  # Groupby context uses different path
+            self._expr is not None
+            and not self._groupby_fields  # Groupby context uses different path
+            and self._window_inputs_match_pandas()
+        )
 
         if can_use_sql:
             # Build: value - lagInFrame(toNullable(value), periods)
@@ -4884,6 +4909,7 @@ class ColumnExpr:
             and not pct
             and self._expr is not None
             and not self._groupby_fields  # Groupby context uses different path
+            and self._window_inputs_match_pandas()
         )
 
         if can_use_sql:
