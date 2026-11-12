@@ -184,8 +184,11 @@ def generate_column_expr_method(spec: FunctionSpec) -> Callable:
     @wraps(builder)
     def column_expr_method(self, *args, **kwargs):
         from .column_expr import ColumnExpr
+        from .exceptions import ImmutableError
         from .expressions import OpaqueValue, _child_nodes
 
+        if kwargs.pop("inplace", False):
+            raise ImmutableError("ColumnExpr")
         pandas_only_argument = any(
             isinstance(node, OpaqueValue) and not node.subquery
             for node in _child_nodes((args, kwargs))

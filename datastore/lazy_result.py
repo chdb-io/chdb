@@ -289,7 +289,10 @@ class LazySeries:
             **kwargs: Keyword arguments for the method
         """
         from .column_expr import frozen_state
+        from .exceptions import ImmutableError
 
+        if kwargs.get("inplace"):
+            raise ImmutableError("LazySeries")
         self._column_expr = column_expr
         self._method_name = method_name
         self._args = args

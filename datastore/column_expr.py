@@ -3458,7 +3458,7 @@ class ColumnExpr:
 
         Args:
             keep: Which duplicates to keep ('first', 'last', False to drop all).
-            inplace: Not used (always returns new Series).
+            inplace: Not supported (ColumnExpr is immutable)
             ignore_index: If True, reset index in result.
 
         Returns:
@@ -3471,6 +3471,8 @@ class ColumnExpr:
             3     Management
             Name: department, dtype: object
         """
+        if inplace:
+            raise ImmutableError("ColumnExpr")
         return ColumnExpr(
             source=self,
             method_name="drop_duplicates",
@@ -3698,7 +3700,7 @@ class ColumnExpr:
         Args:
             cond: Where True, keep the original value. Where False, replace.
             other: Replacement value where cond is False.
-            inplace: Not used (always returns new Series).
+            inplace: Not supported (ColumnExpr is immutable)
             axis: Alignment axis.
             level: Alignment level.
 
@@ -3714,6 +3716,8 @@ class ColumnExpr:
             4     0
             Name: age, dtype: int64
         """
+        if inplace:
+            raise ImmutableError("ColumnExpr")
         return ColumnExpr(
             source=self,
             method_name="where",
@@ -3735,6 +3739,8 @@ class ColumnExpr:
         Example:
             >>> ds['age'].mask(ds['age'] > 30, 0)
         """
+        if inplace:
+            raise ImmutableError("ColumnExpr")
         from .conditions import Condition
         from .expressions import Expression
 
@@ -3817,7 +3823,7 @@ class ColumnExpr:
             axis: Axis to sort.
             level: If not None, sort on values in specified index level.
             ascending: Sort ascending vs descending.
-            inplace: Not used.
+            inplace: Not supported (ColumnExpr is immutable)
             kind: Sorting algorithm.
             na_position: Where to put NaN values ('first' or 'last').
             sort_remaining: If True, sort remaining levels.
@@ -3830,6 +3836,8 @@ class ColumnExpr:
         Example:
             >>> ds['age'].sort_index(ascending=False)
         """
+        if inplace:
+            raise ImmutableError("ColumnExpr")
         return ColumnExpr(
             source=self,
             method_name="sort_index",
@@ -5548,9 +5556,12 @@ class ColumnExpr:
 
         return False
 
-    def dropna(self) -> "ColumnExpr":
+    def dropna(self, inplace=False) -> "ColumnExpr":
         """
         Return Series with missing values removed (lazy).
+
+        Args:
+            inplace: Not supported (ColumnExpr is immutable)
 
         Returns:
             ColumnExpr: Lazy wrapper returning Series with NA values removed
@@ -5558,6 +5569,8 @@ class ColumnExpr:
         Example:
             >>> ds['value'].dropna()
         """
+        if inplace:
+            raise ImmutableError("ColumnExpr")
         return ColumnExpr(source=self, method_name="dropna")
 
     def ffill(
