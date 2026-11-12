@@ -557,12 +557,12 @@ class ColumnExpr:
             return False
         if is_performance_mode():
             return True
+        from .core import _reads_null_as_nan
+
         null_kinds = getattr(self._datastore, "_column_null_kinds", None)
-        reads = self._expr.columns_read() if self._expr is not None else None
-        if null_kinds is None or reads is None:
+        if null_kinds is None:
             return False
-        kinds = null_kinds()
-        return all(kinds.get(name) for name in reads)
+        return _reads_null_as_nan(self._expr, null_kinds())
 
     def _create_window_method(
         self, method_name: str, sql_func: str, **method_kwargs
@@ -3732,9 +3732,12 @@ class ColumnExpr:
         Replace values where the condition is True (lazy).
 
         A condition expression of this state is computed in SQL, as
-        ``if(cond, other, x)``. A condition without one (a value computed in
-        pandas, such as ``s.cumsum() > 2``) or of another state is evaluated
-        on its own state and applied in pandas, as ``where()`` is.
+        ``if(ifNull(cond, 1), other, x)`` when ``other`` is a non-missing
+        scalar: NaN compares as pandas does and an NA condition is replaced
+        (performance mode keeps SQL's ``if(cond, other, x)``). Otherwise, as
+        for a condition without an expression (a value computed in pandas,
+        such as ``s.cumsum() > 2``) or of another state, pandas applies it,
+        as ``where()`` is.
 
         Example:
             >>> ds['age'].mask(ds['age'] > 30, 0)
@@ -3756,16 +3759,29 @@ class ColumnExpr:
             condition = cond
         else:
             condition = None
+        from .config import is_performance_mode
+
         if (
             condition is not None
             and not self._evaluated_in_pandas()
             and axis is None
             and level is None
-            and (other is pd.NA or pd.api.types.is_scalar(other))
+            # A missing replacement changes the dtype as pandas does (int to
+            # float64, bool to object), which pandas computes.
+            and pd.api.types.is_scalar(other)
+            and not pd.isna(other)
         ):
             from .functions import Function
+            from .lazy_ops import _null_safe_comparisons
 
-            replacement = Expression.wrap(None if other is pd.NA else other)
+            if not is_performance_mode():
+                # NaN compares as pandas does; a NULL left stands for pandas
+                # NA, which mask() replaces (SQL's if() would keep the value).
+                nan_columns = self._datastore._nan_columns(condition)
+                condition = Function(
+                    "ifNull", _null_safe_comparisons(condition, nan_columns), Literal(1)
+                )
+            replacement = Expression.wrap(other)
             return self._derive_expr(Function("if", condition, replacement, self._expr))
         return ColumnExpr(
             source=self,

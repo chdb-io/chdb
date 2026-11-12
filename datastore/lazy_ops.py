@@ -622,21 +622,28 @@ def aligned_mask(mask, df: pd.DataFrame, alignment: str):
     return mask
 
 
-def _null_safe_comparisons(cond):
-    """Copy of ``cond`` with each comparison wrapped in NullSafeCondition."""
+def _null_safe_comparisons(cond, nan_columns=None):
+    """
+    Copy of ``cond`` with each comparison wrapped in NullSafeCondition, or
+    with ``nan_columns``, each comparison that reads only those columns (a
+    NULL in any other one stands for pandas NA and stays NULL).
+    """
     from .conditions import BinaryCondition, CompoundCondition, NotCondition, NullSafeCondition
+    from .core import _reads_within
 
     if isinstance(cond, BinaryCondition):
-        return NullSafeCondition(cond)
+        if nan_columns is None or _reads_within(cond.columns_read(), nan_columns):
+            return NullSafeCondition(cond)
+        return cond
     if isinstance(cond, CompoundCondition):
         return CompoundCondition(
             cond.operator,
-            _null_safe_comparisons(cond.left),
-            _null_safe_comparisons(cond.right),
+            _null_safe_comparisons(cond.left, nan_columns),
+            _null_safe_comparisons(cond.right, nan_columns),
             cond.alias,
         )
     if isinstance(cond, NotCondition):
-        return NotCondition(_null_safe_comparisons(cond.condition), cond.alias)
+        return NotCondition(_null_safe_comparisons(cond.condition, nan_columns), cond.alias)
     return cond
 
 
@@ -2282,6 +2289,9 @@ class LazyWhere(LazyOp):
         self.other = other
         self.columns = columns
         self.alignment = alignment
+        # Columns the condition compares null-safely in SQL (set when the op
+        # is added, see DataStore._nan_columns).
+        self.nan_columns: Optional[frozenset] = None
         self._is_mask = False  # Subclass sets this to True
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:

@@ -218,11 +218,6 @@ chdb_replace_none_dtype = pytest.mark.xfail(
     strict=True,
 )
 
-chdb_mask_dtype_nullable = pytest.mark.xfail(
-    reason="chDB mask/where on int returns nullable Int64, pandas returns float64 (due to NaN) - VALUES ARE CORRECT",
-    strict=True,
-)
-
 # FIXED: assign() evaluates // and ** in pandas, like column assignment (2026-11-09)
 # chdb_floordiv_returns_float = pytest.mark.xfail(
 #     reason="chDB floor division (//) returns float64, pandas returns int64 when both operands are int - VALUES ARE CORRECT",
@@ -446,7 +441,7 @@ MARKER_REGISTRY = {
     # Dtype Differences (values correct, only dtype differs)
     "chdb_nat_returns_nullable_int": ("chdb", None, "dt accessor with NaT returns Nullable Int (values correct)"),
     "chdb_replace_none_dtype": ("chdb", None, "replace with None returns Nullable Int (values correct)"),
-    "chdb_mask_dtype_nullable": ("chdb", None, "mask/where returns Nullable Int64 (values correct)"),
+    "chdb_mask_dtype_nullable": ("fixed", None, "mask/where returns Nullable Int64 (values correct) - FIXED"),
     # =========================================================================
     # DataStore Bugs (should be fixed)
     # =========================================================================

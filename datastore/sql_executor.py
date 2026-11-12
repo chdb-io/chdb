@@ -183,6 +183,8 @@ class WhereMaskCaseExpr(Expression):
         """Generate SQL CASE WHEN expression."""
         from .column_expr import ColumnExpr
         from .conditions import Condition
+        from .config import is_performance_mode
+        from .lazy_ops import _null_safe_comparisons
 
         qc = quote_char or self.quote_char
         col_quoted = f"{qc}{self.column}{qc}"
@@ -208,6 +210,10 @@ class WhereMaskCaseExpr(Expression):
                 cond = cond._expr if hasattr(cond, "_expr") else cond
 
             if isinstance(cond, Condition):
+                if not is_performance_mode():
+                    # NaN compares as pandas does; a NULL left stands for
+                    # pandas NA, which the ELSE branch replaces as pandas does.
+                    cond = _null_safe_comparisons(cond, op.nan_columns or frozenset())
                 cond_sql = cond.to_sql(quote_char=qc)
             else:
                 raise ValueError(f"Cannot convert condition to SQL: {type(cond)}")

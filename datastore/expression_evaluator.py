@@ -1143,11 +1143,14 @@ class ExpressionEvaluator:
     def _reads_na_column(self, expr) -> bool:
         """Whether ``expr`` reads a column whose dtype represents missing
         values as ``pd.NA``."""
-        reads = expr.columns_read() or ()
-        return any(
-            name in self.df.columns and getattr(self.df[name].dtype, "na_value", None) is pd.NA
-            for name in reads
-        )
+        from .core import _may_read
+
+        na_columns = {
+            name
+            for name in self.df.columns
+            if getattr(self.df[name].dtype, "na_value", None) is pd.NA
+        }
+        return _may_read(expr.columns_read(), na_columns)
 
     def _evaluate_via_chdb(self, expr) -> pd.Series:
         """
@@ -1217,7 +1220,8 @@ class ExpressionEvaluator:
         Returns:
             True if this is a null-handling function
         """
-        null_handling_funcs = {'isnull', 'isnotnull', 'ifnull'}
+        # A conditional (if/multiIf) picks its branch for NULL itself.
+        null_handling_funcs = {'isnull', 'isnotnull', 'ifnull', 'if', 'multiif'}
         func_name = getattr(expr, 'name', '').lower()
 
         # Direct null-handling function
@@ -1283,8 +1287,14 @@ class ExpressionEvaluator:
         if isinstance(expr, Field):
             return expr.name
         elif isinstance(expr, Function):
+            args = expr.args
+            # A conditional's values, not its conditions, name the result.
+            if expr.name.lower() == "if":
+                args = args[1:]
+            elif expr.name.lower() == "multiif":
+                args = args[1::2] + args[-1:]
             # Look for Field in arguments
-            for arg in expr.args:
+            for arg in args:
                 if isinstance(arg, Field):
                     return arg.name
                 elif isinstance(arg, Expression):

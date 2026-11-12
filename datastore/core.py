@@ -197,6 +197,19 @@ def _columns_read(value) -> Optional[set]:
     return names
 
 
+def _reads_within(reads: Optional[set], names) -> bool:
+    """Whether every column in ``reads`` is one of ``names``; False when the
+    columns read are unknown (``None``)."""
+    return reads is not None and reads <= set(names)
+
+
+def _may_read(reads: Optional[set], names) -> bool:
+    """Whether ``reads`` may include one of ``names``; True when the columns
+    read are unknown (``None``)."""
+    names = set(names)
+    return bool(names) and (reads is None or bool(reads & names))
+
+
 def _keeps_read_columns(
     effect: tuple, reads: Optional[set], rowwise: bool, values_only: bool = False
 ) -> bool:
@@ -211,15 +224,13 @@ def _keeps_read_columns(
         return rowwise
     if kind == "columns":
         return values_only
-    if reads is None:
-        return False
     if kind == "assign":
-        return effect[1] not in reads
+        return not _may_read(reads, {effect[1]})
     if kind == "select":
         names, keeps_others, computed = effect[1], effect[2], effect[3]
         if keeps_others or values_only:
-            return not reads & computed
-        return reads <= names
+            return not _may_read(reads, computed)
+        return _reads_within(reads, names)
     return False
 
 
@@ -251,8 +262,7 @@ def _is_lazy_value(value) -> bool:
 def _reads_null_as_nan(expr: Expression, kinds: Dict[str, bool]) -> bool:
     """Whether every column ``expr`` reads is True in ``kinds``; False when
     the columns it reads aren't known."""
-    reads = expr.columns_read()
-    return reads is not None and all(kinds.get(name) for name in reads)
+    return _reads_within(expr.columns_read(), {name for name, kind in kinds.items() if kind})
 
 
 def _assigned_null_as_nan(op, kinds: Dict[str, bool]) -> bool:
@@ -1410,10 +1420,12 @@ class DataStore(PandasCompatMixin):
         Args:
             op: The lazy operation to add
         """
-        from .lazy_ops import LazyColumnAssignment
+        from .lazy_ops import LazyColumnAssignment, LazyWhere
 
         if isinstance(op, LazyColumnAssignment) and op.null_as_nan is None:
             op.null_as_nan = self._null_as_nan_inputs(op.expr)
+        if isinstance(op, LazyWhere) and op.nan_columns is None:
+            op.nan_columns = self._nan_columns(op.condition)
         self._lazy_ops.append(op)
         self._invalidate_cache()
 
@@ -1573,7 +1585,7 @@ class DataStore(PandasCompatMixin):
                 own_columns = set(source._get_current_columns())
             except Exception:
                 own_columns = None
-            if own_columns and not reads <= own_columns:
+            if own_columns and reads is not None and not _reads_within(reads, own_columns):
                 return None
         if later is not None and all(_keeps_rows(effect) for effect in later):
             return "position"
@@ -1613,7 +1625,7 @@ class DataStore(PandasCompatMixin):
         first, columns, known = self._columns_entering(list(self._lazy_ops) + [probe], probe)
         if first:
             return True
-        return known and reads <= set(columns)
+        return known and _reads_within(reads, columns)
 
     def _ops_after(self, state: "DataStore") -> Optional[list]:
         """
@@ -1643,6 +1655,28 @@ class DataStore(PandasCompatMixin):
         if not isinstance(expr, Expression) or not expr.find(Condition):
             return True
         return _reads_null_as_nan(expr, self._column_null_kinds())
+
+    def _nan_columns(self, mask) -> frozenset:
+        """
+        The columns, at the current end of the pipeline, that are never NULL
+        or NULL only where pandas has NaN/NaT, when the boolean ``mask`` (an
+        expression, ColumnExpr or LazyCondition) compares values; empty
+        otherwise. A where()/mask() condition computed in SQL compares these
+        null-safely (NaN compares False, != True, as in pandas); a NULL from
+        any other column stands for pandas NA, which where() and mask() both
+        replace.
+        """
+        from .column_expr import ColumnExpr
+        from .conditions import BinaryCondition
+        from .lazy_result import LazyCondition
+
+        if isinstance(mask, LazyCondition):
+            mask = mask.condition
+        elif isinstance(mask, ColumnExpr):
+            mask = mask._expr
+        if not isinstance(mask, Expression) or not mask.find(BinaryCondition):
+            return frozenset()
+        return frozenset(self._column_null_kinds())
 
     def _column_null_kinds(self) -> Dict[str, bool]:
         """
@@ -8106,8 +8140,7 @@ class DataStore(PandasCompatMixin):
         added = [alias for alias in sql_kwargs if alias not in existing_columns_set]
         hidden = {}
         def reads_other_overwrite(col):
-            reads = expr_map[col].columns_read()
-            return reads is None or bool(reads & (columns_to_overwrite - {col}))
+            return _may_read(expr_map[col].columns_read(), columns_to_overwrite - {col})
 
         if any(reads_other_overwrite(col) for col in columns_to_overwrite):
             taken = existing_columns_set | set(added)

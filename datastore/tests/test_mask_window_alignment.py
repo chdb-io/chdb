@@ -10,7 +10,8 @@ import warnings
 import pandas as pd
 import pytest
 
-from datastore import DataStore
+from datastore import DataStore, F
+from datastore.column_expr import ColumnExpr
 from tests.test_utils import assert_datastore_equals_pandas
 
 
@@ -90,3 +91,29 @@ def test_macroscope_chain():
     expected = p.sort_values("x", ascending=False).where(pd_mask, 0)
 
     assert_datastore_equals_pandas(result, expected)
+
+
+UNKNOWN_READS = {
+    "sort_filter": (lambda f, m: f.sort_values("a").filter(m), lambda f, m: f.sort_values("a")[m]),
+    "sort_getitem": (lambda f, m: f.sort_values("a")[m], lambda f, m: f.sort_values("a")[m]),
+    "sort_where": (lambda f, m: f.sort_values("a").where(m, 0), lambda f, m: f.sort_values("a").where(m, 0)),
+    "filter_mask": (lambda f, m: f[f["b"] > 10].mask(m, 0), lambda f, m: f[f["b"] > 10].mask(m, 0)),
+}
+
+
+@pytest.mark.parametrize("chain", sorted(UNKNOWN_READS))
+def test_window_mask_with_unknown_columns(chain):
+    """A window ordered by SQL text reads unknown columns; it is aligned, not inlined."""
+    pdf = pd.DataFrame({"a": [3.0, 1.0, 4.0, 2.0], "b": [10, 20, 30, 40]})
+    d = DataStore(pdf.copy())
+    window = F.row_number().over(order_by="a DESC NULLS LAST")
+    mask = ColumnExpr(expr=window > 2, datastore=d)
+    assert mask._expr.columns_read() is None
+    assert not mask._expr.is_row_wise
+
+    pd_mask = pdf["a"].rank(method="first", ascending=False) > 2
+    build_ds, build_pd = UNKNOWN_READS[chain]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        expected = build_pd(pdf, pd_mask)
+    assert_datastore_equals_pandas(build_ds(d, mask), expected)
