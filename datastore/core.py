@@ -170,7 +170,7 @@ def _columns_read(value) -> Optional[set]:
     from .lazy_result import LazyCondition, LazySeries
 
     if isinstance(value, Expression):
-        return {f.name for f in value.subtree() if isinstance(f, Field)}
+        return value.columns_read()
     if isinstance(value, LazyCondition):
         return _columns_read(value.condition)
     if isinstance(value, LazySeries):
@@ -278,8 +278,10 @@ def _is_lazy_value(value) -> bool:
 
 
 def _reads_null_as_nan(expr: Expression, kinds: Dict[str, bool]) -> bool:
-    """Whether every column ``expr`` reads is True in ``kinds``."""
-    return all(kinds.get(f.name) for f in expr.find(Field))
+    """Whether every column ``expr`` reads is True in ``kinds``; False when
+    the columns it reads aren't known."""
+    reads = expr.columns_read()
+    return reads is not None and all(kinds.get(name) for name in reads)
 
 
 def _assigned_null_as_nan(op, kinds: Dict[str, bool]) -> bool:
@@ -8054,10 +8056,11 @@ class DataStore(PandasCompatMixin):
         # hidden name first, with the new columns.
         added = [alias for alias in sql_kwargs if alias not in existing_columns_set]
         hidden = {}
-        if any(
-            {f.name for f in expr_map[col].find(Field)} & (columns_to_overwrite - {col})
-            for col in columns_to_overwrite
-        ):
+        def reads_other_overwrite(col):
+            reads = expr_map[col].columns_read()
+            return reads is None or bool(reads & (columns_to_overwrite - {col}))
+
+        if any(reads_other_overwrite(col) for col in columns_to_overwrite):
             taken = existing_columns_set | set(added)
             for col in columns_to_overwrite:
                 name, suffix = f"__{col}__", 1

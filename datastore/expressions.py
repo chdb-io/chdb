@@ -94,6 +94,25 @@ class Expression(Node):
                     elif isinstance(item, Expression):
                         stack.append(item)
 
+    def columns_read(self) -> Optional[set]:
+        """
+        Names of the columns this expression reads, from every node of its
+        tree (``subtree()``). ``None`` when a part can't be inspected: SQL
+        text, or a value that isn't an expression (e.g. a nested ColumnExpr).
+        """
+        names = set()
+        for node in self.subtree():
+            if isinstance(node, SQLText):
+                return None
+            if isinstance(node, Field):
+                names.add(node.name)
+            for value in vars(node).values():
+                items = value if isinstance(value, (list, tuple)) else (value,)
+                for item in items:
+                    if hasattr(item, "to_sql") and not isinstance(item, Expression):
+                        return None
+        return names
+
     def with_attrs(self, **attrs: Any) -> "Expression":
         """Return a shallow copy of this node with ``attrs`` replaced.
 
@@ -654,6 +673,17 @@ class Field(Expression):
 
     def __copy__(self):
         return Field(self.name, self.table, self.alias)
+
+
+class SQLText(Expression):
+    """Already-rendered SQL; the columns it reads are not known."""
+
+    def __init__(self, sql: str, alias: Optional[str] = None):
+        super().__init__(alias)
+        self.sql = sql
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        return self.sql
 
 
 class Star(Expression):
