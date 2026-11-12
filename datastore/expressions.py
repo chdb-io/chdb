@@ -104,7 +104,7 @@ class Expression(Node):
         for node in self.subtree():
             if isinstance(node, SQLText):
                 return None
-            if isinstance(node, Field):
+            if isinstance(node, Field) and node.name not in ROW_POSITION_COLUMNS:
                 names.add(node.name)
             for value in vars(node).values():
                 items = value if isinstance(value, (list, tuple)) else (value,)
@@ -673,6 +673,11 @@ class Field(Expression):
 
     def __copy__(self):
         return Field(self.name, self.table, self.alias)
+
+
+# chDB's virtual row-position column, which windows order by to keep the
+# source's row order; it is not a column of the data.
+ROW_POSITION_COLUMNS = frozenset({"_row_id"})
 
 
 class SQLText(Expression):

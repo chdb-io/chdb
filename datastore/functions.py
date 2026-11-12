@@ -276,12 +276,27 @@ class OrderByItem(Expression):
 def _over_item(item) -> Expression:
     """
     A PARTITION BY / ORDER BY item as an expression, so the columns a window
-    reads are part of its tree: a column name ('value'), a column with a
-    direction ('value DESC'), or other SQL kept as text.
+    reads are part of its tree: an expression, a column expression (its
+    expression, without evaluating it), a column name ('value'), a column
+    with a direction ('value DESC'), or other SQL kept as text.
     """
+    from .column_expr import ColumnExpr
+
     if isinstance(item, Expression):
         return item
-    text = str(item)
+    if isinstance(item, ColumnExpr):
+        if item._exec_mode != "expr" or item._expr is None:
+            raise ValidationError(
+                "A window's PARTITION BY / ORDER BY needs a column or SQL "
+                f"expression; this column value has none: {item._exec_mode} mode"
+            )
+        return item._expr
+    if not isinstance(item, str):
+        raise ValidationError(
+            "A window's PARTITION BY / ORDER BY item must be a column name, an "
+            f"expression or a column expression, got {type(item).__name__}"
+        )
+    text = item
     parts = text.split()
     if len(parts) == 1:
         return Field(parts[0])
