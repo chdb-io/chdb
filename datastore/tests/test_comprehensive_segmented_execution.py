@@ -30,7 +30,6 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import pytest
-from tests.xfail_markers import chdb_case_bool_conversion
 
 from datastore import DataStore
 from datastore.config import config
@@ -1164,17 +1163,10 @@ class TestWhereMaskKnownLimitations(unittest.TestCase):
         has_int = any(isinstance(v, int) and v is not False for v in int_values)
         self.assertTrue(has_false and has_int, "Should have mixed False and int values")
 
-    @chdb_case_bool_conversion
     def test_where_with_false_as_other_sql_execution(self):
         """
-        KNOWN LIMITATION: Using False as 'other' value causes SQL type conversion errors.
-
-        This test documents that SQL CASE WHEN fails when:
-        - 'other' is False (bool type)
-        - Columns are Int64 or String type
-
-        Expected fix: Add type compatibility check for bool 'other' with non-bool columns,
-        similar to the existing check for numeric 'other' with bool columns.
+        False as 'other' for Int64 and String columns: pandas makes them object
+        columns, so the where() runs in pandas instead of SQL CASE WHEN.
 
         Mirror Code Pattern: pandas vs DataStore comparison
         """

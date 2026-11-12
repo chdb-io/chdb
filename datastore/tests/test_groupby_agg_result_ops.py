@@ -764,10 +764,13 @@ class TestColumnOpsAfterAggregation:
         ],
     )
     def test_matches_pandas(self, source_kind, tmp_path, as_index, chain, request):
+        # pandas 2 holds the group keys as object, so mask(..., 0) changes the
+        # frame's dtypes and runs in pandas, which keeps the labels.
+        mask_in_sql = int(pd.__version__.split(".")[0]) >= 3
         reorders = any(
             name in request.node.callspec.id
-            for name in ("setitem_then_filter", "mask_then_sort", "sort_then_mask")
-        )
+            for name in ("setitem_then_filter", "sort_then_mask")
+        ) or ("mask_then_sort" in request.node.callspec.id and mask_in_sql)
         if not as_index and reorders:
             request.applymarker(
                 pytest.mark.xfail(

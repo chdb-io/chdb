@@ -23,7 +23,6 @@ import tempfile
 import numpy as np
 import pandas as pd
 import pytest
-from tests.xfail_markers import design_datetime_fillna_nat
 
 from datastore import DataStore
 
@@ -267,15 +266,10 @@ class TestDatetimeWhereMaskDesignDifference:
     """
     Test datetime column behavior in where/mask operations.
 
-    Design difference:
-    - Pandas: replaces datetime values with scalar (e.g., 0), creating object column
-    - DataStore: replaces datetime values with NaT
-
-    These tests are marked xfail because this is a known design difference
-    that is currently bypassed in the benchmark verification.
+    pandas replaces datetime values with the scalar (e.g., 0), creating an
+    object column; DataStore does the same (the where/mask runs in pandas).
     """
 
-    @design_datetime_fillna_nat
     def test_where_datetime_column_replaced_with_zero(self):
         """
         Test where() on DataFrame with datetime column - Pandas replaces with 0.
@@ -324,7 +318,6 @@ class TestDatetimeWhereMaskDesignDifference:
                         pd_result['date_col'].iloc[i] == ds_result['date_col'].iloc[i]
                     ), f"Row {i}: Pandas={pd_result['date_col'].iloc[i]}, DataStore={ds_result['date_col'].iloc[i]}"
 
-    @design_datetime_fillna_nat
     def test_mask_datetime_column_replaced_with_minus_one(self):
         """
         Test mask() on DataFrame with datetime column - Pandas replaces with -1.

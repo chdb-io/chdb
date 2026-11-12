@@ -1492,8 +1492,8 @@ class LazyGroupByAgg(LazyOp):
         for name, func, col in self.aggregate_outputs(list(source.columns)):
             if (
                 func not in ("sum", "prod", "min", "max", "first", "last")
-                or col not in source.columns
-                or name not in result.columns
+                or (source.columns == col).sum() != 1
+                or (result.columns == name).sum() != 1
                 or col in before
                 or name in after
             ):
@@ -2289,9 +2289,11 @@ class LazyWhere(LazyOp):
         self.other = other
         self.columns = columns
         self.alignment = alignment
-        # Columns the condition compares null-safely in SQL (set when the op
-        # is added, see DataStore._nan_columns).
+        # Columns the condition compares null-safely in SQL and the kinds of
+        # the frame's values (set when the op is added, see
+        # DataStore._nan_columns and DataStore._column_value_kinds).
         self.nan_columns: Optional[frozenset] = None
+        self.value_kinds: Optional[dict] = None
         self._is_mask = False  # Subclass sets this to True
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
@@ -2401,6 +2403,23 @@ class LazyWhere(LazyOp):
         # Check if other is a scalar (not DataFrame/Series)
         if isinstance(self.other, (pd.DataFrame, pd.Series)):
             return False
+
+        # A replacement of another kind than a column's values changes the
+        # column's dtype as pandas does (e.g. to object), which SQL can't;
+        # a missing one becomes NULL.
+        if not (self.other is None or (isinstance(self.other, float) and pd.isna(self.other))):
+            from .core import _sql_replacement_keeps_dtype
+
+            kinds = self.value_kinds
+            if kinds is None and getattr(self, "_datastore", None) is not None:
+                kinds = self._datastore._column_value_kinds()
+            kinds = kinds or {}
+            columns = self.columns or list(kinds)
+            if not kinds or not all(
+                _sql_replacement_keeps_dtype(kinds.get(column), self.other, variant=True)
+                for column in columns
+            ):
+                return False
 
         # Type compatibility check when schema is available
         if schema and not self._is_type_compatible_with_schema(schema):

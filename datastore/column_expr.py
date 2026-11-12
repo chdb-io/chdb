@@ -564,6 +564,13 @@ class ColumnExpr:
             return False
         return _reads_null_as_nan(self._expr, null_kinds())
 
+    def _value_kind(self) -> Optional[str]:
+        """The kind of values (see ``core._dtype_value_kind``) of a column of
+        this state; None for a computed value or an unknown column."""
+        if not isinstance(self._expr, Field) or self._datastore is None:
+            return None
+        return self._datastore._column_value_kinds().get(self._expr.name)
+
     def _create_window_method(
         self, method_name: str, sql_func: str, **method_kwargs
     ) -> "ColumnExpr":
@@ -1313,7 +1320,10 @@ class ColumnExpr:
         dropna = getattr(self, "_groupby_dropna", True)
         pandas_func = self._pandas_agg_func or self._agg_func_name
 
-        if get_execution_engine() == ExecutionEngine.PANDAS:
+        if (
+            get_execution_engine() == ExecutionEngine.PANDAS
+            or self._datastore._source_labels_repeat()
+        ):
             source = copy(self._datastore)
             source._groupby_fields = []
             grouped = source._execute().groupby(
@@ -3732,8 +3742,8 @@ class ColumnExpr:
         Replace values where the condition is True (lazy).
 
         A condition expression of this state is computed in SQL, as
-        ``if(ifNull(cond, 1), other, x)`` when ``other`` is a non-missing
-        scalar: NaN compares as pandas does and an NA condition is replaced
+        ``if(ifNull(cond, 1), other, x)`` when ``other`` keeps the column's
+        dtype: NaN compares as pandas does and an NA condition is replaced
         (performance mode keeps SQL's ``if(cond, other, x)``). Otherwise, as
         for a condition without an expression (a value computed in pandas,
         such as ``s.cumsum() > 2``) or of another state, pandas applies it,
@@ -3760,16 +3770,16 @@ class ColumnExpr:
         else:
             condition = None
         from .config import is_performance_mode
+        from .core import _sql_replacement_keeps_dtype
 
         if (
             condition is not None
             and not self._evaluated_in_pandas()
             and axis is None
             and level is None
-            # A missing replacement changes the dtype as pandas does (int to
-            # float64, bool to object), which pandas computes.
-            and pd.api.types.is_scalar(other)
-            and not pd.isna(other)
+            # pandas computes a replacement that changes the column's dtype
+            # (a missing one, or one of another kind of value)
+            and _sql_replacement_keeps_dtype(self._value_kind(), other)
         ):
             from .functions import Function
             from .lazy_ops import _null_safe_comparisons

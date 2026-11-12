@@ -87,6 +87,82 @@ def _clickhouse_type_null_is_nan(ch_type: str) -> bool:
     return inner.startswith(("Float", "String", "FixedString", "Date"))
 
 
+def _dtype_value_kind(dtype) -> Optional[str]:
+    """The kind of values ('int', 'float', 'bool' or 'str') a pandas column
+    of ``dtype`` holds, numpy or nullable; None for any other dtype (object,
+    datetime, categorical, a pd.NA string dtype, ...)."""
+    if isinstance(dtype, pd.StringDtype):
+        return "str" if _dtype_null_is_nan(dtype) else None
+    if isinstance(dtype, pd.CategoricalDtype):
+        return None
+    if pd.api.types.is_bool_dtype(dtype):
+        return "bool"
+    if pd.api.types.is_integer_dtype(dtype):
+        return "int"
+    if pd.api.types.is_float_dtype(dtype):
+        return "float"
+    return None
+
+
+def _clickhouse_type_value_kind(ch_type: str) -> Optional[str]:
+    """``_dtype_value_kind`` of the column a ClickHouse type materializes as."""
+    ch_type = ch_type.strip()
+    for wrapper in ("LowCardinality(", "Nullable(", "LowCardinality("):
+        if ch_type.startswith(wrapper) and ch_type.endswith(")"):
+            ch_type = ch_type[len(wrapper) : -1]
+    if ch_type.startswith("Float"):
+        return "float"
+    if ch_type.startswith(("Int", "UInt")):
+        return "int"
+    if ch_type == "Bool":
+        return "bool"
+    if ch_type.startswith(("String", "FixedString")):
+        return "str"
+    return None
+
+
+def _projected_value_kinds(fields, kinds: Dict[str, Optional[str]]) -> Dict[str, Optional[str]]:
+    """Value kinds (see ``_column_value_kinds``) of a SELECT field list's output."""
+    from .column_expr import ColumnExpr
+    from .expressions import is_star_item, projection_name
+
+    projected = dict(kinds) if any(is_star_item(f) for f in fields) else {}
+    for item in fields:
+        if is_star_item(item):
+            continue
+        if isinstance(item, str):
+            name = item.strip('"')
+            projected[name] = kinds.get(name)
+            continue
+        expr = item._expr if isinstance(item, ColumnExpr) else item
+        name = projection_name(expr) if isinstance(expr, Expression) else None
+        if name is not None:
+            projected[name] = kinds.get(expr.name) if isinstance(expr, Field) else None
+    return projected
+
+
+def _sql_replacement_keeps_dtype(kind: Optional[str], other, variant: bool = False) -> bool:
+    """
+    Whether SQL's if()/CASE of a column holding values of ``kind`` (see
+    ``_dtype_value_kind``) and the scalar replacement ``other`` gives what
+    pandas' where()/mask() gives: the column's dtype and ``other`` as that
+    dtype holds it. pandas turns the column into object for a replacement of
+    another kind (a str into numbers, a number into bools, ...), or into
+    float for a float into ints, which SQL's common type doesn't reproduce.
+    With ``variant``, a number into strings is kept as a number too (the
+    CASE casts both branches to a Variant, see ``WhereMaskCaseExpr``).
+    """
+    if isinstance(other, (bool, np.bool_)):
+        return kind == "bool"
+    if isinstance(other, (int, np.integer)):
+        return kind in ("int", "float") or (variant and kind == "str")
+    if isinstance(other, (float, np.floating)):
+        return not math.isnan(other) and (kind == "float" or (variant and kind == "str"))
+    if isinstance(other, str):
+        return kind == "str"
+    return False
+
+
 _PROVENANCE_TOKENS = itertools.count(1)
 
 
@@ -1426,6 +1502,7 @@ class DataStore(PandasCompatMixin):
             op.null_as_nan = self._null_as_nan_inputs(op.expr)
         if isinstance(op, LazyWhere) and op.nan_columns is None:
             op.nan_columns = self._nan_columns(op.condition)
+            op.value_kinds = self._column_value_kinds()
         self._lazy_ops.append(op)
         self._invalidate_cache()
 
@@ -1690,6 +1767,36 @@ class DataStore(PandasCompatMixin):
         assignment derives it from the columns its expression reads or from
         the dtype of its value. Any other op makes every column unknown.
         """
+        kinds = self._column_traits(
+            _dtype_null_is_nan,
+            _clickhouse_type_null_is_nan,
+            _assigned_null_as_nan,
+            _projected_null_kinds,
+        )
+        return {name: kind for name, kind in kinds.items() if kind}
+
+    def _column_value_kinds(self) -> Dict[str, Optional[str]]:
+        """
+        Map every column at the end of the pipeline to the kind of values it
+        holds (see ``_dtype_value_kind``), None when it isn't known; empty
+        when the columns can't be followed. Followed like
+        ``_column_null_kinds``; an assigned column is unknown.
+        """
+        return self._column_traits(
+            _dtype_value_kind,
+            _clickhouse_type_value_kind,
+            lambda op, kinds: None,
+            _projected_value_kinds,
+        )
+
+    def _column_traits(self, of_dtype, of_clickhouse_type, of_assignment, of_projection) -> dict:
+        """
+        A property of each column at the end of the pipeline, followed from
+        the source's dtypes (``of_dtype``) or DESCRIBE types
+        (``of_clickhouse_type``) through row operations (kept), SELECTs
+        (``of_projection``) and column assignments (``of_assignment``); empty
+        when another op makes the columns unknown.
+        """
         from .lazy_ops import LazyColumnAssignment, LazyDataFrameSource
 
         ops = list(self._lazy_ops)
@@ -1706,26 +1813,22 @@ class DataStore(PandasCompatMixin):
             return {}
 
         if source_df is not None:
-            kinds = {
-                str(name): _dtype_null_is_nan(dtype)
-                for name, dtype in source_df.dtypes.items()
-            }
+            if not source_df.columns.is_unique:
+                return {}
+            kinds = {str(name): of_dtype(dtype) for name, dtype in source_df.dtypes.items()}
         else:
             try:
                 schema = self.schema() or {}
             except Exception:
                 return {}
-            kinds = {
-                name: _clickhouse_type_null_is_nan(ch_type)
-                for name, ch_type in schema.items()
-            }
+            kinds = {name: of_clickhouse_type(ch_type) for name, ch_type in schema.items()}
 
         for op in ops:
             if isinstance(op, LazyColumnAssignment):
-                kinds[op.column] = _assigned_null_as_nan(op, kinds)
+                kinds[op.column] = of_assignment(op, kinds)
             elif op.op_type == "SELECT" and op.fields:
-                kinds = _projected_null_kinds(op.fields, kinds)
-        return {name: kind for name, kind in kinds.items() if kind}
+                kinds = of_projection(op.fields, kinds)
+        return kinds
 
     def _get_source_df_if_pristine(self) -> "Optional[pd.DataFrame]":
         """
@@ -2014,6 +2117,18 @@ class DataStore(PandasCompatMixin):
                         df = df.set_index(index_name)
 
         return df
+
+    def _source_labels_repeat(self) -> bool:
+        """Whether this DataStore reads a DataFrame whose column labels
+        repeat, which chDB can't read."""
+        from .lazy_ops import LazyDataFrameSource
+
+        source_df = self._source_df
+        if self._lazy_ops and isinstance(self._lazy_ops[0], LazyDataFrameSource):
+            source_df = self._lazy_ops[0]._df
+        elif source_df is None and isinstance(self._table_function, PythonTableFunction):
+            source_df = self._table_function._df
+        return source_df is not None and not source_df.columns.is_unique
 
     def _execute_sql_segment(
         self,
