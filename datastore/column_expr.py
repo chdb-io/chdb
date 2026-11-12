@@ -5206,7 +5206,7 @@ class ColumnExpr:
             >>> ds['score'].rank(method='dense', ascending=False)
             >>> ds['score'].rank(method='first')  # Uses SQL ROW_NUMBER() with _row_id tiebreaker
         """
-        from .functions import WindowFunction, Function
+        from .functions import OrderByItem, WindowFunction, Function
 
         # Mapping from pandas method to SQL window function
         SQL_RANK_METHODS = {
@@ -5239,12 +5239,7 @@ class ColumnExpr:
             order_by_items = []
 
             if not ascending:
-                # For descending, append DESC to the order
-                if isinstance(order_by_expr, Field):
-                    order_by_items.append(f"{order_by_expr.name} DESC")
-                else:
-                    # For complex expressions, convert to SQL and append DESC
-                    order_by_items.append(f"{order_by_expr.to_sql()} DESC")
+                order_by_items.append(OrderByItem(order_by_expr, descending=True))
             else:
                 order_by_items.append(order_by_expr)
 

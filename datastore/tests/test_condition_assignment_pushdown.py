@@ -24,7 +24,7 @@ from datastore.config import (
     set_compat_mode,
     set_execution_engine,
 )
-from tests.test_utils import assert_frame_equal, get_dataframe
+from tests.test_utils import assert_frame_equal, assert_series_equal, get_dataframe, get_series
 
 
 @pytest.fixture
@@ -313,3 +313,32 @@ class TestQuotedColumnNames:
             return d
 
         assert_frame_equal(get_dataframe(chain(DataStore(data))), chain(pd.DataFrame(data)))
+
+
+class TestNullableInputUnderAFunction:
+    """A function over a nullable column keeps pandas' NA semantics."""
+
+    @pytest.mark.parametrize("how", ENTRY_POINTS)
+    def test_comparison_of_function_result(self, how):
+        data = {"n": pd.array([1, None, -3, 4], dtype="Int64")}
+
+        def cond(d):
+            return d["n"].abs() > 2
+
+        assert_frame_equal(
+            get_dataframe(_assign(DataStore(data), how, cond)), _assign(pd.DataFrame(data), how, cond)
+        )
+
+    def test_function_result_keeps_na(self):
+        data = {"n": pd.array([1, None, -3, 4], dtype="Int64")}
+        assert_series_equal(get_series(DataStore(data)["n"].abs()), pd.DataFrame(data)["n"].abs())
+
+    @pytest.mark.parametrize("how", ENTRY_POINTS)
+    def test_nullable_sql_column_under_a_function_runs_in_pandas(self, nullable_parquet, how):
+        def cond(d):
+            return d["n"].abs() > 2
+
+        ds_result = _assign(DataStore.from_file(nullable_parquet), how, cond)
+        assert "toBool(" not in ds_result.to_sql(execution_format=True)
+        pd_result = _assign(pd.read_parquet(nullable_parquet), how, cond)
+        assert_frame_equal(get_dataframe(ds_result), pd_result)
