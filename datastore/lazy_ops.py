@@ -2602,14 +2602,16 @@ class LazyJoin(LazyOp):
         Args:
             right: Right DataFrame or DataStore to join with (lazy - executed when needed)
             on: Column name(s) to join on
-            how: Join type ('inner', 'left', 'right', 'outer')
+            how: Join type, as ``JoinType.parse()`` accepts it
             left_on: Column name in left DataFrame
             right_on: Column name in right DataFrame
         """
+        from .enums import JoinType
+
         super().__init__()
         self.right = right  # Can be DataFrame or DataStore
         self.on = on
-        self.how = how
+        self.how = JoinType.parse(how).pandas_how
         self.left_on = left_on
         self.right_on = right_on
 

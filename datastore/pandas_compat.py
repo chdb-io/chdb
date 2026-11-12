@@ -1657,7 +1657,10 @@ class PandasCompatMixin:
         and no advanced pandas-only features are needed. Falls back to
         pandas merge otherwise.
         """
+        from .enums import JoinType
+
         DataStore = type(self)
+        join_type = JoinType.parse(how)
 
         # Try lazy SQL JOIN path when both sides are DataStores with SQL sources
         # and no pandas-only merge features are used
@@ -1701,7 +1704,7 @@ class PandasCompatMixin:
 
         if can_use_sql_join:
             try:
-                return self.join(right, on=on, how=how,
+                return self.join(right, on=on, how=join_type,
                                  left_on=left_on, right_on=right_on)
             except Exception:
                 pass  # Fall back to pandas merge
@@ -1712,7 +1715,7 @@ class PandasCompatMixin:
         return self._wrap_result(
             self._get_df().merge(
                 right,
-                how=how,
+                how=join_type.pandas_how,
                 on=on,
                 left_on=left_on,
                 right_on=right_on,

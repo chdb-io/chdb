@@ -7246,7 +7246,9 @@ class DataStore(PandasCompatMixin):
                 - Condition object (e.g., ds1.id == ds2.user_id) -> generates ON clause
                 - str (e.g., "user_id") -> generates USING (user_id) clause
                 - list of str (e.g., ["user_id", "country"]) -> generates USING (user_id, country)
-            how: Join type ('inner', 'left', 'right', 'outer', 'cross')
+            how: Join type, a JoinType or a spelling ``JoinType.parse()``
+                accepts ('inner', 'left', 'right', 'outer' or 'full', 'cross',
+                'left_anti', 'right_anti'); a cross join takes no keys
             left_on: Column name from left table (alternative to on)
             right_on: Column name from right table (alternative to on)
 
@@ -7259,20 +7261,7 @@ class DataStore(PandasCompatMixin):
         from .enums import JoinType
         from .lazy_ops import LazyJoin
 
-        # Convert how string to JoinType
-        join_type_map = {
-            "inner": JoinType.inner,
-            "left": JoinType.left,
-            "right": JoinType.right,
-            "outer": JoinType.outer,
-            "full": JoinType.full_outer,
-            "cross": JoinType.cross,
-        }
-
-        if how.lower() not in join_type_map:
-            raise QueryError(f"Invalid join type: {how}")
-
-        join_type = join_type_map[how.lower()]
+        join_type = JoinType.parse(how)
 
         # Determine join column(s) for pandas merge
         pandas_on = None
@@ -7280,7 +7269,11 @@ class DataStore(PandasCompatMixin):
         pandas_right_on = right_on
 
         # Build join condition
-        if on is not None:
+        if join_type is JoinType.cross:
+            if on is not None or left_on is not None or right_on is not None:
+                raise QueryError("A cross join takes no join keys")
+            join_condition = None
+        elif on is not None:
             if isinstance(on, str):
                 # String -> USING (column) syntax for SQL, on= for pandas
                 join_condition = ("USING", [on])
@@ -7315,25 +7308,27 @@ class DataStore(PandasCompatMixin):
         has_sql_source = bool(self._table_function or self.table_name)
         other_has_sql_source = bool(other._table_function or other.table_name)
         # The right side joins with all its lazy ops, as they are now
-        both_sql = has_sql_source and other_has_sql_source
+        both_sql = has_sql_source and other_has_sql_source and join_type.runs_in_sql
         right = other._join_operand() if both_sql else None
 
         if right is not None:
             # Both sides have SQL sources - use SQL JOIN only
             self._joins.append((right, join_type, join_condition))
-        elif both_sql and not (pandas_on or (pandas_left_on and pandas_right_on)):
+        elif join_condition is not None and not (
+            pandas_on or (pandas_left_on and pandas_right_on)
+        ):
             raise QueryError(
-                "join() on a condition needs the right DataStore to run as one "
-                "SQL query; join on column names instead"
+                "join() on a condition needs both DataStores to run as one SQL "
+                f"query with a {join_type.pandas_how} join; join on column names "
+                "instead"
             )
         else:
-            # At least one side is DataFrame-only - use LazyJoin for pandas
-            # merge, with the right side as it is now
+            # pandas merge, with the right side as it is now
             self._add_lazy_op(
                 LazyJoin(
                     right=_operand_state(other),
                     on=pandas_on,
-                    how=how.lower(),
+                    how=join_type,
                     left_on=pandas_left_on,
                     right_on=pandas_right_on,
                 )
