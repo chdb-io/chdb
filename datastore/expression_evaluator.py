@@ -348,9 +348,15 @@ class ExpressionEvaluator:
                 # Pandas-only or explicitly configured for Pandas
                 self._logger.debug("[ExprEval] Function '%s' -> Pandas (config)", func_name)
                 return self._evaluate_function_via_pandas(expr)
-            elif function_config.has_pandas_implementation(func_name) and self._reads_na_column(expr):
+            elif (
+                function_config.has_pandas_implementation(func_name)
+                and expr.is_row_wise
+                and self._reads_na_column(expr)
+            ):
                 # pandas keeps NA in nullable extension dtypes (Int64, boolean,
-                # ...); a chDB result comes back with NaN in their place
+                # ...); a chDB result comes back with NaN in their place. Only an
+                # elementwise function: the pandas implementations of window and
+                # aggregate functions don't apply their OVER clause or grouping.
                 self._logger.debug("[ExprEval] Function '%s' -> Pandas (NA input)", func_name)
                 return self._evaluate_function_via_pandas(expr)
             elif function_config.has_pandas_implementation(func_name):
