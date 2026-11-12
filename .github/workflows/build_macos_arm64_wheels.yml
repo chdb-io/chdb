@@ -165,7 +165,7 @@ jobs:
           pyenv shell "$PYTHON_VERSION"
           python -m pip install dist/*.whl --force-reinstall
           python -m pip install pytest
-          python -m pytest tests/test_import_cwd.py -v --tb=short
+          python -m pytest tests/test_import_cwd.py tests/test_exit_open_connection.py -v --tb=short
         continue-on-error: false
       - name: Test chdb.durable (Durable V1 conformance)
         run: |
