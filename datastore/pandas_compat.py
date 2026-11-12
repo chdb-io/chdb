@@ -240,6 +240,30 @@ class DataStoreLocIndexer:
         elif callable(key):
             key = key(self._datastore)
 
+        # loc[:, columns] is a plain column selection, same as ds[columns]
+        if (
+            isinstance(key, tuple)
+            and len(key) == 2
+            and isinstance(key[0], slice)
+            and key[0] == slice(None)
+        ):
+            col_key = key[1]
+            if isinstance(col_key, pd.Index):
+                col_key = col_key.tolist()
+            if isinstance(col_key, str):
+                return self._datastore[col_key]
+            # Boolean masks select columns here but rows in ds[...], and
+            # ds[...] renames duplicate labels, so those stay on pandas.
+            if (
+                isinstance(col_key, list)
+                and all(
+                    isinstance(col, str) or (isinstance(col, int) and not isinstance(col, bool))
+                    for col in col_key
+                )
+                and len(set(col_key)) == len(col_key)
+            ):
+                return self._datastore[col_key]
+
         # Check for loc[condition, columns] pattern that can be pushed to SQL
         if isinstance(key, tuple) and len(key) == 2:
             row_key, col_key = key
