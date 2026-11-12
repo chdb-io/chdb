@@ -16,9 +16,9 @@ from typing import Any, Optional, TYPE_CHECKING, Iterator, List
 
 import pandas as pd
 
-from .expressions import Expression, Field, ArithmeticExpression, Literal, Node
+from .expressions import Expression, Field, ArithmeticExpression, Literal, Node, RowPosition
 from .lazy_result import LazySeries, LazyCondition
-from .utils import immutable
+from .utils import dataframe_sql, immutable
 from .exceptions import ImmutableError
 
 
@@ -632,8 +632,8 @@ class ColumnExpr:
             else:
                 partition_by.append(str(gf))
 
-        # Create SQL window function with ORDER BY rowNumberInAllBlocks() to preserve row order
-        # Format: SUM(col) OVER (PARTITION BY groupby_col ORDER BY rowNumberInAllBlocks() ROWS UNBOUNDED PRECEDING)
+        # Create SQL window function ordered by the rows' source positions to preserve row order
+        # Format: SUM(col) OVER (PARTITION BY groupby_col ORDER BY <position> ROWS UNBOUNDED PRECEDING)
         # The ORDER BY ensures cumulative operations follow the original row order within each group
         # In performance mode, skip ORDER BY for throughput (undefined order within partition)
         from .config import is_performance_mode
@@ -644,10 +644,9 @@ class ColumnExpr:
                 frame="ROWS UNBOUNDED PRECEDING",
             )
         else:
-            row_num_func = Function("rowNumberInAllBlocks")
             window_func = WindowFunction(sql_func, col_field).over(
                 partition_by=partition_by,
-                order_by=[row_num_func],
+                order_by=[RowPosition()],
                 frame="ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
             )
 
@@ -1513,8 +1512,7 @@ class ColumnExpr:
         from .executor import get_executor
 
         executor = get_executor()
-        sql_expr = self._expr.to_sql(quote_char='"')
-        return executor.execute_expression(sql_expr, df)
+        return executor.execute_expression(dataframe_sql(self._expr), df)
 
     def _get_column_name(self) -> str:
         """Get the column name for this expression."""
@@ -4927,15 +4925,13 @@ class ColumnExpr:
             else:
                 order_by_items.append(order_by_expr)
 
-            # For method='first', add rowNumberInAllBlocks() as tiebreaker
-            # to preserve original row order for ties (pandas behavior).
-            # Note: connection.py automatically replaces rowNumberInAllBlocks()
-            # with _row_id for Python() table function (chDB v4.0.0b5+)
+            # For method='first', break ties by source position to preserve
+            # original row order (pandas behavior).
             # In performance mode, skip tiebreaker for throughput
             from .config import is_performance_mode
 
             if method == "first" and not is_performance_mode():
-                order_by_items.append(Function("rowNumberInAllBlocks"))
+                order_by_items.append(RowPosition())
 
             # Create the window function
             window_func = WindowFunction(sql_func_name).over(order_by=order_by_items)
@@ -6059,8 +6055,7 @@ class ColumnExprStringAccessor:
         # Use executor.execute_expression which preserves row order
         # using _row_id virtual column and ORDER BY clause
         executor = get_executor()
-        sql_expr = col_expr.to_sql(quote_char='"')
-        return executor.execute_expression(sql_expr, df)
+        return executor.execute_expression(dataframe_sql(col_expr), df)
 
     def cat(self, others=None, sep=None, na_rep=None, join="left"):
         """

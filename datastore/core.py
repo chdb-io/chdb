@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .case_when import CaseWhenBuilder
     from .query_planner import ExecutionSegment, QueryPlan
 
-from .expressions import Field, Expression, Literal, Star, bind_projection_item, projection_name
+from .expressions import Field, Expression, Literal, RowPosition, Star, bind_projection_item, projection_name
 from .conditions import Condition
 from .utils import (
     immutable,
@@ -27,6 +27,9 @@ from .utils import (
     format_identifier,
     normalize_ascending,
     map_agg_func,
+    row_position_scope,
+    DEFAULT_ROW_POSITION,
+    compose_slice,
 )
 from .exceptions import (
     QueryError,
@@ -238,6 +241,35 @@ def _is_row_wise(value) -> bool:
             return False
         value = value._expr
     return isinstance(value, Expression) and value.is_row_wise
+
+
+def _operand_state(other):
+    """
+    The other operand of a join or union run in pandas, as it is now: a
+    DataStore's frozen view (later in-place changes to the DataStore don't
+    reach the result), or the given DataFrame.
+    """
+    return other._frozen() if isinstance(other, DataStore) else other
+
+
+def _label_source_rows(df: pd.DataFrame, build_result) -> pd.DataFrame:
+    """
+    Label the rows of ``df``, the result of ``build_result``'s SQL, with
+    their source positions, as pandas labels the rows it reads from a file
+    (see ``SQLExecutionEngine.build_sql_from_plan``).
+    """
+    column = build_result.row_label_column
+    if column is not None and column in df.columns:
+        labels = df[column].to_numpy(dtype=np.int64)
+        df = df.drop(columns=[column])
+        df.index = pd.Index(labels)
+        if not build_result.rows_sorted and not df.index.is_monotonic_increasing:
+            # Unsorted rows are in source order
+            df = df.sort_index(kind="stable")
+    elif build_result.row_label_start:
+        start = build_result.row_label_start
+        df.index = pd.RangeIndex(start, start + len(df))
+    return df
 
 
 def _is_lazy_value(value) -> bool:
@@ -2020,7 +2052,7 @@ class DataStore(PandasCompatMixin):
                 plan = QueryPlan(has_sql_source=True)
                 plan.sql_ops = segment.ops.copy()
 
-            sql_engine = SQLExecutionEngine(self)
+            sql_engine = SQLExecutionEngine(self, row_labels=True)
             build_result = sql_engine.build_sql_from_plan(
                 plan, schema, for_execution=True
             )
@@ -2082,7 +2114,7 @@ class DataStore(PandasCompatMixin):
                     result = self._executor.execute(sql)
 
                 with profiler.step("Result to DataFrame"):
-                    df = result.to_df()
+                    df = _label_source_rows(result.to_df(), build_result)
                     df = self._postprocess_sql_result(df, plan)
 
             self._logger.debug("  SQL returned DataFrame with shape: %s", df.shape)
@@ -2095,7 +2127,7 @@ class DataStore(PandasCompatMixin):
                     self.connect()
                 # Load raw data without any filters
                 if self._table_function:
-                    table_sql = self._table_function.to_sql()
+                    table_sql = self._source_read_sql()
                 else:
                     table_sql = f"{self.quote_char}{self.table_name}{self.quote_char}"
                 load_sql = f"SELECT * FROM {table_sql}"
@@ -2151,7 +2183,11 @@ class DataStore(PandasCompatMixin):
                 self.connect()
             # Load raw data - include JOINs if present
             if self._table_function:
-                table_sql = self._table_function.to_sql()
+                table_sql = (
+                    self._table_function.to_sql()
+                    if self._joins
+                    else self._source_read_sql()
+                )
             else:
                 table_sql = f"{self.quote_char}{self.table_name}{self.quote_char}"
 
@@ -2202,6 +2238,17 @@ class DataStore(PandasCompatMixin):
                 df = op.execute(df, self)
 
         return df
+
+    def _source_read_sql(self) -> str:
+        """
+        SQL reading this DataStore's table function for a raw load: a file
+        in file order (``TableFunction.ordered_source``), as pandas reads it.
+        """
+        from .config import is_performance_mode
+
+        if getattr(self._table_function, "reads_files", False) and not is_performance_mode():
+            return self._table_function.ordered_source()
+        return self._table_function.to_sql()
 
     def _postprocess_sql_result(
         self, df: pd.DataFrame, plan: "QueryPlan"
@@ -2391,6 +2438,15 @@ class DataStore(PandasCompatMixin):
             columns = op.transform_columns(columns)
         return False, columns, known
 
+    def _has_pending_write(self) -> bool:
+        """
+        Whether this DataStore is a write statement (INSERT, UPDATE or
+        DELETE) that ``execute()`` runs. Shortcuts that read the pipeline's
+        rows (labelled queries, Arrow, operands, probes) must not stand in
+        for it.
+        """
+        return bool(self._delete_flag or self._update_fields or self._insert_columns)
+
     def _runs_as_one_query(self) -> bool:
         """
         Whether ``to_sql()`` is the whole pipeline: a write statement, no
@@ -2399,7 +2455,7 @@ class DataStore(PandasCompatMixin):
         the pipeline reads a DataFrame or continues in pandas after its
         first SQL step.
         """
-        if self._delete_flag or self._update_fields or self._insert_columns:
+        if self._has_pending_write():
             return True
         if not self._lazy_ops:
             return True
@@ -2413,267 +2469,6 @@ class DataStore(PandasCompatMixin):
             and segments[0].is_sql()
             and segments[0].plan is not None
         )
-
-    def _get_table_source(self) -> str:
-        """Get the table source for SQL generation."""
-        if self._table_function:
-            return self._table_function.to_sql()
-        elif self.table_name:
-            return format_identifier(self.table_name, self.quote_char)
-        return ""
-
-    def _build_sql_from_state(
-        self,
-        select_fields,
-        where_conditions,
-        orderby_fields,
-        limit_value,
-        offset_value,
-        joins=None,
-        distinct=False,
-        groupby_fields=None,
-        having_condition=None,
-    ):
-        """Build SQL query from given state (not from instance variables)."""
-        from .utils import build_orderby_clause, is_stable_sort
-
-        # Check if we need a subquery for stable sort with WHERE
-        # When both WHERE and stable ORDER BY exist, rowNumberInAllBlocks() would give
-        # post-filter row numbers, not original row numbers. We need a subquery to preserve
-        # the original row order.
-        needs_stable_sort = orderby_fields and is_stable_sort(self._orderby_kind)
-        needs_subquery_for_stable = (
-            needs_stable_sort and where_conditions and not groupby_fields and not joins
-        )
-
-        if needs_subquery_for_stable:
-            return self._build_sql_with_stable_sort_subquery(
-                select_fields,
-                where_conditions,
-                orderby_fields,
-                limit_value,
-                offset_value,
-                distinct,
-            )
-
-        parts = []
-
-        # SELECT (with optional DISTINCT)
-        distinct_keyword = "DISTINCT " if distinct else ""
-        if select_fields:
-            fields_sql = ", ".join(
-                f.to_sql(quote_char=self.quote_char, with_alias=True)
-                for f in select_fields
-            )
-            # Check if we need to prepend '*' (SELECT *, computed_col)
-            if self._select_star:
-                parts.append(f"SELECT {distinct_keyword}*, {fields_sql}")
-            else:
-                parts.append(f"SELECT {distinct_keyword}{fields_sql}")
-        else:
-            parts.append(f"SELECT {distinct_keyword}*")
-
-        # FROM (with alias if joins present)
-        if self._table_function:
-            # Handle table function objects
-            if hasattr(self._table_function, "to_sql"):
-                table_sql = self._table_function.to_sql()
-            else:
-                table_sql = str(self._table_function)
-            # Add alias when joins are present (required by ClickHouse for disambiguation)
-            if joins:
-                alias = self._get_table_alias()
-                parts.append(
-                    f"FROM {table_sql} AS {format_identifier(alias, self.quote_char)}"
-                )
-            else:
-                parts.append(f"FROM {table_sql}")
-        elif self.table_name:
-            parts.append(f"FROM {self.quote_char}{self.table_name}{self.quote_char}")
-
-        # JOIN clauses
-        if joins:
-            for other_ds, join_type, join_condition in joins:
-                # Generate JOIN clause
-                join_keyword = join_type.value if join_type.value else ""
-                if join_keyword:
-                    join_clause = f"{join_keyword} JOIN"
-                else:
-                    join_clause = "JOIN"
-
-                # Handle subquery joins
-                if isinstance(other_ds, DataStore) and other_ds._is_subquery:
-                    other_table = other_ds.to_sql(
-                        quote_char=self.quote_char, as_subquery=True
-                    )
-                elif isinstance(other_ds, DataStore) and other_ds._table_function:
-                    # Use table function for the joined table with alias
-                    table_func_sql = other_ds._table_function.to_sql(
-                        quote_char=self.quote_char
-                    )
-                    alias = other_ds._get_table_alias()
-                    other_table = f"{table_func_sql} AS {format_identifier(alias, self.quote_char)}"
-                else:
-                    other_table = format_identifier(
-                        other_ds.table_name, self.quote_char
-                    )
-
-                # Handle USING vs ON syntax
-                if isinstance(join_condition, tuple) and join_condition[0] == "USING":
-                    # USING (col1, col2, ...) syntax
-                    columns = join_condition[1]
-                    using_cols = ", ".join(
-                        format_identifier(c, self.quote_char) for c in columns
-                    )
-                    parts.append(f"{join_clause} {other_table} USING ({using_cols})")
-                else:
-                    # ON condition syntax
-                    condition_sql = join_condition.to_sql(quote_char=self.quote_char)
-                    parts.append(f"{join_clause} {other_table} ON {condition_sql}")
-
-        # WHERE
-        if where_conditions:
-            combined = where_conditions[0]
-            for cond in where_conditions[1:]:
-                combined = combined & cond
-            parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
-
-        # GROUP BY
-        if groupby_fields:
-            groupby_sql = ", ".join(
-                f.to_sql(quote_char=self.quote_char) for f in groupby_fields
-            )
-            parts.append(f"GROUP BY {groupby_sql}")
-
-        # HAVING
-        if having_condition:
-            having_sql = having_condition.to_sql(quote_char=self.quote_char)
-            parts.append(f"HAVING {having_sql}")
-
-        # ORDER BY (stable sort if kind='stable' or 'mergesort', matching pandas behavior)
-        if orderby_fields:
-            # Check for special row order marker (must be a string, not a Field object)
-            first_field = orderby_fields[0][0]
-            if (
-                len(orderby_fields) == 1
-                and isinstance(first_field, str)
-                and first_field == "__rowNumberInAllBlocks__"
-            ):
-                # Special case: use rowNumberInAllBlocks() for row order preservation
-                parts.append("ORDER BY rowNumberInAllBlocks()")
-            else:
-                orderby_sql = build_orderby_clause(
-                    orderby_fields,
-                    self.quote_char,
-                    stable=is_stable_sort(self._orderby_kind),
-                )
-                parts.append(f"ORDER BY {orderby_sql}")
-
-        # LIMIT
-        if limit_value is not None:
-            parts.append(f"LIMIT {limit_value}")
-
-        # OFFSET
-        if offset_value is not None:
-            parts.append(f"OFFSET {offset_value}")
-
-        return " ".join(parts)
-
-    def _build_sql_with_stable_sort_subquery(
-        self,
-        select_fields,
-        where_conditions,
-        orderby_fields,
-        limit_value,
-        offset_value,
-        distinct=False,
-    ):
-        """
-        Build SQL with subquery for stable sort when WHERE is present.
-
-        When we have both WHERE and stable ORDER BY, rowNumberInAllBlocks() would give
-        post-filter row numbers. To preserve original row order as tie-breaker, we use:
-
-        SELECT * EXCEPT(__orig_row_num__) FROM (
-            SELECT *, rowNumberInAllBlocks() AS __orig_row_num__
-            FROM source
-            WHERE conditions
-        ) ORDER BY col1 ASC/DESC, __orig_row_num__ ASC
-        LIMIT N
-
-        This ensures __orig_row_num__ is calculated from the source data before filtering.
-        """
-        from .utils import build_orderby_clause
-
-        # Build the inner query: SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM source
-        if self._table_function:
-            if hasattr(self._table_function, "to_sql"):
-                table_sql = self._table_function.to_sql()
-            else:
-                table_sql = str(self._table_function)
-        elif self.table_name:
-            table_sql = f"{self.quote_char}{self.table_name}{self.quote_char}"
-        else:
-            table_sql = "source"
-
-        inner_sql = (
-            f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_sql}"
-        )
-
-        # Build middle query: SELECT columns FROM (inner) WHERE conditions
-        middle_parts = []
-        distinct_keyword = "DISTINCT " if distinct else ""
-
-        if select_fields:
-            fields_sql = ", ".join(
-                f.to_sql(quote_char=self.quote_char, with_alias=True)
-                for f in select_fields
-            )
-            if self._select_star:
-                middle_parts.append(
-                    f"SELECT {distinct_keyword}*, {fields_sql}, __orig_row_num__"
-                )
-            else:
-                middle_parts.append(
-                    f"SELECT {distinct_keyword}{fields_sql}, __orig_row_num__"
-                )
-        else:
-            middle_parts.append(f"SELECT {distinct_keyword}*, __orig_row_num__")
-
-        middle_parts.append(f"FROM ({inner_sql}) AS __subq_with_rownum__")
-
-        # WHERE
-        if where_conditions:
-            combined = where_conditions[0]
-            for cond in where_conditions[1:]:
-                combined = combined & cond
-            middle_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
-
-        middle_sql = " ".join(middle_parts)
-
-        # Build outer query: SELECT * EXCEPT(__orig_row_num__) FROM (middle) ORDER BY ... LIMIT
-        outer_parts = []
-        outer_parts.append("SELECT * EXCEPT(__orig_row_num__)")
-        outer_parts.append(f"FROM ({middle_sql}) AS __subq_for_stable_sort__")
-
-        # ORDER BY with __orig_row_num__ as tie-breaker instead of rowNumberInAllBlocks()
-        if orderby_fields:
-            orderby_sql = build_orderby_clause(
-                orderby_fields,
-                self.quote_char,
-                stable=False,  # Don't add rowNumberInAllBlocks()
-            )
-            outer_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
-
-        # LIMIT
-        if limit_value is not None:
-            outer_parts.append(f"LIMIT {limit_value}")
-
-        # OFFSET
-        if offset_value is not None:
-            outer_parts.append(f"OFFSET {offset_value}")
-
-        return " ".join(outer_parts)
 
     # ========== Static Factory Methods for Data Sources ==========
 
@@ -3712,6 +3507,9 @@ class DataStore(PandasCompatMixin):
         For file table functions, extracts filename without extension.
         For other table functions, uses table name or a generic name.
         """
+        alias = getattr(self._table_function, "alias", None)
+        if alias:
+            return alias
         if self._table_function and hasattr(self._table_function, "params"):
             # Try to get a meaningful alias from path
             path = self._table_function.params.get("path")
@@ -4054,6 +3852,14 @@ class DataStore(PandasCompatMixin):
         self._logger.debug("Generated SQL for execution")
 
         try:
+            # Rows read from a file keep their file positions, as in to_df();
+            # a write runs its statement
+            build_result = None if self._has_pending_write() else self._labelled_query()
+            if build_result is not None:
+                df = self._executor.execute(build_result.sql).to_df()
+                return QueryResult(
+                    data=_label_source_rows(df, build_result), output_format="Dataframe"
+                )
             result = self._executor.execute(sql)
             self._logger.debug("Query executed successfully")
             return result
@@ -4196,17 +4002,20 @@ class DataStore(PandasCompatMixin):
         if isinstance(self._table_function, PythonTableFunction):
             return None
         # Only plain SELECT queries can be read as Arrow (not writeback/DML).
-        if self._delete_flag or self._update_fields or self._insert_columns:
+        if self._has_pending_write():
             return None
 
         try:
-            build_result = self._single_sql_query()
+            build_result = self._single_sql_query(row_labels=True)
         except Exception as e:  # planning / SQL-build issue -> fall back to pandas
             self._logger.debug("to_arrow native path unavailable, using pandas: %s", e)
             return None
         if build_result is None:
             return None
-        sql = build_result.sql
+        # The rows _execute() reads, in its order
+        sql, settings = self._result_query(build_result)
+        if settings:
+            sql = f"{sql} SETTINGS {', '.join(settings)}"
 
         if self._executor is None:
             self.connect()
@@ -4217,16 +4026,33 @@ class DataStore(PandasCompatMixin):
         # regular columns.
         return self._executor.query_arrow(sql)
 
-    def _single_sql_query(self) -> Optional[SQLBuildResult]:
+    def _single_sql_query(self, row_labels: bool = False) -> Optional[SQLBuildResult]:
         """
         Return the ``SQLBuildResult`` iff the entire pipeline collapses to ONE
         first-segment SQL query against the original source (so the query result
         is the *final* result); return ``None`` otherwise. Mirrors the segment
         planning done in :meth:`_execute`. The SQL is a single SELECT with at
         most one SETTINGS clause, so it can also be embedded as a subquery.
+        With ``row_labels`` it is the query ``_execute()`` runs, whose result
+        rows ``_label_source_rows`` labels. A pending write (INSERT, UPDATE,
+        DELETE) is not a SELECT: None.
         """
         from .query_planner import QueryPlanner
 
+        if self._has_pending_write():
+            return None
+
+        if (
+            row_labels
+            and self._is_pristine_sql_source()
+            and getattr(self._table_function, "reads_files", False)
+        ):
+            # A file in file order, as _execute() reads it
+            sql = self._append_format_settings(f"SELECT * FROM {self._source_read_sql()}")
+            return SQLBuildResult(
+                sql=sql,
+                has_settings=bool(self._format_settings),
+            )
         if not self._lazy_ops:
             # Plain ``SELECT * FROM source`` — fully pushable, no aliases. The
             # flat SQL already carries the format settings.
@@ -4248,11 +4074,53 @@ class DataStore(PandasCompatMixin):
         if not (seg.is_sql() and seg.is_first_segment and seg.plan is not None):
             return None
 
-        build_result = SQLExecutionEngine(self).build_sql_from_plan(seg.plan, schema)
+        build_result = SQLExecutionEngine(self, row_labels=row_labels).build_sql_from_plan(
+            seg.plan, schema
+        )
         if not build_result.has_settings:
             build_result.sql = self._append_format_settings(build_result.sql)
             build_result.has_settings = True
         return build_result
+
+    def _labelled_query(self) -> Optional[SQLBuildResult]:
+        """
+        The query ``_execute()`` runs for this pipeline when it labels the
+        rows it reads from a file by their positions there; None when the
+        pipeline isn't one SQL query over a file or doesn't relabel its rows.
+        """
+        if (
+            not getattr(self._table_function, "reads_files", False)
+            or self._is_pristine_sql_source()
+        ):
+            return None
+        build_result = self._single_sql_query(row_labels=True)
+        if build_result is None or not (
+            build_result.row_label_column or build_result.row_label_start
+        ):
+            return None
+        return build_result
+
+    def _source_row_labels(self) -> Optional[pd.Index]:
+        """
+        The row labels of this pipeline's result when they are file
+        positions (see ``_labelled_query``), read without materializing the
+        rows; None otherwise.
+        """
+        build_result = self._labelled_query()
+        if build_result is None:
+            return None
+        if self._executor is None:
+            self.connect()
+        if build_result.row_label_column is None:
+            start = build_result.row_label_start
+            return pd.RangeIndex(start, start + self.count_rows())
+        column = format_identifier(build_result.row_label_column, self.quote_char)
+        sql = f"SELECT {column} FROM ({build_result.sql})"
+        settings = self._table_function.row_position_query_settings()
+        if settings:
+            sql = f"{sql} SETTINGS {', '.join(settings)}"
+        labels = self._executor.execute(sql).to_df()
+        return _label_source_rows(labels, build_result).index
 
     def _pipeline_sql(self) -> Optional[str]:
         """
@@ -4278,12 +4146,7 @@ class DataStore(PandasCompatMixin):
             self._table_function, PythonTableFunction
         ):
             return None
-        if (
-            self._is_subquery
-            or self._delete_flag
-            or self._update_fields
-            or self._insert_columns
-        ):
+        if self._is_subquery or self._has_pending_write():
             return None
         try:
             build_result = self._single_sql_query()
@@ -5962,6 +5825,7 @@ class DataStore(PandasCompatMixin):
         """
         tables: set = set()
         if self._table_function:
+            tables.update(getattr(self._table_function, "source_tables", ()))
             db = self._table_function.params.get("database", "default")
             tbl = self._table_function.params.get("table")
             if tbl:
@@ -7382,7 +7246,9 @@ class DataStore(PandasCompatMixin):
                 - Condition object (e.g., ds1.id == ds2.user_id) -> generates ON clause
                 - str (e.g., "user_id") -> generates USING (user_id) clause
                 - list of str (e.g., ["user_id", "country"]) -> generates USING (user_id, country)
-            how: Join type ('inner', 'left', 'right', 'outer', 'cross')
+            how: Join type, a JoinType or a spelling ``JoinType.parse()``
+                accepts ('inner', 'left', 'right', 'outer' or 'full', 'cross',
+                'left_anti', 'right_anti'); a cross join takes no keys
             left_on: Column name from left table (alternative to on)
             right_on: Column name from right table (alternative to on)
 
@@ -7395,20 +7261,7 @@ class DataStore(PandasCompatMixin):
         from .enums import JoinType
         from .lazy_ops import LazyJoin
 
-        # Convert how string to JoinType
-        join_type_map = {
-            "inner": JoinType.inner,
-            "left": JoinType.left,
-            "right": JoinType.right,
-            "outer": JoinType.outer,
-            "full": JoinType.full_outer,
-            "cross": JoinType.cross,
-        }
-
-        if how.lower() not in join_type_map:
-            raise QueryError(f"Invalid join type: {how}")
-
-        join_type = join_type_map[how.lower()]
+        join_type = JoinType.parse(how)
 
         # Determine join column(s) for pandas merge
         pandas_on = None
@@ -7416,7 +7269,11 @@ class DataStore(PandasCompatMixin):
         pandas_right_on = right_on
 
         # Build join condition
-        if on is not None:
+        if join_type is JoinType.cross:
+            if on is not None or left_on is not None or right_on is not None:
+                raise QueryError("A cross join takes no join keys")
+            join_condition = None
+        elif on is not None:
             if isinstance(on, str):
                 # String -> USING (column) syntax for SQL, on= for pandas
                 join_condition = ("USING", [on])
@@ -7450,17 +7307,28 @@ class DataStore(PandasCompatMixin):
         # Determine execution path based on source type
         has_sql_source = bool(self._table_function or self.table_name)
         other_has_sql_source = bool(other._table_function or other.table_name)
+        # The right side joins with all its lazy ops, as they are now
+        both_sql = has_sql_source and other_has_sql_source and join_type.runs_in_sql
+        right = other._join_operand() if both_sql else None
 
-        if has_sql_source and other_has_sql_source:
+        if right is not None:
             # Both sides have SQL sources - use SQL JOIN only
-            self._joins.append((other, join_type, join_condition))
+            self._joins.append((right, join_type, join_condition))
+        elif join_condition is not None and not (
+            pandas_on or (pandas_left_on and pandas_right_on)
+        ):
+            raise QueryError(
+                "join() on a condition needs both DataStores to run as one SQL "
+                f"query with a {join_type.pandas_how} join; join on column names "
+                "instead"
+            )
         else:
-            # At least one side is DataFrame-only - use LazyJoin for pandas merge
+            # pandas merge, with the right side as it is now
             self._add_lazy_op(
                 LazyJoin(
-                    right=other,
+                    right=_operand_state(other),
                     on=pandas_on,
-                    how=how.lower(),
+                    how=join_type,
                     left_on=pandas_left_on,
                     right_on=pandas_right_on,
                 )
@@ -7493,43 +7361,28 @@ class DataStore(PandasCompatMixin):
         # runs in SQL. This avoids materializing both sides into Python DataFrames.
         # Without ``all`` the result keeps concat index positions, which only
         # the pandas path reproduces.
-        union_sql = self._build_union_all_sql(other) if all else None
-        if union_sql is not None:
+        union = self._build_union_all_sql(other) if all else None
+        if union is not None:
             from .table_functions import SubqueryTableFunction
 
             # Both pipelines are inside union_sql; the copy starts over from it.
-            self._table_function = SubqueryTableFunction(union_sql)
-            self._lazy_ops = []
-            self._computed_columns = {}
-            self._schema = None
-            self._index_info = None
-            self._metadata_memo = {}
-            self._cached_result = None
-            self._cached_at_version = -1
-            self._select_fields = []
-            self._where_condition = None
-            self._joins = []
-            self._groupby_fields = []
-            self._having_condition = None
-            self._orderby_fields = []
-            self._limit_value = None
-            self._offset_value = None
-            self._distinct = False
-            self._distinct_subset = None
-            self._select_star = False
+            union_sql, settings = union
+            self._start_from(SubqueryTableFunction(union_sql, query_settings=settings))
             return  # @immutable returns the copy
 
-        # Add LazyUnion operation - pass the DataStore/DataFrame directly
+        # Add LazyUnion operation with the other side as it is now
         # Execution is deferred until needed
-        self._add_lazy_op(LazyUnion(other=other, all=all))
+        self._add_lazy_op(LazyUnion(other=_operand_state(other), all=all))
         # Note: Don't return self - @immutable decorator will return the copy
 
-    def _build_union_all_sql(self, other) -> Optional[str]:
+    def _build_union_all_sql(self, other) -> Optional[Tuple[str, List[str]]]:
         """
-        Build SQL for ``self.union(other, all=True)``, or return ``None`` when
-        either side cannot be expressed as a single SQL query, or when the
-        column names or types differ (pandas then decides the result columns
-        and dtypes). Rows come out in ``pd.concat([self, other])`` order.
+        Build ``(sql, settings)`` for ``self.union(other, all=True)``, or
+        return ``None`` when either side cannot be expressed as a single SQL
+        query, or when the column names or types differ (pandas then decides
+        the result columns and dtypes). Rows come out in
+        ``pd.concat([self, other])`` order; ``settings`` are needed at the top
+        level of a query reading ``sql``.
         """
         if not isinstance(other, DataStore):
             return None
@@ -7540,8 +7393,8 @@ class DataStore(PandasCompatMixin):
         if right is None:
             return None
 
-        left_sql, left_cols = left
-        right_sql, right_cols = right
+        left_sql, left_cols, left_settings = left
+        right_sql, right_cols, right_settings = right
         names = [name for name, _ in left_cols]
         if len(set(names)) != len(names):
             return None
@@ -7568,17 +7421,75 @@ class DataStore(PandasCompatMixin):
         side_alias = helper_alias("union_side")
         row_alias = helper_alias("union_row")
 
+        # An operand's result has no position column: its rows are
+        # numbered in the order the operand returns them
+        with row_position_scope(DEFAULT_ROW_POSITION):
+            position = RowPosition().to_sql(quote_char=q)
+
         def operand(sql, side):
             return (
                 f"SELECT {out_fields}, {side} AS {side_alias}, "
-                f"rowNumberInAllBlocks() AS {row_alias} FROM ({sql})"
+                f"{position} AS {row_alias} FROM ({sql})"
             )
 
-        return (
+        union_sql = (
             f"SELECT {out_fields} FROM ({operand(left_sql, 0)} "
             f"UNION ALL {operand(right_sql, 1)}) "
             f"ORDER BY {side_alias}, {row_alias}"
         )
+        # The numbering must see each operand's rows as it returns them
+        settings = list(dict.fromkeys(left_settings + right_settings))
+        if settings or any(
+            getattr(ds._table_function, "reads_files", False) for ds in (self, other)
+        ):
+            settings = list(
+                dict.fromkeys(settings + ["query_plan_enable_optimizations=0"])
+            )
+        return union_sql, settings
+
+    def _operand_sql(self) -> Optional[Tuple[str, List[str]]]:
+        """
+        ``(sql, settings)`` for reading this DataStore's complete result as a
+        subquery operand of a union or a join (see ``_result_query``).
+        Return ``None`` when the result needs pandas execution or
+        post-processing.
+        """
+        if not (self._table_function or self.table_name):
+            return None
+        # DataFrame sources rely on query_df's row-order handling in _execute.
+        if self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        ):
+            return None
+        if self._has_pending_write():
+            return None
+
+        try:
+            build_result = self._single_sql_query(row_labels=True)
+        except Exception as e:  # planning / SQL-build issue -> pandas path
+            self._logger.debug("SQL operand unavailable: %s", e)
+            return None
+        # GroupBy results carry their keys in the index after post-processing.
+        if build_result is None or build_result.groupby_agg is not None:
+            return None
+        return self._result_query(build_result)
+
+    def _result_query(self, build_result: SQLBuildResult) -> Tuple[str, List[str]]:
+        """
+        ``(sql, settings)`` for the result rows of ``build_result``, an
+        execution build (a file's rows in file order, as ``_execute()``
+        reads them), without the column holding their source positions.
+        ``settings`` are the settings a query reading ``sql`` as a subquery
+        needs at its top level for the rows to keep their order.
+        """
+        sql = build_result.sql
+        settings = []
+        if build_result.position_column is not None:
+            settings = self._table_function.row_position_query_settings()
+        if build_result.row_label_column is not None:
+            column = format_identifier(build_result.row_label_column, self.quote_char)
+            sql = f"SELECT * EXCEPT ({column}) FROM ({sql})"
+        return sql, settings
 
     def _union_operand_sql(self):
         """
@@ -7588,34 +7499,15 @@ class DataStore(PandasCompatMixin):
         UNION ALL reconciles without a type change. Return ``None`` when the
         result needs pandas execution or post-processing.
         """
-        if not (self._table_function or self.table_name):
+        operand = self._operand_sql()
+        if operand is None:
             return None
-        # DataFrame sources rely on query_df's row-order handling in _execute.
-        if self._source_df is not None or isinstance(
-            self._table_function, PythonTableFunction
-        ):
-            return None
-        if (
-            self._is_subquery
-            or self._delete_flag
-            or self._update_fields
-            or self._insert_columns
-        ):
-            return None
-
-        try:
-            build_result = self._single_sql_query()
-        except Exception as e:  # planning / SQL-build issue -> LazyUnion
-            self._logger.debug("union SQL operand unavailable: %s", e)
-            return None
-        # GroupBy results carry their keys in the index after post-processing.
-        if build_result is None or build_result.groupby_agg is not None:
-            return None
+        sql, settings = operand
 
         try:
             if self._executor is None:
                 self.connect()
-            rows = self._executor.execute(f"DESCRIBE ({build_result.sql})").rows
+            rows = self._executor.execute(f"DESCRIBE ({sql})").rows
         except Exception as e:  # invalid side SQL -> LazyUnion raises at execution
             self._logger.debug("union SQL operand schema unavailable: %s", e)
             return None
@@ -7624,7 +7516,66 @@ class DataStore(PandasCompatMixin):
             if col_type.startswith("Nullable(") and col_type.endswith(")"):
                 col_type = col_type[len("Nullable("):-1]
             columns.append((name, col_type))
-        return build_result.sql, columns
+        return sql, columns, settings
+
+    def _join_operand(self) -> Optional["DataStore"]:
+        """
+        This DataStore as it is now, for the right side of a SQL JOIN: a
+        DataStore reading its complete pipeline as a subquery under the same
+        table alias, or its frozen view (``_frozen``) when it reads its
+        source unchanged; later in-place changes to it don't reach the join.
+        Return ``None`` when the pipeline needs pandas execution; the join
+        then runs in pandas.
+        """
+        if self._is_pristine_sql_source():
+            return self._frozen()
+        result = self._operand_sql()
+        if result is None:
+            return None
+        sql, settings = result
+        from .table_functions import SubqueryTableFunction
+
+        # A copy: the frozen view is shared with values taken from this state
+        operand = copy(self)
+        operand._start_from(
+            SubqueryTableFunction(
+                sql,
+                # An explicit subquery alias (as_()) names it in conditions
+                alias=(self._alias if self._is_subquery and self._alias else None)
+                or self._get_table_alias(),
+                source_tables=self._get_all_source_tables(),
+                query_settings=settings,
+            )
+        )
+        # The subquery source carries the alias; the operand is not wrapped again
+        operand._is_subquery = False
+        operand._alias = None
+        return operand
+
+    def _start_from(self, table_function) -> None:
+        """
+        Make ``table_function`` this DataStore's source, with no lazy ops or
+        SQL state on top of it (it already holds the pipeline's result).
+        """
+        self._table_function = table_function
+        self._lazy_ops = []
+        self._computed_columns = {}
+        self._schema = None
+        self._index_info = None
+        self._metadata_memo = {}
+        self._cached_result = None
+        self._cached_at_version = -1
+        self._select_fields = []
+        self._where_condition = None
+        self._joins = []
+        self._groupby_fields = []
+        self._having_condition = None
+        self._orderby_fields = []
+        self._limit_value = None
+        self._offset_value = None
+        self._distinct = False
+        self._distinct_subset = None
+        self._select_star = False
 
     @immutable
     def with_column(self, name: str, expr: Union[Expression, Any]) -> "DataStore":
@@ -8272,7 +8223,7 @@ class DataStore(PandasCompatMixin):
         # Record in lazy ops for correct execution order in explain()
         # Store limit_value for DataFrame execution
         self._add_lazy_op(LazyRelationalOp("LIMIT", str(n), limit_value=n))
-        self._limit_value = n
+        self._take_slice("LIMIT", n)
         return self
 
     @immutable
@@ -8281,7 +8232,16 @@ class DataStore(PandasCompatMixin):
         # Record in lazy ops for correct execution order in explain()
         # Store offset_value for DataFrame execution
         self._add_lazy_op(LazyRelationalOp("OFFSET", str(n), offset_value=n))
-        self._offset_value = n
+        self._take_slice("OFFSET", n)
+
+    def _take_slice(self, op_type: str, n: int) -> None:
+        """
+        Record an ``op_type`` (LIMIT or OFFSET) of ``n`` rows in the flat
+        state, applied to the rows the state selects (``compose_slice``).
+        """
+        self._offset_value, self._limit_value = compose_slice(
+            self._offset_value, self._limit_value, op_type, n
+        )
 
     @immutable
     def distinct(self, subset=None, keep="first") -> "DataStore":
@@ -8892,9 +8852,9 @@ class DataStore(PandasCompatMixin):
             if stop is not None:
                 if start is not None:
                     # ds[start:stop] -> LIMIT (stop-start) OFFSET start
-                    limit_val = stop - start if stop > start else stop
-                    result._offset_value = start
-                    result._limit_value = limit_val
+                    limit_val = max(stop - start, 0)
+                    result._take_slice("OFFSET", start)
+                    result._take_slice("LIMIT", limit_val)
                     result._add_lazy_op(
                         LazyRelationalOp(
                             "OFFSET", f"OFFSET {start}", offset_value=start
@@ -8907,13 +8867,13 @@ class DataStore(PandasCompatMixin):
                     )
                 else:
                     # ds[:stop] -> LIMIT stop
-                    result._limit_value = stop
+                    result._take_slice("LIMIT", stop)
                     result._add_lazy_op(
                         LazyRelationalOp("LIMIT", f"LIMIT {stop}", limit_value=stop)
                     )
             elif start is not None:
                 # ds[start:] -> OFFSET start
-                result._offset_value = start
+                result._take_slice("OFFSET", start)
                 result._add_lazy_op(
                     LazyRelationalOp("OFFSET", f"OFFSET {start}", offset_value=start)
                 )

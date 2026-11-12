@@ -246,7 +246,7 @@ class TestSQLLogCapture:
         )
 
     def test_drop_duplicates_no_subset_sql_in_logs(self, tmp_path):
-        """Executing drop_duplicates() should log SQL with DISTINCT."""
+        """drop_duplicates() should deduplicate in SQL."""
         df = pd.DataFrame({"a": [1, 1, 2], "b": ["x", "x", "y"]})
         path = _make_parquet(df, tmp_path)
         ds = DataStore.from_file(path)
@@ -254,9 +254,11 @@ class TestSQLLogCapture:
         with SQLLogCapture() as cap:
             result = ds.drop_duplicates().values.tolist()
 
+        assert result == df.drop_duplicates().values.tolist()
+        # A file keeps each row's first occurrence by file position
         sql_msgs = cap.find("Executing SQL")
-        assert any("DISTINCT" in m for m in sql_msgs), (
-            f"Expected DISTINCT in SQL logs, got: {sql_msgs}"
+        assert any("LIMIT 1 BY" in m for m in sql_msgs), (
+            f"Expected LIMIT 1 BY in SQL logs, got: {sql_msgs}"
         )
 
     def test_nunique_sql_in_logs(self, tmp_path):

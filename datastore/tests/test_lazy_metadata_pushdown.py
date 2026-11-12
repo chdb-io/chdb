@@ -4,7 +4,8 @@ Tests for lazy metadata access on NON-pristine but SQL-pushdownable pipelines.
 Extends the pristine-source optimization (test_pristine_metadata_optimization.py)
 to filtered / projected pipelines: `.columns` resolves via a ``SELECT ... LIMIT 0``
 schema probe, `.dtypes` via a ``LIMIT 1`` probe (LIMIT 0 degrades string columns to
-``object``), and `.shape` / `.index` via ``COUNT(*)``, instead of materializing the
+``object``), `.shape` via ``COUNT(*)`` and `.index` via ``COUNT(*)`` (or a query
+reading only the file row labels, when rows were filtered), instead of materializing the
 full result through ``_execute()``. Non-pushdownable pipelines, remote sources, and
 custom/group indexes keep the full-execution fallback.
 
@@ -96,15 +97,13 @@ class TestNonPristinePushdownMetadata:
             mock_exec.assert_not_called()
         assert shape == pd_result.shape
 
-    def test_index_is_rangeindex_from_count_not_execute(self, filtered):
+    def test_index_is_file_labels_not_execute(self, filtered):
+        # A filtered file keeps the file positions of its rows as labels
         ds2, pd_result = filtered
-        with patch.object(ds2, "count_rows", wraps=ds2.count_rows) as mock_count, \
-                patch.object(ds2, "_execute", wraps=ds2._execute) as mock_exec:
+        with patch.object(ds2, "_execute", wraps=ds2._execute) as mock_exec:
             idx = ds2.index
-            mock_count.assert_called()
             mock_exec.assert_not_called()
-        assert isinstance(idx, pd.RangeIndex)
-        assert len(idx) == len(pd_result)
+        pd.testing.assert_index_equal(idx, pd_result.index, exact=False)
 
     def test_metadata_access_does_not_cache(self, filtered):
         ds2, _ = filtered

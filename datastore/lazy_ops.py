@@ -2468,8 +2468,6 @@ class LazyWhere(LazyOp):
             return False  # Would cause NO_COMMON_TYPE
 
         # Case 3: Int 'other' + String column - handled by Variant type
-        # The SQL query MUST include ORDER BY rowNumberInAllBlocks() to preserve row order
-        # when using Variant type. This is handled in _build_sql_from_state.
 
         # Case 4: Numeric 'other' + Bool column -> ALWAYS fall back to Pandas
         # SQL CASE WHEN converts numeric values to bool (0->false, 1->true),
@@ -2608,19 +2606,23 @@ class LazyJoin(LazyOp):
         Args:
             right: Right DataFrame or DataStore to join with (lazy - executed when needed)
             on: Column name(s) to join on
-            how: Join type ('inner', 'left', 'right', 'outer')
+            how: Join type, as ``JoinType.parse()`` accepts it
             left_on: Column name in left DataFrame
             right_on: Column name in right DataFrame
         """
+        from .enums import JoinType
+
         super().__init__()
         self.right = right  # Can be DataFrame or DataStore
         self.on = on
-        self.how = how
+        self.how = JoinType.parse(how).pandas_how
         self.left_on = left_on
         self.right_on = right_on
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute pandas merge."""
+        from .pandas_compat import _pandas_merge
+
         self._log_execute("Join", f"how='{self.how}', on={self.on}")
         left_rows = len(df)
 
@@ -2632,7 +2634,7 @@ class LazyJoin(LazyOp):
 
         right_rows = len(right_df)
 
-        result = pd.merge(
+        result = _pandas_merge(
             df,
             right_df,
             on=self.on,

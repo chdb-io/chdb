@@ -7,7 +7,7 @@ import numpy as np
 from typing import Any, Optional, Iterator, List, Type, TYPE_CHECKING
 from copy import copy
 
-from .utils import immutable, format_identifier, format_alias
+from .utils import immutable, format_identifier, format_alias, row_position_sql
 from .exceptions import ValidationError
 
 if TYPE_CHECKING:
@@ -767,6 +767,23 @@ class Star(Expression):
 
     def __repr__(self):
         return "Star()"
+
+
+class RowPosition(Expression):
+    """
+    A row's position in the source of the query it is rendered in (see
+    ``utils.row_position_sql``): first()/last(), cumulative windows and
+    tie-breakers read rows in source order through it.
+    """
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        sql = row_position_sql()
+        if kwargs.get("with_alias", False) and self.alias:
+            return format_alias(sql, self.alias, quote_char)
+        return sql
+
+    def __repr__(self):
+        return "RowPosition()"
 
 
 class Literal(Expression):

@@ -25,15 +25,7 @@ def _frame():
     return pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "g": ["x", "y", "x", "y"]})
 
 
-# A file source numbers its rows from 0 again after a filter, so a value
-# computed on the unfiltered rows is aligned to the wrong rows; pandas keeps
-# the source labels.
-FILE_SOURCE_RENUMBERS_ROWS = pytest.mark.xfail(
-    strict=True, reason="a filtered file source renumbers its rows instead of keeping its labels"
-)
-
-
-@pytest.fixture(params=["dataframe", pytest.param("parquet", marks=FILE_SOURCE_RENUMBERS_ROWS)])
+@pytest.fixture(params=["dataframe", "parquet"])
 def make_ds(request, tmp_path):
     if request.param == "dataframe":
         return lambda: DataStore(_frame())
