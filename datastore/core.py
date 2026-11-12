@@ -232,7 +232,10 @@ def _is_row_wise(value) -> bool:
     """Whether a value is computed row by row, so a row of it depends only on
     the same row of its input (see ``Expression.is_row_wise``)."""
     from .column_expr import ColumnExpr
+    from .lazy_result import LazyCondition
 
+    if isinstance(value, LazyCondition):
+        value = value.condition
     if isinstance(value, ColumnExpr):
         if value._exec_mode != "expr" or value._expr is None:
             return False
@@ -1528,7 +1531,8 @@ class DataStore(PandasCompatMixin):
         pandas). The mask is a condition expression taken from this frame's
         state or an earlier one whose later ops keep the values of the
         columns it reads, and the frame can still read those columns; a
-        later filter or sort keeps them, an overwrite or fillna of a column
+        later filter or sort keeps them unless the mask isn't row-wise (e.g.
+        a shift or rank, see ``_is_row_wise``), an overwrite or fillna of a column
         it reads doesn't, and a projection or drop that leaves one out keeps
         its values but not the column (see ``_reads_available``).
 
@@ -1551,10 +1555,11 @@ class DataStore(PandasCompatMixin):
         )
         if expression:
             reads = _columns_read(mask)
+            rowwise = _is_row_wise(mask)
             if (
                 later is not None
                 and all(
-                    _keeps_read_columns(effect, reads, rowwise=True, values_only=True)
+                    _keeps_read_columns(effect, reads, rowwise=rowwise, values_only=True)
                     for effect in later
                 )
                 and self._reads_available(reads, later, mask, where_clause)
@@ -1562,7 +1567,7 @@ class DataStore(PandasCompatMixin):
                 return None
             # A column its own state doesn't have is a name for the frame's
             # column (nat.add_prefix('col_').filter(nat.col_age > 25)).
-            if reads is None:
+            if reads is None and rowwise:
                 return None
             try:
                 own_columns = set(source._get_current_columns())
