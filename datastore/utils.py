@@ -17,6 +17,8 @@ __all__ = [
     'build_orderby_clause',
     'is_stable_sort',
     'map_agg_func',
+    'row_order_alias',
+    'ROW_ORDER_ALIAS',
     'STABLE_SORT_TIEBREAKER',
     'STABLE_SORT_KINDS',
     'SQL_AGG_FUNC_MAP',
@@ -156,6 +158,27 @@ def format_identifier(name: str, quote_char: str = '"') -> str:
 # Tie-breaker for stable sort to preserve original row order when sort keys have duplicates.
 # For Python() table function: connection.py replaces this with _row_id at execution time
 # For file sources (Parquet, CSV): rowNumberInAllBlocks() works correctly as-is
+# Pre-filter row number injected as ``SELECT *, <expr> AS <alias>``.
+# Callers detect this SQL by the ``__orig_row_num__`` substring, so a
+# collision suffix must keep that substring (extra trailing underscores).
+ROW_ORDER_ALIAS = "__orig_row_num__"
+
+
+def row_order_alias(column_names) -> str:
+    """Internal alias for the pre-filter row number.
+
+    ``SELECT *, rowNumberInAllBlocks() AS __orig_row_num__`` emits two
+    columns when the source already has that name. ClickHouse then raises
+    AMBIGUOUS_COLUMN_NAME (Code 352) and ``EXCEPT`` cannot keep the user's
+    column. Extra trailing underscores avoid every name already taken.
+    """
+    taken = set(column_names or ())
+    name = ROW_ORDER_ALIAS
+    while name in taken:
+        name += "_"
+    return name
+
+
 STABLE_SORT_TIEBREAKER = "rowNumberInAllBlocks() ASC"
 
 # Sort kinds that guarantee stability (matching pandas behavior)
