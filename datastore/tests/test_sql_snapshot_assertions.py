@@ -123,7 +123,8 @@ SHAPES = [
         # post-LIMIT WHERE on the agg column ``v`` (which collides with
         # source col ``v``): the aggregation uses the ``__agg_v__`` temp
         # alias, renames it back to ``v`` in SQL, and the outer WHERE
-        # filters the renamed ``v``.
+        # filters the renamed ``v``. The sort reads the aggregation from a
+        # subquery and breaks ties by the group position.
         lambda ds: (
             ds[ds['v'] > 100]
             .groupby('cat')
@@ -133,9 +134,9 @@ SHAPES = [
         ),
         [
             'GROUP BY',
-            'sum("v") AS "__agg_v__"',
+            'ifNull(sum("v"),0) AS "__agg_v__"',
             '"__agg_v__" AS "v"',
-            'ORDER BY "v" DESC LIMIT 5) AS __subq1__ WHERE "v" > 1000',
+            'ORDER BY "v" DESC, "__group_pos__" ASC LIMIT 5) AS __subq2__ WHERE "v" > 1000',
         ],
         ['WHERE "__agg_v__"'],
     ),
@@ -192,9 +193,8 @@ SHAPES = [
     ),
     (
         'filter_groupby_orderby_limit_no_post_filter',
-        # baseline: simple agg pipeline without nested wrapper layers.
-        # The only subquery allowed is the aggregation's own rename
-        # projection (``__agg_v__ AS v``), which is not a planner layer.
+        # baseline: the sort and limit after the aggregation form one
+        # wrapper layer over it, ties broken by the group position.
         lambda ds: (
             ds[ds['v'] > 30]
             .groupby('cat')
@@ -204,9 +204,9 @@ SHAPES = [
         ),
         [
             'GROUP BY',
-            ') AS __rename_subq__ ORDER BY "v" DESC LIMIT 3',
+            ') AS __subq1__ ORDER BY "v" DESC, "__group_pos__" ASC LIMIT 3',
         ],
-        ['__subq1__'],
+        ['__subq2__'],
     ),
     (
         'pure_select_columns',

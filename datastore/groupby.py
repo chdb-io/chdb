@@ -4,12 +4,8 @@ LazyGroupBy - Lazy GroupBy wrapper for DataStore.
 This implements pandas-like groupby semantics where:
 - df.groupby('col') returns a GroupBy object (not a copy of DataFrame)
 - The GroupBy object references the original DataFrame
-- Aggregation operations execute and checkpoint the ORIGINAL DataFrame
-
-This design ensures that:
-1. When groupby().agg() executes, the original df is checkpointed
-2. Subsequent calls to df.to_df() use the cached result
-3. No redundant computation occurs
+- Aggregations add a LazyGroupByAgg step to a copy of the original's
+  pipeline; the original DataStore is left unchanged
 """
 
 from __future__ import annotations
@@ -33,16 +29,14 @@ class LazyGroupBy:
     Similar to pandas DataFrameGroupBy, this object:
     - Holds a reference to the original DataStore (not a copy)
     - Stores the groupby fields
-    - Provides aggregation methods that operate on the original DataStore
+    - Provides aggregation methods that read the original DataStore's rows
 
     Example:
         >>> df = DataStore.from_dataframe(pd.DataFrame(...))
         >>> df['FamilySize'] = df['SibSp'] + df['Parch'] + 1
         >>>
         >>> grp = df.groupby('FamilySize')  # Returns LazyGroupBy
-        >>> result = grp['Survived'].mean()  # Executes ORIGINAL df
-        >>>
-        >>> df.to_df()  # Uses cached result (no re-execution!)
+        >>> result = grp['Survived'].mean()  # Aggregates df's pipeline
     """
 
     def __init__(
@@ -370,9 +364,9 @@ class LazyGroupBy:
 
         if has_sql_agg:
             # SQL-style aggregation: agg(alias=col("x").sum(), ...)
-            # Set groupby fields on original datastore and delegate
-            self._datastore._groupby_fields = self._groupby_fields.copy()
-            return self._datastore.agg(func, **kwargs)
+            return self._create_lazy_agg_datastore(
+                expr_agg=self._datastore._sql_aggregate_exprs(kwargs)
+            )
 
         # Check for pandas named aggregation: agg(alias=('col', 'func'))
         # This is when kwargs contains tuples of (column, aggfunc)
@@ -398,9 +392,13 @@ class LazyGroupBy:
         """Compute mean of groups. Returns lazy DataStore."""
         return self._apply_agg('mean', numeric_only=numeric_only)
 
-    def sum(self, numeric_only: bool = False) -> 'DataStore':
+    def sum(self, numeric_only: bool = False, min_count: int = 0) -> 'DataStore':
         """Compute sum of groups. Returns lazy DataStore."""
-        return self._apply_agg('sum', numeric_only=numeric_only)
+        return self._apply_agg('sum', numeric_only=numeric_only, min_count=min_count)
+
+    def prod(self, numeric_only: bool = False, min_count: int = 0) -> 'DataStore':
+        """Compute product of groups. Returns lazy DataStore."""
+        return self._apply_agg('prod', numeric_only=numeric_only, min_count=min_count)
 
     def count(self) -> 'DataStore':
         """Compute count of groups. Returns lazy DataStore."""
@@ -702,8 +700,10 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        # Create a shallow copy of the datastore
+        # Create a shallow copy of the datastore; the aggregation op carries
+        # the group keys, so no store-level GROUP BY remains.
         new_ds = copy(self._datastore)
+        new_ds._groupby_fields = []
 
         # Add the lazy groupby aggregation operation
         # Pass sort, as_index, and selected_columns parameters from LazyGroupBy to LazyGroupByAgg
