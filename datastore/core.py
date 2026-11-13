@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .case_when import CaseWhenBuilder
     from .query_planner import ExecutionSegment, QueryPlan
 
-from .expressions import Field, Expression, Literal, Star
+from .expressions import Field, Expression, Literal, Star, qualify_columns
 from .conditions import Condition
 from .utils import (
     immutable,
@@ -3566,6 +3566,10 @@ class DataStore(PandasCompatMixin):
 
         # Fallback to table name or generic
         return self.table_name if self.table_name else "tbl"
+
+    def _join_table_name(self) -> Optional[str]:
+        """The name a JOIN gives this DataStore's table, if it has one."""
+        return self._get_table_alias() if self._table_function else self.table_name
 
     def _resolve_expr_dependencies(
         self, expr: "Expression", _visited: set = None
@@ -7213,16 +7217,8 @@ class DataStore(PandasCompatMixin):
                 # For Condition objects, we can't easily extract columns, so use SQL path
         elif left_on and right_on:
             # Create condition from column names
-            # Use table alias for table functions
-            left_table = (
-                self._get_table_alias() if self._table_function else self.table_name
-            )
-            right_table = (
-                other._get_table_alias() if other._table_function else other.table_name
-            )
-
-            left_field = Field(left_on, table=left_table)
-            right_field = Field(right_on, table=right_table)
+            left_field = Field(left_on, table=self._join_table_name())
+            right_field = Field(right_on, table=other._join_table_name())
             join_condition = left_field == right_field
         else:
             raise QueryError(
@@ -7246,6 +7242,8 @@ class DataStore(PandasCompatMixin):
 
         if both_sql:
             # Both sides have SQL sources - use SQL JOIN only
+            if not isinstance(join_condition, tuple):
+                join_condition = self._qualify_join_condition(join_condition, other)
             self._joins.append((other, join_type, join_condition))
         else:
             # At least one side is DataFrame-only, or the left side's pipeline
@@ -7260,6 +7258,28 @@ class DataStore(PandasCompatMixin):
                 )
             )
         # Note: Don't return self - @immutable decorator will return the copy
+
+    def _qualify_join_condition(self, condition, other: "DataStore"):
+        """
+        Qualify the columns of a JOIN ... ON condition that were taken from
+        the joined DataStores (``ds.col``, ``ds['col']``) with their table's
+        name, so ``l.id == r.id`` compares the two tables' columns.
+        """
+        from .column_expr import ColumnExpr
+
+        expr = condition._expr if isinstance(condition, ColumnExpr) else condition
+        if not isinstance(expr, Expression):
+            return condition
+        joined = [ds for ds, _, _ in self._joins] + [other]
+        names = [self._join_table_name()] + [
+            ds._join_table_name()
+            for ds in joined
+            if isinstance(ds, DataStore) and not ds._is_subquery
+        ]
+        # A name two tables share can't tell them apart
+        tables = {name for name in names if name and names.count(name) == 1}
+        qualified = qualify_columns(expr, tables)
+        return condition if qualified is expr else qualified
 
     @immutable
     def union(self, other: "DataStore", all: bool = False) -> "DataStore":
@@ -8647,7 +8667,7 @@ class DataStore(PandasCompatMixin):
             #   result = ds.assign(name_upper=ds['name'].str.upper())
             #   result['name_upper'].tolist()  # Would try to evaluate upper("name") on result
             #   # But result's DataFrame only has 'name_upper', not 'name'!
-            return ColumnExpr(Field(key), self)
+            return ColumnExpr(Field(key, source_table=self._join_table_name()), self)
 
         elif isinstance(key, tuple):
             # Tuple indexing: support for MultiIndex columns
@@ -8830,7 +8850,9 @@ class DataStore(PandasCompatMixin):
 
         elif isinstance(key, int):
             # Integer column name access: df[0] when column name is 0
-            return ColumnExpr(Field(str(key)), self)
+            return ColumnExpr(
+                Field(str(key), source_table=self._join_table_name()), self
+            )
 
         elif callable(key):
             # Callable indexing: df[lambda x: x['a'] > 2]
@@ -9487,8 +9509,9 @@ class DataStore(PandasCompatMixin):
 
         Note:
             Dynamic field access does NOT add table prefix by default.
-            For JOIN conditions where disambiguation is needed, use left_on/right_on
-            parameters or explicitly create Field with table: Field('col', table='t').
+            join() qualifies the columns of its ON condition with the name of
+            the table they were taken from, so ds1.id == ds2.id compares the
+            two tables' columns.
         """
         from .column_expr import ColumnExpr
 
@@ -9505,7 +9528,7 @@ class DataStore(PandasCompatMixin):
             )
 
         # Return ColumnExpr that wraps a Field and can execute
-        return ColumnExpr(Field(name), self)
+        return ColumnExpr(Field(name, source_table=self._join_table_name()), self)
 
     # ========== Copy Support ==========
 
