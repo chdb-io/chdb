@@ -38,6 +38,7 @@ from typing import List, Optional, Tuple, Union, Set, Any
 from copy import copy
 
 from .expressions import Expression, Field
+from .functions import window_reads_row_number
 from .conditions import Condition, CompoundCondition, BinaryCondition, NotCondition
 from .conditions import InCondition, BetweenCondition, UnaryCondition
 
@@ -133,7 +134,10 @@ class SQLLayer:
         if self.orderby_fields:
             orderby_clause = self._build_orderby_clause(quote_char)
             parts.append(orderby_clause)
-        elif self.preserve_row_order and not self.groupby_fields:
+        elif not self.groupby_fields and (
+            self.preserve_row_order
+            or any(window_reads_row_number(e) for _, e in self.computed_columns)
+        ):
             # Preserve original row order using rowNumberInAllBlocks()
             parts.append("ORDER BY rowNumberInAllBlocks()")
 
