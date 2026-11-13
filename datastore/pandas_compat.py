@@ -1213,7 +1213,7 @@ class PandasCompatMixin:
             new_ds = copy(self)
             if subset is not None:
                 # Use LIMIT 1 BY for subset-based deduplication
-                new_ds._distinct_subset = list(subset) if not isinstance(subset, list) else subset
+                new_ds._distinct_subset = list(subset) if pd.api.types.is_list_like(subset) else [subset]
             else:
                 # Use SELECT DISTINCT for full-row deduplication
                 new_ds._distinct = True
