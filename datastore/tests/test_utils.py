@@ -356,11 +356,13 @@ def assert_datastore_equals_pandas(
         pd_values = np.asarray(pd_result[col].values)
 
         if not check_row_order:
-            # Sort both for comparison when order doesn't matter
+            # Sort both for comparison when order doesn't matter, NA last.
+            # np.sort of an object array with NaN depends on where the NaN
+            # starts, as NaN compares False with everything.
             # Handle mixed types that can't be directly sorted
             try:
-                ds_values = np.sort(ds_values)
-                pd_values = np.sort(pd_values)
+                ds_values = pd.Series(ds_values).sort_values(na_position='last').to_numpy()
+                pd_values = pd.Series(pd_values).sort_values(na_position='last').to_numpy()
             except TypeError:
                 # Mixed types (e.g., float and str) - convert to string for comparison
                 ds_values = np.sort(np.array([str(x) if pd.notna(x) else '' for x in ds_values]))
