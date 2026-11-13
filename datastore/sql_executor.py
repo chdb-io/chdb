@@ -39,6 +39,7 @@ from .lazy_ops import (
     LazyWhere,
     LazyMask,
 )
+from .functions import window_reads_row_number
 from .sql_builder import SQLBuilder
 from .utils import (
     normalize_ascending,
@@ -1247,10 +1248,12 @@ class SQLExecutionEngine:
             )
 
         effective_orderby = clauses.orderby_fields
-        if (
-            needs_row_order
-            and not clauses.orderby_fields
-            and (clauses.where_conditions or self.ds._joins)
+        if not clauses.orderby_fields and (
+            (needs_row_order and (clauses.where_conditions or self.ds._joins))
+            or (
+                not groupby_fields
+                and any(window_reads_row_number(f) for f in select_fields)
+            )
         ):
             effective_orderby = [("__rowNumberInAllBlocks__", True)]
 
@@ -1424,6 +1427,10 @@ class SQLExecutionEngine:
             # Preserve pandas-like row order for the DataFrame source; _row_id
             # is chDB's deterministic virtual column for Python() sources.
             parts.append("ORDER BY _row_id")
+        elif not groupby_fields and any(
+            window_reads_row_number(f) for f in select_fields
+        ):
+            parts.append("ORDER BY rowNumberInAllBlocks()")
 
         if clauses.limit_value is not None:
             parts.append(f"LIMIT {clauses.limit_value}")

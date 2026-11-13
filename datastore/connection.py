@@ -110,6 +110,22 @@ def _order_by_clause_end(sql: str) -> int:
     return len(masked.rstrip())
 
 
+def _is_window_call(masked: str, open_paren: int) -> bool:
+    """
+    Whether the call whose arguments open at ``open_paren`` of ``masked``
+    (see ``_mask_quoted``) is a window function call, ``f(...) OVER ...``.
+    """
+    depth = 0
+    for i in range(open_paren, len(masked)):
+        if masked[i] == "(":
+            depth += 1
+        elif masked[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return re.match(r"\s*OVER\b", masked[i + 1 :], re.IGNORECASE) is not None
+    return False
+
+
 def _convert_nullable_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     """
     Legacy function for Python 3.8 compatibility (no longer needed).
@@ -1181,7 +1197,8 @@ class Connection:
         Check if SQL expression contains aggregate functions.
 
         Aggregate functions return a single value and cannot be used with ORDER BY
-        on non-aggregated columns.
+        on non-aggregated columns. A window call (``sum(x) OVER (...)``) returns
+        a value per row and doesn't count.
 
         Args:
             expr_sql: SQL expression to check
@@ -1189,8 +1206,6 @@ class Connection:
         Returns:
             True if expression contains aggregate functions
         """
-        import re
-
         # Common aggregate function patterns (case-insensitive)
         aggregate_patterns = [
             r"\bavg\s*\(",
@@ -1211,10 +1226,11 @@ class Connection:
             r"\bquantile\w*\s*\(",
         ]
 
-        expr_lower = expr_sql.lower()
+        masked = _mask_quoted(expr_sql)
         for pattern in aggregate_patterns:
-            if re.search(pattern, expr_lower, re.IGNORECASE):
-                return True
+            for match in re.finditer(pattern, masked, re.IGNORECASE):
+                if not _is_window_call(masked, match.end() - 1):
+                    return True
         return False
 
     def _log_query(

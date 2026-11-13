@@ -474,6 +474,26 @@ class WindowFunction(Function):
         return "".join(parts)
 
 
+def window_reads_row_number(expr) -> bool:
+    """
+    Whether ``expr`` has a window that reads rowNumberInAllBlocks(), as
+    groupby cumsum/cummax/cummin and rank ties do to follow the source row
+    order. ClickHouse returns the rows of such a window grouped by partition,
+    and computes rowNumberInAllBlocks() once, before the window, so the query
+    gets the source row order back with ORDER BY rowNumberInAllBlocks().
+    """
+    if not isinstance(expr, Expression):
+        return False
+    return any(
+        getattr(node, "is_window", False)
+        and any(
+            isinstance(inner, Function) and inner.name == "rowNumberInAllBlocks"
+            for inner in node.subtree()
+        )
+        for node in expr.subtree()
+    )
+
+
 class CustomFunction:
     """
     Factory for creating custom functions easily.
