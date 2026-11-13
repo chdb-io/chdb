@@ -3538,6 +3538,9 @@ class DataStore(PandasCompatMixin):
         For file table functions, extracts filename without extension.
         For other table functions, uses table name or a generic name.
         """
+        alias = getattr(self._table_function, "alias", None)
+        if alias:
+            return alias
         if self._table_function and hasattr(self._table_function, "params"):
             # Try to get a meaningful alias from path
             path = self._table_function.params.get("path")
@@ -5766,6 +5769,7 @@ class DataStore(PandasCompatMixin):
         """
         tables: set = set()
         if self._table_function:
+            tables.update(getattr(self._table_function, "source_tables", ()))
             db = self._table_function.params.get("database", "default")
             tbl = self._table_function.params.get("table")
             if tbl:
@@ -7229,16 +7233,28 @@ class DataStore(PandasCompatMixin):
         has_sql_source = bool(self._table_function or self.table_name)
         other_has_sql_source = bool(other._table_function or other.table_name)
 
-        if has_sql_source and other_has_sql_source:
+        both_sql = has_sql_source and other_has_sql_source
+        if both_sql and self._lazy_ops:
+            # The join reads the result of the ops recorded on this side so
+            # far, as pandas merges the frame they produce
+            both_sql = self._read_pipeline_as_source()
+            if not both_sql and not (pandas_on or (pandas_left_on and pandas_right_on)):
+                raise QueryError(
+                    "join() on a condition needs the left DataStore to run as one "
+                    "SQL query; join on column names instead"
+                )
+
+        if both_sql:
             # Both sides have SQL sources - use SQL JOIN only
             self._joins.append((other, join_type, join_condition))
         else:
-            # At least one side is DataFrame-only - use LazyJoin for pandas merge
+            # At least one side is DataFrame-only, or the left side's pipeline
+            # needs pandas - use LazyJoin for pandas merge
             self._add_lazy_op(
                 LazyJoin(
                     right=other,
                     on=pandas_on,
-                    how=how.lower(),
+                    how="outer" if how.lower() == "full" else how.lower(),
                     left_on=pandas_left_on,
                     right_on=pandas_right_on,
                 )
@@ -7276,25 +7292,7 @@ class DataStore(PandasCompatMixin):
             from .table_functions import SubqueryTableFunction
 
             # Both pipelines are inside union_sql; the copy starts over from it.
-            self._table_function = SubqueryTableFunction(union_sql)
-            self._lazy_ops = []
-            self._computed_columns = {}
-            self._schema = None
-            self._index_info = None
-            self._metadata_memo = {}
-            self._cached_result = None
-            self._cached_at_version = -1
-            self._select_fields = []
-            self._where_condition = None
-            self._joins = []
-            self._groupby_fields = []
-            self._having_condition = None
-            self._orderby_fields = []
-            self._limit_value = None
-            self._offset_value = None
-            self._distinct = False
-            self._distinct_subset = None
-            self._select_star = False
+            self._start_from(SubqueryTableFunction(union_sql))
             return  # @immutable returns the copy
 
         # Add LazyUnion operation - pass the DataStore/DataFrame directly
@@ -7403,6 +7401,52 @@ class DataStore(PandasCompatMixin):
                 col_type = col_type[len("Nullable("):-1]
             columns.append((name, col_type))
         return build_result.sql, columns
+
+    def _read_pipeline_as_source(self) -> bool:
+        """
+        Make this DataStore read its complete pipeline's result as a subquery
+        under the same table alias, so clauses added later (a JOIN) apply to
+        that result. Return False and leave it unchanged when the pipeline
+        does not run as one SQL query.
+        """
+        sql = self._pipeline_sql()
+        if sql is None:
+            return False
+        from .table_functions import SubqueryTableFunction
+
+        self._start_from(
+            SubqueryTableFunction(
+                sql,
+                alias=self._get_table_alias(),
+                source_tables=self._get_all_source_tables(),
+            )
+        )
+        return True
+
+    def _start_from(self, table_function) -> None:
+        """
+        Make ``table_function`` this DataStore's source, with no lazy ops or
+        SQL state on top of it (it already holds the pipeline's result).
+        """
+        self._table_function = table_function
+        self._lazy_ops = []
+        self._computed_columns = {}
+        self._schema = None
+        self._index_info = None
+        self._metadata_memo = {}
+        self._cached_result = None
+        self._cached_at_version = -1
+        self._select_fields = []
+        self._where_condition = None
+        self._joins = []
+        self._groupby_fields = []
+        self._having_condition = None
+        self._orderby_fields = []
+        self._limit_value = None
+        self._offset_value = None
+        self._distinct = False
+        self._distinct_subset = None
+        self._select_star = False
 
     @immutable
     def with_column(self, name: str, expr: Union[Expression, Any]) -> "DataStore":
