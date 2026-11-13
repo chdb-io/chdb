@@ -45,6 +45,7 @@ from .utils import (
     normalize_ascending,
     map_agg_func,
     build_orderby_clause,
+    merge_orderby_fields,
     is_stable_sort,
     format_identifier,
 )
@@ -319,17 +320,21 @@ def extract_clauses_from_ops(
             result.where_conditions.append(op.condition)
 
         elif op.op_type == "ORDER BY" and op.fields:
-            # Later ORDER BY replaces earlier ones (pandas semantics)
-            result.orderby_fields = []
+            # A later ORDER BY sorts the rows an earlier one sorted: the
+            # earlier keys break its ties (pandas semantics)
             result.orderby_kind = getattr(op, "kind", "quicksort")
 
+            orderby_fields = []
             ascending_list = normalize_ascending(op.ascending, len(op.fields))
             for i, f in enumerate(op.fields):
                 asc = ascending_list[i] if i < len(ascending_list) else True
                 if isinstance(f, str):
-                    result.orderby_fields.append((Field(f), asc))
+                    orderby_fields.append((Field(f), asc))
                 else:
-                    result.orderby_fields.append((f, asc))
+                    orderby_fields.append((f, asc))
+            result.orderby_fields = merge_orderby_fields(
+                result.orderby_fields, orderby_fields
+            )
 
         elif op.op_type == "LIMIT":
             result.limit_value = op.limit_value

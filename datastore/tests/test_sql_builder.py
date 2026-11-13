@@ -495,6 +495,17 @@ class TestSQLBuilderRowOrder(unittest.TestCase):
         self.assertIn('ORDER BY "a" ASC', sql)
         self.assertNotIn('rowNumberInAllBlocks()', sql)
 
+    def test_later_orderby_keeps_earlier_keys_as_tiebreakers(self):
+        """A second ORDER BY sorts first by its keys, then by the earlier ones."""
+        builder = SQLBuilder("file('data.csv', 'CSVWithNames')")
+        builder.add_orderby([(Field('w'), True), (Field('v'), False)])
+        builder.add_orderby([(Field('v'), True)])
+
+        sql = builder.build()
+
+        self.assertIn('ORDER BY "v" ASC, "w" ASC', sql)
+        self.assertNotIn('"v" DESC', sql)
+
 
 class TestExtractReferencedColumns(unittest.TestCase):
     """Test _extract_referenced_columns helper method."""
