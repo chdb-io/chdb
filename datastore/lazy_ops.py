@@ -871,7 +871,8 @@ class LazyDistinct(LazyOp):
 
     def describe(self) -> str:
         if self.subset:
-            return f"Distinct on columns: {', '.join(self.subset)}"
+            cols = self.subset if pd.api.types.is_list_like(self.subset) else [self.subset]
+            return f"Distinct on columns: {', '.join(map(str, cols))}"
         return "Distinct (all columns)"
 
     def can_push_to_sql(self) -> bool:
