@@ -15,6 +15,7 @@ __all__ = [
     'format_alias',
     'normalize_ascending',
     'build_orderby_clause',
+    'merge_orderby_fields',
     'is_stable_sort',
     'map_agg_func',
     'STABLE_SORT_TIEBREAKER',
@@ -208,6 +209,33 @@ def build_orderby_clause(orderby_fields: list, quote_char: str = '"', stable: bo
         order_parts.append(STABLE_SORT_TIEBREAKER)
 
     return ', '.join(order_parts)
+
+
+def merge_orderby_fields(earlier: list, later: list) -> list:
+    """
+    Combine two consecutive sorts into one ORDER BY list.
+
+    Sorting by ``earlier`` and then by ``later`` orders rows by ``later``,
+    with ties left in the order of the earlier sort, so the earlier keys
+    follow as tie-breakers. Keys ``later`` already sorts by are dropped.
+
+    Args:
+        earlier: (field, ascending) tuples of the first sort
+        later: (field, ascending) tuples of the second sort
+
+    Returns:
+        List of (field, ascending) tuples
+
+    Example:
+        >>> merge_orderby_fields([('w', True)], [('v', True)])
+        [('v', True), ('w', True)]
+    """
+
+    def key(field):
+        return field.to_sql(quote_char='"') if hasattr(field, 'to_sql') else str(field)
+
+    later_keys = {key(f) for f, _ in later}
+    return list(later) + [(f, asc) for f, asc in earlier if key(f) not in later_keys]
 
 
 def format_alias(sql: str, alias: str = None, quote_char: str = '"', use_as: bool = True) -> str:

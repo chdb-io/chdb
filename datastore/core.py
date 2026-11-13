@@ -27,6 +27,7 @@ from .utils import (
     format_identifier,
     normalize_ascending,
     map_agg_func,
+    merge_orderby_fields,
 )
 from .exceptions import (
     QueryError,
@@ -8195,6 +8196,7 @@ class DataStore(PandasCompatMixin):
             )
         )
 
+        orderby_fields = []
         for field, asc in zip(fields, ascending_list):
             if isinstance(field, str):
                 # Don't add table prefix for string fields
@@ -8205,7 +8207,9 @@ class DataStore(PandasCompatMixin):
             elif not isinstance(field, Expression):
                 # Convert other types to Field
                 field = Field(str(field))
-            self._orderby_fields.append((field, asc))
+            orderby_fields.append((field, asc))
+        # Keys of an earlier sort break this sort's ties
+        self._orderby_fields = merge_orderby_fields(self._orderby_fields, orderby_fields)
 
         # Store kind for SQL building
         self._orderby_kind = kind

@@ -39,6 +39,7 @@ from copy import copy
 
 from .expressions import Expression, Field
 from .functions import window_reads_row_number
+from .utils import merge_orderby_fields
 from .conditions import Condition, CompoundCondition, BinaryCondition, NotCondition
 from .conditions import InCondition, BetweenCondition, UnaryCondition
 
@@ -398,6 +399,7 @@ class SQLBuilder:
         Add ORDER BY clause.
 
         If any sort field references a computed column, wraps first.
+        A layer that is already sorted keeps its keys as tie-breakers.
 
         Args:
             fields: List of (field, ascending) tuples
@@ -414,7 +416,9 @@ class SQLBuilder:
         if referenced & current_computed:
             self._wrap_current_layer()
 
-        self.current_layer.orderby_fields = fields
+        self.current_layer.orderby_fields = merge_orderby_fields(
+            self.current_layer.orderby_fields, fields
+        )
         return self
 
     def add_limit(self, value: int) -> "SQLBuilder":
