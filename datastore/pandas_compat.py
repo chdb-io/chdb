@@ -1705,15 +1705,20 @@ class PandasCompatMixin:
         """
         DataStore = type(self)
 
+        # left_on/right_on naming the same columns pairwise merge like on=,
+        # with one column per key
+        if on is None and left_on is not None and right_on is not None:
+            lk = list(left_on) if isinstance(left_on, (list, tuple)) else [left_on]
+            rk = list(right_on) if isinstance(right_on, (list, tuple)) else [right_on]
+            if lk == rk and all(isinstance(c, str) for c in lk):
+                on, left_on, right_on = left_on, None, None
+
         # Try lazy SQL JOIN path when both sides are DataStores with SQL sources
         # and no pandas-only merge features are used
-        # Determine join key columns
+        # Determine join key columns. A JOIN ... ON keeps the key columns of
+        # both sides, so with left_on/right_on no shared name is a key.
         if on is not None:
             key_cols = set(on) if isinstance(on, (list, tuple)) else {on}
-        elif left_on is not None and right_on is not None:
-            lk = set(left_on) if isinstance(left_on, (list, tuple)) else {left_on}
-            rk = set(right_on) if isinstance(right_on, (list, tuple)) else {right_on}
-            key_cols = lk | rk
         else:
             key_cols = set()
 

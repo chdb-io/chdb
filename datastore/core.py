@@ -7216,10 +7216,18 @@ class DataStore(PandasCompatMixin):
                 join_condition = on
                 # For Condition objects, we can't easily extract columns, so use SQL path
         elif left_on and right_on:
-            # Create condition from column names
-            left_field = Field(left_on, table=self._join_table_name())
-            right_field = Field(right_on, table=other._join_table_name())
-            join_condition = left_field == right_field
+            # Create condition from column names, one equality per key pair
+            left_keys = list(left_on) if isinstance(left_on, (list, tuple)) else [left_on]
+            right_keys = list(right_on) if isinstance(right_on, (list, tuple)) else [right_on]
+            if len(left_keys) != len(right_keys):
+                raise QueryError("left_on and right_on must have the same number of columns")
+            join_condition = Condition.all(
+                [
+                    Field(lk, table=self._join_table_name())
+                    == Field(rk, table=other._join_table_name())
+                    for lk, rk in zip(left_keys, right_keys)
+                ]
+            )
         else:
             raise QueryError(
                 "Either 'on' or both 'left_on' and 'right_on' must be specified"
