@@ -48,7 +48,7 @@ def test_pyproject_keeps_base_dependencies_and_defines_adbc_extra():
     pyproject = tomllib.loads((project_root / "pyproject.toml").read_text())
 
     assert pyproject["project"]["dependencies"] == [
-        "chdb-core>=26.7.0",
+        "chdb-core>=26.9.0",
         "pandas>=2.1.0",
         "pyarrow>=13.0.0",
     ]
@@ -56,7 +56,7 @@ def test_pyproject_keeps_base_dependencies_and_defines_adbc_extra():
     optional_dependencies = pyproject["project"]["optional-dependencies"]
 
     assert optional_dependencies["adbc"] == [
-        "chdb-core>=26.7.0",
+        "chdb-core>=26.9.0",
         "adbc-driver-manager>=1.11.0; python_version >= '3.10'",
     ]
 
