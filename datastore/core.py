@@ -2112,7 +2112,7 @@ class DataStore(PandasCompatMixin):
                 load_sql = f"{load_sql} SETTINGS {', '.join(settings_parts)}"
             self._logger.debug("  Load SQL for Pandas: %s", load_sql)
             result = self._executor.execute(load_sql)
-            df = result.to_df()
+            df = self._match_outer_join_dtypes(result.to_df())
             self._logger.debug(
                 "  Loaded raw data from source for Pandas: %s rows", len(df)
             )
@@ -2142,6 +2142,8 @@ class DataStore(PandasCompatMixin):
         """
         # For GroupBy SQL pushdown: set group keys as index
         from .config import is_performance_mode
+
+        df = self._match_outer_join_dtypes(df)
 
         if plan.groupby_agg and plan.groupby_agg.groupby_cols:
             groupby_cols = plan.groupby_agg.groupby_cols
@@ -2184,6 +2186,87 @@ class DataStore(PandasCompatMixin):
                         self._logger.debug("  Converted flat columns to MultiIndex")
 
         return df
+
+    def _match_outer_join_dtypes(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Give the columns an outer JOIN filled with NULL the dtypes pandas merge
+        gives them.
+
+        chDB returns such integer and bool columns as nullable Int64 / boolean
+        with <NA>; pandas merge turns them into float64 / object with NaN. A
+        column that holds nulls in its own source already reads as Int64 /
+        boolean there, and pandas merge keeps that dtype, so it is left as is.
+        """
+        from .config import is_performance_mode
+
+        if not self._joins or is_performance_mode() or not df.columns.is_unique:
+            return df
+        candidates = [
+            c
+            for c in df.columns
+            if (
+                pd.api.types.is_integer_dtype(df[c].dtype)
+                or pd.api.types.is_bool_dtype(df[c].dtype)
+            )
+            and df[c].isna().any()
+        ]
+        if not candidates:
+            return df
+
+        try:
+            filled = self._outer_join_filled_columns()
+            by_source = {}
+            for col in candidates:
+                if col in filled:
+                    ds = filled[col]
+                    by_source.setdefault(id(ds), (ds, []))[1].append(col)
+            for ds, cols in by_source.values():
+                own_nulls = self._columns_with_nulls(ds, cols)
+                for col in cols:
+                    if col in own_nulls:
+                        continue
+                    if pd.api.types.is_bool_dtype(df[col].dtype):
+                        df[col] = df[col].astype(object).where(df[col].notna(), np.nan)
+                    else:
+                        df[col] = df[col].astype("float64")
+        except Exception as e:
+            self._logger.debug("  Outer join dtype matching skipped: %s", e)
+        return df
+
+    def _outer_join_filled_columns(self) -> Dict[str, "DataStore"]:
+        """Map each column an outer JOIN can fill with NULL to its DataStore."""
+        from .enums import JoinType
+
+        owner = {col: self for col in self.schema()}
+        filled = {}
+        for other_ds, join_type, _ in self._joins:
+            other_cols = list(other_ds.schema())
+            if join_type in (JoinType.right, JoinType.right_outer, JoinType.full_outer):
+                for col, ds in owner.items():
+                    if col not in other_cols:
+                        filled[col] = ds
+            if join_type in (JoinType.left, JoinType.left_outer, JoinType.full_outer):
+                for col in other_cols:
+                    if col not in owner:
+                        filled[col] = other_ds
+            for col in other_cols:
+                owner.setdefault(col, other_ds)
+        return filled
+
+    def _columns_with_nulls(self, ds: "DataStore", cols: List[str]) -> set:
+        """Which of ``cols`` hold a NULL in the source ``ds`` is joined from."""
+        if ds._is_subquery:
+            source = ds.to_sql(quote_char=self.quote_char, as_subquery=True)
+        elif ds._table_function:
+            source = ds._table_function.to_sql()
+        else:
+            source = format_identifier(ds.table_name, self.quote_char)
+        checks = ", ".join(
+            f"max(isNull({format_identifier(col, self.quote_char)}))" for col in cols
+        )
+        sql = self._append_format_settings(f"SELECT {checks} FROM {source}")
+        row = self._executor.execute(sql).rows[0]
+        return {col for col, has_null in zip(cols, row) if has_null}
 
     def _build_execution_sql(self) -> Optional[str]:
         """
