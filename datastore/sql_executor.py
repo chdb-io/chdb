@@ -46,6 +46,7 @@ from .utils import (
     build_orderby_clause,
     is_stable_sort,
     format_identifier,
+    row_order_alias,
 )
 from .config import get_logger
 
@@ -762,6 +763,12 @@ class SQLExecutionEngine:
         if self.is_python_table_function():
             return "_row_id"
         return "rowNumberInAllBlocks()"
+
+    def _row_order_alias(self) -> str:
+        """Alias for the injected row number, distinct from user columns."""
+        getter = getattr(self.ds, "_get_all_column_names", None)
+        names = getter() if getter is not None else []
+        return row_order_alias(names or [])
 
     def source_preserves_row_order(self) -> bool:
         """
@@ -1494,11 +1501,12 @@ class SQLExecutionEngine:
         """
         table_source = self.get_table_source()
         row_num_expr = self.get_row_number_expr()
+        alias = self._row_order_alias()
 
         # Build base query with row number expression
-        base_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+        base_sql = f"SELECT *, {row_num_expr} AS {alias} FROM {table_source}"
 
-        # Build outer query with WHERE and ORDER BY __orig_row_num__
+        # Build outer query with WHERE and ORDER BY the internal row number
         sql_parts = []
         if select_fields:
             fields_sql = ", ".join(
@@ -1507,11 +1515,11 @@ class SQLExecutionEngine:
             )
             if include_star:
                 # For computed columns, need to include all original columns plus computed
-                sql_parts.append(f"SELECT * EXCEPT(__orig_row_num__), {fields_sql}")
+                sql_parts.append(f"SELECT * EXCEPT({alias}), {fields_sql}")
             else:
                 sql_parts.append(f"SELECT {fields_sql}")
         else:
-            sql_parts.append("SELECT * EXCEPT(__orig_row_num__)")
+            sql_parts.append(f"SELECT * EXCEPT({alias})")
 
         sql_parts.append(f"FROM ({base_sql}) AS __row_num_subq__")
 
@@ -1527,7 +1535,7 @@ class SQLExecutionEngine:
             )
             sql_parts.append(f"GROUP BY {groupby_sql}")
 
-        sql_parts.append("ORDER BY __orig_row_num__")
+        sql_parts.append(f"ORDER BY {alias}")
 
         limit_by = self._build_limit_by_clause()
         if limit_by:
@@ -1572,6 +1580,7 @@ class SQLExecutionEngine:
             clauses.needs_row_order() and not self.source_preserves_row_order()
         )
         row_num_expr = self.get_row_number_expr()
+        alias = self._row_order_alias()
 
         # Build SQL based on whether we need WHERE subquery
         if clauses.where_conditions:
@@ -1580,7 +1589,7 @@ class SQLExecutionEngine:
                 # This is critical for stable row order - row number expression must be
                 # called on the source table, not after WHERE filtering
                 innermost_sql = (
-                    f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+                    f"SELECT *, {row_num_expr} AS {alias} FROM {table_source}"
                 )
 
                 # Step 1: Build query with WHERE (no CASE WHEN yet)
@@ -1590,11 +1599,11 @@ class SQLExecutionEngine:
                 inner_sql = f"SELECT * FROM ({innermost_sql}) AS __rownum_subq__ WHERE {combined.to_sql(quote_char=self.quote_char)}"
 
                 # Step 2: Build middle query with CASE WHEN using temp aliases
-                # Need to include __orig_row_num__ in the select
+                # Need to include the internal row number in the select
                 middle_select = ", ".join(
                     f.to_sql(quote_char=self.quote_char) for f in case_when_select
                 )
-                middle_sql = f"SELECT {middle_select}, __orig_row_num__ FROM ({inner_sql}) AS __filter_subq__"
+                middle_sql = f"SELECT {middle_select}, {alias} FROM ({inner_sql}) AS __filter_subq__"
             else:
                 # No row order needed - simpler structure
                 inner_sql = f"SELECT * FROM {table_source}"
@@ -1614,12 +1623,12 @@ class SQLExecutionEngine:
             if needs_row_order:
                 # Still need to capture row order
                 innermost_sql = (
-                    f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+                    f"SELECT *, {row_num_expr} AS {alias} FROM {table_source}"
                 )
                 inner_select = ", ".join(
                     f.to_sql(quote_char=self.quote_char) for f in case_when_select
                 )
-                middle_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({innermost_sql}) AS __rownum_subq__"
+                middle_sql = f"SELECT {inner_select}, {alias} FROM ({innermost_sql}) AS __rownum_subq__"
             else:
                 inner_select = ", ".join(
                     f.to_sql(quote_char=self.quote_char) for f in case_when_select
@@ -1633,7 +1642,8 @@ class SQLExecutionEngine:
         )
 
         if needs_row_order:
-            # Use SELECT ... EXCEPT to exclude __orig_row_num__ from final output
+            # Drop the internal row number from the final output. The user's
+            # column of the same name, if any, is in outer_select and stays.
             sql_parts = [f"SELECT {outer_select}"]
             sql_parts.append(f"FROM ({middle_sql}) AS __case_subq__")
 
@@ -1642,9 +1652,9 @@ class SQLExecutionEngine:
                 orderby_sql = build_orderby_clause(
                     clauses.orderby_fields, self.quote_char, stable=False
                 )
-                sql_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
+                sql_parts.append(f"ORDER BY {orderby_sql}, {alias} ASC")
             else:
-                sql_parts.append("ORDER BY __orig_row_num__ ASC")
+                sql_parts.append(f"ORDER BY {alias} ASC")
         else:
             sql_parts = [f"SELECT {outer_select}"]
             sql_parts.append(f"FROM ({middle_sql}) AS __case_subq__")
@@ -1695,9 +1705,10 @@ class SQLExecutionEngine:
         """
         table_source = self.get_table_source()
         row_num_expr = self.get_row_number_expr()
+        alias = self._row_order_alias()
 
         # Build the inner query
-        inner_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+        inner_sql = f"SELECT *, {row_num_expr} AS {alias} FROM {table_source}"
 
         # Build middle query with columns and WHERE
         middle_parts = []
@@ -1710,14 +1721,14 @@ class SQLExecutionEngine:
             )
             if include_star:
                 middle_parts.append(
-                    f"SELECT {distinct_keyword}*, {fields_sql}, __orig_row_num__"
+                    f"SELECT {distinct_keyword}*, {fields_sql}, {alias}"
                 )
             else:
                 middle_parts.append(
-                    f"SELECT {distinct_keyword}{fields_sql}, __orig_row_num__"
+                    f"SELECT {distinct_keyword}{fields_sql}, {alias}"
                 )
         else:
-            middle_parts.append(f"SELECT {distinct_keyword}*, __orig_row_num__")
+            middle_parts.append(f"SELECT {distinct_keyword}*, {alias}")
 
         middle_parts.append(f"FROM ({inner_sql}) AS __subq_with_rownum__")
 
@@ -1729,9 +1740,9 @@ class SQLExecutionEngine:
 
         middle_sql = " ".join(middle_parts)
 
-        # Build outer query with ORDER BY using __orig_row_num__ as tie-breaker
+        # Build outer query with ORDER BY using the internal row number as tie-breaker
         outer_parts = []
-        outer_parts.append("SELECT * EXCEPT(__orig_row_num__)")
+        outer_parts.append(f"SELECT * EXCEPT({alias})")
         outer_parts.append(f"FROM ({middle_sql}) AS __subq_for_stable_sort__")
 
         if clauses.orderby_fields:
@@ -1740,7 +1751,7 @@ class SQLExecutionEngine:
                 self.quote_char,
                 stable=False,  # Don't add rowNumberInAllBlocks()
             )
-            outer_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
+            outer_parts.append(f"ORDER BY {orderby_sql}, {alias} ASC")
 
         if clauses.limit_value is not None:
             outer_parts.append(f"LIMIT {clauses.limit_value}")
@@ -2347,6 +2358,7 @@ class SQLExecutionEngine:
         """
         table_source = self.get_table_source()
         row_num_expr = self.get_row_number_expr()
+        alias = self._row_order_alias()
         inner_select = ", ".join(
             f.to_sql(quote_char=self.quote_char) for f in select_fields
         )
@@ -2355,7 +2367,7 @@ class SQLExecutionEngine:
             if clauses.where_conditions:
                 # Capture row number before WHERE filtering
                 rownum_sql = (
-                    f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+                    f"SELECT *, {row_num_expr} AS {alias} FROM {table_source}"
                 )
 
                 # Build WHERE on top of row number subquery
@@ -2363,13 +2375,13 @@ class SQLExecutionEngine:
                 for cond in clauses.where_conditions[1:]:
                     combined = combined & cond
 
-                inner_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({rownum_sql}) AS __rownum_subq__ WHERE {combined.to_sql(quote_char=self.quote_char)}"
+                inner_sql = f"SELECT {inner_select}, {alias} FROM ({rownum_sql}) AS __rownum_subq__ WHERE {combined.to_sql(quote_char=self.quote_char)}"
             else:
                 # No WHERE but still need row order - simpler structure
                 rownum_sql = (
-                    f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+                    f"SELECT *, {row_num_expr} AS {alias} FROM {table_source}"
                 )
-                inner_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({rownum_sql}) AS __rownum_subq__"
+                inner_sql = f"SELECT {inner_select}, {alias} FROM ({rownum_sql}) AS __rownum_subq__"
         else:
             # No row order needed - use original simple structure
             inner_sql = self.assemble_sql(
@@ -2400,11 +2412,11 @@ class SQLExecutionEngine:
 
         if clauses.orderby_fields:
             if needs_row_order:
-                # Use __orig_row_num__ as tie-breaker (no need for rowNumberInAllBlocks())
+                # Use the internal row number as tie-breaker (no need for rowNumberInAllBlocks())
                 orderby_sql = build_orderby_clause(
                     clauses.orderby_fields, self.quote_char, stable=False
                 )
-                sql_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
+                sql_parts.append(f"ORDER BY {orderby_sql}, {alias} ASC")
             else:
                 # Respect user's stable sort setting
                 orderby_sql = build_orderby_clause(
@@ -2414,7 +2426,7 @@ class SQLExecutionEngine:
                 )
                 sql_parts.append(f"ORDER BY {orderby_sql}")
         elif needs_row_order:
-            sql_parts.append("ORDER BY __orig_row_num__ ASC")
+            sql_parts.append(f"ORDER BY {alias} ASC")
 
         if clauses.limit_value is not None:
             sql_parts.append(f"LIMIT {clauses.limit_value}")

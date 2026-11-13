@@ -2512,9 +2512,12 @@ class DataStore(PandasCompatMixin):
 
         This ensures __orig_row_num__ is calculated from the source data before filtering.
         """
-        from .utils import build_orderby_clause
+        from .utils import build_orderby_clause, row_order_alias
 
-        # Build the inner query: SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM source
+        # The alias must not collide with a user column of the same name.
+        alias = row_order_alias(self._get_all_column_names())
+
+        # Build the inner query: SELECT *, rowNumberInAllBlocks() AS <alias> FROM source
         if self._table_function:
             if hasattr(self._table_function, "to_sql"):
                 table_sql = self._table_function.to_sql()
@@ -2526,7 +2529,7 @@ class DataStore(PandasCompatMixin):
             table_sql = "source"
 
         inner_sql = (
-            f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_sql}"
+            f"SELECT *, rowNumberInAllBlocks() AS {alias} FROM {table_sql}"
         )
 
         # Build middle query: SELECT columns FROM (inner) WHERE conditions
@@ -2540,14 +2543,14 @@ class DataStore(PandasCompatMixin):
             )
             if self._select_star:
                 middle_parts.append(
-                    f"SELECT {distinct_keyword}*, {fields_sql}, __orig_row_num__"
+                    f"SELECT {distinct_keyword}*, {fields_sql}, {alias}"
                 )
             else:
                 middle_parts.append(
-                    f"SELECT {distinct_keyword}{fields_sql}, __orig_row_num__"
+                    f"SELECT {distinct_keyword}{fields_sql}, {alias}"
                 )
         else:
-            middle_parts.append(f"SELECT {distinct_keyword}*, __orig_row_num__")
+            middle_parts.append(f"SELECT {distinct_keyword}*, {alias}")
 
         middle_parts.append(f"FROM ({inner_sql}) AS __subq_with_rownum__")
 
@@ -2562,17 +2565,17 @@ class DataStore(PandasCompatMixin):
 
         # Build outer query: SELECT * EXCEPT(__orig_row_num__) FROM (middle) ORDER BY ... LIMIT
         outer_parts = []
-        outer_parts.append("SELECT * EXCEPT(__orig_row_num__)")
+        outer_parts.append(f"SELECT * EXCEPT({alias})")
         outer_parts.append(f"FROM ({middle_sql}) AS __subq_for_stable_sort__")
 
-        # ORDER BY with __orig_row_num__ as tie-breaker instead of rowNumberInAllBlocks()
+        # ORDER BY with the internal row number as tie-breaker instead of rowNumberInAllBlocks()
         if orderby_fields:
             orderby_sql = build_orderby_clause(
                 orderby_fields,
                 self.quote_char,
                 stable=False,  # Don't add rowNumberInAllBlocks()
             )
-            outer_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
+            outer_parts.append(f"ORDER BY {orderby_sql}, {alias} ASC")
 
         # LIMIT
         if limit_value is not None:

@@ -17,6 +17,8 @@ __all__ = [
     'build_orderby_clause',
     'is_stable_sort',
     'map_agg_func',
+    'row_order_alias',
+    'ROW_ORDER_ALIAS',
     'STABLE_SORT_TIEBREAKER',
     'STABLE_SORT_KINDS',
     'SQL_AGG_FUNC_MAP',
@@ -147,6 +149,27 @@ def format_identifier(name: str, quote_char: str = '"') -> str:
         # Escape the quote character by doubling it (SQL standard)
         escaped_name = escaped_name.replace(quote_char, quote_char + quote_char)
         return f"{quote_char}{escaped_name}{quote_char}"
+    return name
+
+
+# Pre-filter row number injected as ``SELECT *, <expr> AS <alias>``.
+# Callers detect this SQL by the ``__orig_row_num__`` substring, so a
+# collision suffix must keep that substring (extra trailing underscores).
+ROW_ORDER_ALIAS = "__orig_row_num__"
+
+
+def row_order_alias(column_names) -> str:
+    """Internal alias for the pre-filter row number.
+
+    ``SELECT *, rowNumberInAllBlocks() AS __orig_row_num__`` emits two
+    columns when the source already has that name. ClickHouse then raises
+    AMBIGUOUS_COLUMN_NAME (Code 352) and ``EXCEPT`` cannot keep the user's
+    column. Extra trailing underscores avoid every name already taken.
+    """
+    taken = set(column_names or ())
+    name = ROW_ORDER_ALIAS
+    while name in taken:
+        name += "_"
     return name
 
 
