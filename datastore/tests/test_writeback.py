@@ -1455,6 +1455,21 @@ class TestCreateView:
         finally:
             _drop_view(view)
 
+    def test_view_with_as_index_false_agg_then_filter(self, source_table):
+        """Execution filters a groupby(as_index=False) result in a later step
+        to keep its row labels; a view has none, so it is still one query."""
+        view = "wb_view_as_index_false_filter"
+        _drop_view(view)
+        try:
+            ds = _make_ds(source_table)
+            totals = ds.groupby("city", as_index=False).agg(total=("amount", "sum"))
+            totals[totals["total"] > 400].create_view(f"{DATABASE}.{view}")
+            pdf = _source_table_pdf()
+            pd_totals = pdf.groupby("city", as_index=False).agg(total=("amount", "sum"))
+            _assert_written(view, pd_totals[pd_totals["total"] > 400], ["city"])
+        finally:
+            _drop_view(view)
+
     def test_view_replace_swaps_definition(self, source_table):
         view = "wb_view_replace"
         _drop_view(view)
