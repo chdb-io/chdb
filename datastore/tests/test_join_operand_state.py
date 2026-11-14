@@ -2,7 +2,8 @@
 Joins, merges and unions take their other operand as it is at call time,
 whichever path runs them: a DataStore operand is frozen and a pandas
 DataFrame operand is copied, so later in-place changes don't reach the
-result (pandas reads the operand when called).
+result (pandas reads the operand when called). An anti merge run lazily in
+pandas reports its result columns to the ops after it on pandas 2 too.
 """
 
 import pandas as pd
@@ -10,6 +11,7 @@ import pytest
 
 import datastore
 from datastore import DataStore
+from datastore.lazy_ops import LazyJoin
 from datastore.pandas_compat import _pandas_merge
 from tests.test_utils import assert_datastore_equals_pandas
 
@@ -77,3 +79,10 @@ def test_anti_merge_then_column_ops(make, how):
     pd_result = merged[merged["id"] > 0][["id", "a_l", "a_r"]]
     assert_datastore_equals_pandas(ds_result, pd_result)
 
+
+@pytest.mark.parametrize("how", ["left_anti", "right_anti"])
+def test_anti_merge_predicts_its_columns(how):
+    # The planner reads these without executing the merge
+    join = LazyJoin(RIGHT, on="id", how=how, suffixes=("_l", "_r"))
+    merged = _pandas_merge(LEFT, RIGHT, on="id", how=how, suffixes=("_l", "_r"))
+    assert join.transform_columns(list(LEFT.columns)) == list(merged.columns)

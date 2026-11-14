@@ -3025,6 +3025,7 @@ class LazyJoin(LazyOp):
     def transform_columns(self, columns: List[str]) -> List[str]:
         """Columns pandas.merge() returns, found by merging empty frames."""
         from .core import DataStore
+        from .pandas_compat import _pandas_merge
 
         right = self.right
         try:
@@ -3037,7 +3038,7 @@ class LazyJoin(LazyOp):
             else:
                 return columns
             empty_index = pd.Index([], dtype=object)
-            merged = pd.merge(
+            merged = _pandas_merge(
                 pd.DataFrame(columns=columns, index=empty_index),
                 pd.DataFrame(columns=right_columns, index=empty_index),
                 on=self.on,
