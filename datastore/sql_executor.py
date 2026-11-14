@@ -746,9 +746,11 @@ class SQLExecutionEngine:
     duplicated in _execute() and _build_execution_sql() methods.
     """
 
-    def __init__(self, datastore: "DataStore"):
+    def __init__(self, datastore: "DataStore", quote_char: Optional[str] = None):
         self.ds = datastore
-        self.quote_char = datastore.quote_char
+        # The quote character of identifiers in the SQL built (to_sql() may
+        # ask for another one than the DataStore's)
+        self.quote_char = quote_char or datastore.quote_char
         self._logger = get_logger()
         # The LazyDistinct of the layer being built and the columns entering
         # it, when known (see _build_layer)
