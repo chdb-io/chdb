@@ -2416,9 +2416,13 @@ class DataStore(PandasCompatMixin):
             # SQL GROUP BY orders category labels as plain values and drops
             # the categorical dtype; pandas groups in category order.
             groupby_agg = segment.plan.groupby_agg if segment.plan else None
-            if groupby_agg is not None and any(
-                isinstance(df.dtypes.get(col), pd.CategoricalDtype)
-                for col in groupby_agg.groupby_cols
+            if (
+                groupby_agg is not None
+                and groupby_agg.runs_in_pandas()
+                and any(
+                    isinstance(df.dtypes.get(col), pd.CategoricalDtype)
+                    for col in groupby_agg.groupby_cols
+                )
             ):
                 self._logger.debug("  Categorical group key: executing segment with pandas")
                 for op in segment.ops:
@@ -2687,10 +2691,11 @@ class DataStore(PandasCompatMixin):
             return self._generate_select_sql(self.quote_char)
         return result.sql
 
-    def _plan_build_result(self) -> Optional["SQLBuildResult"]:
+    def _plan_build_result(self, quote_char: Optional[str] = None) -> Optional["SQLBuildResult"]:
         """
         SQL of the lazy-op plan's first step against the source, built as
-        ``_execute()`` builds it; None without a SQL source or lazy ops, or
+        ``_execute()`` builds it (identifiers quoted with ``quote_char``,
+        default this DataStore's); None without a SQL source or lazy ops, or
         when the first step runs in pandas.
         """
         if not (self._table_function or self.table_name) or not self._lazy_ops:
@@ -2717,7 +2722,7 @@ class DataStore(PandasCompatMixin):
         ):
             return None
 
-        sql_engine = SQLExecutionEngine(self)
+        sql_engine = SQLExecutionEngine(self, quote_char=quote_char)
         return sql_engine.build_sql_from_plan(first_segment.plan, schema)
 
     def _plan_segments(self, ops: Optional[list] = None):
@@ -2887,6 +2892,11 @@ class DataStore(PandasCompatMixin):
         if format and format.lower() == "parquet":
             if not is_performance_mode():
                 ds._format_settings["input_format_parquet_preserve_order"] = 1
+
+        # For CSV/TSV files, infer exponent-notation numbers such as 3.2e-05 as
+        # Float64 like pandas does; ClickHouse infers them as String by default
+        if format and format.lower().startswith(("csv", "tsv", "tabseparated")):
+            ds._format_settings["input_format_try_infer_exponent_floats"] = 1
 
         return ds
 
@@ -9796,7 +9806,7 @@ class DataStore(PandasCompatMixin):
         elif execution_format or not self._flat_sql_renders_pipeline():
             # The lazy-op plan as _execute() runs it; the default form also
             # carries the SETTINGS _execute() adds.
-            result = self._plan_build_result()
+            result = self._plan_build_result(quote_char)
             if result is None:
                 sql = self._generate_select_sql(quote_char)
             elif execution_format or result.has_settings:

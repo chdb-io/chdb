@@ -561,6 +561,7 @@ def build_groupby_select_fields(
 
     min_count = groupby_agg.kwargs.get("min_count") or 0
     skipna = groupby_agg.kwargs.get("skipna", True)
+    nunique_dropna = groupby_agg.kwargs.get("nunique_dropna", True)
 
     def with_min_count(func: str, col_expr: Expression) -> Expression:
         """
@@ -631,6 +632,19 @@ def build_groupby_select_fields(
             return AggregateFunction('count', Star())
         elif func in ('sum', 'prod'):
             expr = with_min_count(func, col_expr)
+        elif func == 'nunique' and not nunique_dropna:
+            # dropna=False: a missing value (NULL, or NaN, which isn't equal
+            # to itself) counts as one more distinct value
+            present = Function('ifNull', Function('equals', col_expr, col_expr), Literal(0))
+            missing = Function('or', Function('isNull', col_expr), Function('not', present))
+            expr = Function(
+                'toInt64',
+                Function(
+                    'plus',
+                    AggregateFunction('uniqExactIf', col_expr, present),
+                    Function('greater', AggregateFunction('countIf', missing), Literal(0)),
+                ),
+            )
         else:
             expr = AggregateFunction(map_agg_func(func), col_expr)
         if skipna or func not in SKIPNA_AGG_FUNCS:
@@ -806,9 +820,16 @@ class SQLExecutionEngine:
     duplicated in _execute() and _build_execution_sql() methods.
     """
 
-    def __init__(self, datastore: "DataStore", row_labels: bool = False):
+    def __init__(
+        self,
+        datastore: "DataStore",
+        row_labels: bool = False,
+        quote_char: Optional[str] = None,
+    ):
         self.ds = datastore
-        self.quote_char = datastore.quote_char
+        # The quote character of identifiers in the SQL built (to_sql() may
+        # ask for another one than the DataStore's)
+        self.quote_char = quote_char or datastore.quote_char
         self._logger = get_logger()
         # The LazyDistinct of the layer being built and the columns entering
         # it, when known (see _build_layer)
@@ -3216,8 +3237,17 @@ class SQLExecutionEngine:
             sql, df, "__df__", preserve_order=needs_order_preservation
         )
 
-        if is_simple_limit_only and not _is_perf_exec():
-            # The first rows in order: they keep the DataFrame's first labels
+        # Without order preservation there is no _row_id to restore the index
+        # from. A plain LIMIT keeps the first rows in order, so take their
+        # labels from the input (e.g. ds.iloc[1:5].head(2) keeps 1 and 2).
+        if (
+            is_simple_limit_only
+            and not _is_perf_exec()
+            and all(
+                isinstance(op, LazyRelationalOp) and op.op_type in ("LIMIT", "SELECT")
+                for op in plan.sql_ops
+            )
+        ):
             result_df.index = df.index[: len(result_df)]
 
         # Handle empty column selection: return DataFrame with 0 columns but correct row count

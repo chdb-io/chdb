@@ -44,6 +44,40 @@ _GROUPBY_AGG_METHODS = frozenset(
 )
 
 
+# Arguments of a grouped column reduction at their pandas defaults
+_REDUCTION_DEFAULTS = {
+    "axis": (None, 0),
+    "numeric_only": (False, None),
+    "skipna": (True,),
+    "min_count": (0,),
+    "ddof": (1,),
+    "dropna": (True,),
+    "interpolation": ("linear",),
+}
+
+
+def _sql_reduction_supports(func: str, kwargs: dict) -> bool:
+    """
+    Whether the SQL aggregation step computes the grouped reduction ``func``
+    with these pandas arguments. An argument it doesn't implement, or a
+    value it doesn't (``ddof=2``), makes the reduction run in pandas instead
+    of being dropped.
+    """
+    for key, value in kwargs.items():
+        if value in _REDUCTION_DEFAULTS.get(key, ()):
+            continue
+        supported = (
+            (key == "min_count" and func in ("sum", "prod"))
+            or (key == "skipna" and func in SKIPNA_AGG_FUNCS)
+            or (key == "dropna" and func == "nunique")
+            or (key == "ddof" and func in ("std", "var") and value in (0, 1))
+            or (key == "q" and func == "quantile" and pd.api.types.is_scalar(value))
+        )
+        if not supported:
+            return False
+    return True
+
+
 def _is_numeric_dtype(dtype) -> bool:
     """Safely check if dtype is numeric. Handles pandas extension dtypes."""
     import numpy as np
@@ -1377,6 +1411,7 @@ class ColumnExpr:
         if (
             get_execution_engine() == ExecutionEngine.PANDAS
             or self._datastore._source_labels_repeat()
+            or not _sql_reduction_supports(pandas_func, self._method_kwargs)
         ):
             source = copy(self._datastore)
             source._groupby_fields = []
@@ -1426,6 +1461,11 @@ class ColumnExpr:
                     if k == "min_count"
                 },
                 **skipna_kwargs,
+                **(
+                    {"nunique_dropna": False}
+                    if pandas_func == "nunique" and not self._method_kwargs.get("dropna", True)
+                    else {}
+                ),
             )
         else:
             # A parametrized function (quantile(q), stddevPop for ddof=0), a
