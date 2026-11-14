@@ -6908,6 +6908,7 @@ class DataStore(PandasCompatMixin):
             >>> ds.select("*", ds.name.str.upper().as_("name_upper"))  # All columns + computed
         """
         from .column_expr import ColumnExpr
+        from .expressions import projection_name
         from .functions import Function
 
         # Check if any field is a SQL expression (Function, Expression, ColumnExpr with expression)
@@ -6938,7 +6939,30 @@ class DataStore(PandasCompatMixin):
             f._expr if isinstance(f, ColumnExpr) and f._expr is not None else f
             for f in fields
         ]
-        self._add_lazy_op(LazyRelationalOp("SELECT", field_names, fields=op_fields))
+        hidden = self._hidden_select_aliases(op_fields)
+        if hidden:
+            # In one SELECT a column's name refers to the field aliased to it,
+            # so a field that reads a column another field's alias replaces is
+            # computed under a hidden name first and renamed in a second SELECT.
+            first = [
+                f.with_attrs(alias=hidden[i]) if i in hidden else f
+                for i, f in enumerate(op_fields)
+            ]
+            second = [
+                Field(hidden[i], alias=projection_name(f)) if i in hidden
+                else projection_name(f)
+                for i, f in enumerate(op_fields)
+            ]
+            for step in (first, second):
+                self._add_lazy_op(
+                    LazyRelationalOp(
+                        "SELECT", ", ".join(str(f) for f in step), fields=step
+                    )
+                )
+        else:
+            self._add_lazy_op(
+                LazyRelationalOp("SELECT", field_names, fields=op_fields)
+            )
 
         for field in fields:
             if isinstance(field, str):
@@ -6957,6 +6981,47 @@ class DataStore(PandasCompatMixin):
             self._select_fields.append(field)
 
         return self
+
+    @staticmethod
+    def _hidden_select_aliases(fields) -> Dict[int, str]:
+        """
+        Hidden names, by position, for the fields of an explicit SELECT whose
+        alias names a column another of its fields reads.
+        """
+        from .expressions import is_star_item, projection_name
+
+        if any(is_star_item(f) for f in fields) or not all(
+            isinstance(f, (str, Expression)) and projection_name(f) for f in fields
+        ):
+            return {}
+        # A plain column reference keeps its name; computed fields read
+        # their columns, or unknown ones (None)
+        reads = [
+            set()
+            if isinstance(f, str) or (isinstance(f, Field) and not f.alias)
+            else f.columns_read()
+            for f in fields
+        ]
+        shadowing = [
+            i
+            for i, f in enumerate(fields)
+            if isinstance(f, Expression)
+            and f.alias
+            and not (isinstance(f, Field) and f.name == f.alias)
+            and any(
+                r is None or f.alias in r for j, r in enumerate(reads) if j != i
+            )
+        ]
+        taken = {projection_name(f) for f in fields}.union(*(r or () for r in reads))
+        hidden = {}
+        for i in shadowing:
+            alias = fields[i].alias
+            name, suffix = f"__{alias}__", 1
+            while name in taken:
+                name, suffix = f"__{alias}_{suffix}__", suffix + 1
+            taken.add(name)
+            hidden[i] = name
+        return hidden
 
     @immutable
     def filter(
