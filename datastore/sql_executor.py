@@ -2710,6 +2710,19 @@ class SQLExecutionEngine:
             sql, df, "__df__", preserve_order=needs_order_preservation
         )
 
+        # Without order preservation there is no _row_id to restore the index
+        # from. A plain LIMIT keeps the first rows in order, so take their
+        # labels from the input (e.g. ds.iloc[1:5].head(2) keeps 1 and 2).
+        if (
+            is_simple_limit_only
+            and not _is_perf_exec()
+            and all(
+                isinstance(op, LazyRelationalOp) and op.op_type in ("LIMIT", "SELECT")
+                for op in plan.sql_ops
+            )
+        ):
+            result_df.index = df.index[: len(result_df)]
+
         # Handle empty column selection: return DataFrame with 0 columns but correct row count
         if getattr(plan, "_empty_column_select", False):
             # Remove _row_id and return empty column DataFrame

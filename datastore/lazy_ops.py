@@ -2841,3 +2841,52 @@ class LazySliceStep(LazyOp):
             pass
 
         return " AND ".join(conditions) if conditions else "1=1"
+
+
+class LazyILoc(LazyOp):
+    """
+    Lazy positional row selection: df.iloc[rows].
+
+    Holds the row part of ds.iloc[...] (a slice, a list of integer positions
+    or a boolean mask) and applies it with pandas, so the selected rows keep
+    their index like pandas.
+
+    Examples:
+        ds.iloc[1:3]       # Rows at positions 1 and 2
+        ds.iloc[[0, 2]]    # Rows at positions 0 and 2
+        ds.iloc[[True, False, True]]
+    """
+
+    def __init__(self, rows):
+        """
+        Args:
+            rows: A slice, or a list of integer positions or booleans.
+        """
+        super().__init__()
+        self.rows = rows
+
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
+        """Execute the row selection using pandas iloc."""
+        self._log_execute("ILoc", self.describe())
+        rows_before = len(df)
+
+        result = df.iloc[self.rows]
+
+        self._logger.debug("      -> df.iloc[rows]: %d -> %d rows", rows_before, len(result))
+        return result
+
+    def describe(self) -> str:
+        rows = self.rows
+        if isinstance(rows, slice):
+            parts = ["" if v is None else str(v) for v in (rows.start, rows.stop)]
+            if rows.step is not None:
+                parts.append(str(rows.step))
+            return f"iloc rows [{':'.join(parts)}]"
+        shown = ", ".join(str(v) for v in rows[:10])
+        if len(rows) > 10:
+            shown += ", ..."
+        return f"iloc rows [{shown}]"
+
+    def can_push_to_sql(self) -> bool:
+        """Positional row selection runs on pandas."""
+        return False
