@@ -303,6 +303,10 @@ SQL_AGG_FUNC_MAP = {
     'size': 'count',
 }
 
+# pandas reductions that return NA for a group holding a missing value
+# when called with skipna=False
+SKIPNA_AGG_FUNCS = frozenset({'sum', 'mean', 'min', 'max', 'std', 'var', 'median', 'prod'})
+
 
 def map_agg_func(func: str) -> str:
     """
