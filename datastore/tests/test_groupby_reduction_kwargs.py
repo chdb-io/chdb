@@ -120,6 +120,27 @@ def test_reduction_arguments_of_computed_column(kind, reduce, alias, tmp_path):
     assert ds_result.name == get_series(computed.std()).name
 
 
+
+@pytest.mark.parametrize(
+    "reduce",
+    [
+        pytest.param(lambda g: g.sum(min_count=2), id="sum_min_count2"),
+        pytest.param(lambda g: g.nunique(dropna=False), id="nunique_dropna_false"),
+    ],
+)
+@pytest.mark.parametrize("alias", [None, "w"])
+def test_count_arguments_of_computed_column(kind, reduce, alias, tmp_path):
+    df = pd.DataFrame({"k": KEYS, "v": COLUMNS["float"], "w": VALUES * 100})
+    ds = _make(kind, df, tmp_path)
+    computed = ds.groupby("k")["v"] + 1
+    if alias is not None:
+        computed = computed.as_(alias)
+    ds_result = get_series(reduce(computed))
+    pd_result = reduce((df["v"] + 1).groupby(df["k"]))
+    np.testing.assert_array_equal(ds_result.to_numpy(dtype=float), pd_result.to_numpy(dtype=float))
+    assert list(ds_result.index) == list(pd_result.index)
+    assert ds_result.name == get_series(computed.sum()).name
+
 @pytest.fixture(params=["auto", "pandas"])
 def engine(request):
     set_execution_engine(
