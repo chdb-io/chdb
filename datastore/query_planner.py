@@ -37,7 +37,7 @@ from .lazy_ops import (
     LazyDistinct,
 )
 from .expressions import Field, Expression, is_star_item, projection_name
-from .config import get_logger
+from .config import get_logger, is_performance_mode
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -563,6 +563,7 @@ class QueryPlanner:
         has_sql_source: bool,
         schema: Dict[str, str] = None,
         local_source: bool = False,
+        keep_row_labels: bool = True,
     ) -> ExecutionPlan:
         """
         Analyze LazyOp chain and produce a segmented execution plan.
@@ -584,11 +585,16 @@ class QueryPlanner:
             lazy_ops: List of lazy operations to analyze
             has_sql_source: Whether there's a SQL-compatible data source
             schema: Optional dict mapping column names to types
+            keep_row_labels: Plan for a result whose row labels are read.
+                False for callers that only read the columns of a single
+                query (Arrow, server-side writeback), so the steps after a
+                groupby(as_index=False) aggregation stay in its query.
 
         Returns:
             ExecutionPlan with multiple segments
         """
         exec_plan = ExecutionPlan(has_sql_source=has_sql_source)
+        split_for_labels = keep_row_labels and not is_performance_mode()
 
         if not lazy_ops:
             # Even with no operations, if there's a SQL source we need a segment
@@ -674,11 +680,17 @@ class QueryPlanner:
 
         def save_segment(segment_type, segment_ops):
             nonlocal is_first
-            chunks = (
-                self._split_by_layer_depth(segment_ops)
-                if segment_type == "sql"
-                else [segment_ops]
-            )
+            if segment_type == "sql":
+                runs = (
+                    self._split_after_unindexed_groupby(segment_ops)
+                    if split_for_labels
+                    else [segment_ops]
+                )
+                chunks = [
+                    chunk for run in runs for chunk in self._split_by_layer_depth(run)
+                ]
+            else:
+                chunks = [segment_ops]
             for chunk in chunks:
                 exec_plan.segments.append(
                     self._create_segment(
@@ -710,6 +722,37 @@ class QueryPlanner:
         )
 
         return exec_plan
+
+    @staticmethod
+    def _split_after_unindexed_groupby(ops: List[LazyOp]) -> List[List[LazyOp]]:
+        """Split SQL ops after a groupby(as_index=False) aggregation whose rows
+        a later step sorts, filters or skips.
+
+        pandas labels the rows of such an aggregation 0..n-1 by group and the
+        later steps keep those labels. One query that also sorts or filters
+        the groups returns them labeled 0..n-1 again, so the later steps run
+        on the aggregated result, which keeps its labels like any DataFrame.
+        """
+
+        def moves_rows(op):
+            return isinstance(op, LazyRelationalOp) and op.op_type in (
+                "WHERE",
+                "ORDER BY",
+                "OFFSET",
+            )
+
+        runs = []
+        start = 0
+        for i, op in enumerate(ops):
+            if (
+                isinstance(op, LazyGroupByAgg)
+                and not op.as_index
+                and any(moves_rows(later) for later in ops[i + 1 :])
+            ):
+                runs.append(ops[start : i + 1])
+                start = i + 1
+        runs.append(ops[start:])
+        return runs
 
     def _split_by_layer_depth(self, ops: List[LazyOp]) -> List[List[LazyOp]]:
         """Split SQL ops into consecutive runs of at most MAX_SQL_LAYERS

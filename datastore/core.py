@@ -1940,8 +1940,10 @@ class DataStore(PandasCompatMixin):
             self._logger.debug("  SQL returned DataFrame with shape: %s", df.shape)
 
         else:
-            # Subsequent segment: execute on DataFrame via Python() table function
-            if df.empty and not (self._table_function or self.table_name):
+            # Subsequent segment: execute on DataFrame via Python() table function.
+            # An empty df is the previous segment's result (a pandas segment
+            # reads the source itself), not a sign that nothing was read yet.
+            if df.empty:
                 self._logger.debug("  No data to execute SQL on")
                 # Even for empty DataFrames, apply column selection if present
                 # This ensures df[['a', 'b']] on empty df returns correct columns
@@ -2017,29 +2019,6 @@ class DataStore(PandasCompatMixin):
                         if all(col in df.columns for col in groupby_cols):
                             df = df.set_index(groupby_cols)
                     return df
-
-            # If we have a source but no DataFrame yet, load raw data first
-            if df.empty and (self._table_function or self.table_name):
-                if self._executor is None:
-                    self.connect()
-                # Load raw data without any filters
-                if self._table_function:
-                    table_sql = self._table_function.to_sql()
-                else:
-                    table_sql = f"{self.quote_char}{self.table_name}{self.quote_char}"
-                load_sql = f"SELECT * FROM {table_sql}"
-                # Append format settings if present
-                if self._format_settings:
-                    settings_parts = []
-                    for key, value in self._format_settings.items():
-                        if isinstance(value, str):
-                            settings_parts.append(f"{key}='{value}'")
-                        else:
-                            settings_parts.append(f"{key}={value}")
-                    load_sql = f"{load_sql} SETTINGS {', '.join(settings_parts)}"
-                result = self._executor.execute(load_sql)
-                df = result.to_df()
-                self._logger.debug("  Loaded raw data from source: %s rows", len(df))
 
             plan = segment.plan
             if plan is None:
@@ -4108,8 +4087,10 @@ class DataStore(PandasCompatMixin):
         Return the ``SQLBuildResult`` iff the entire pipeline collapses to ONE
         first-segment SQL query against the original source (so the query result
         is the *final* result); return ``None`` otherwise. Mirrors the segment
-        planning done in :meth:`_execute`. The SQL is a single SELECT with at
-        most one SETTINGS clause, so it can also be embedded as a subquery.
+        planning done in :meth:`_execute`, except that the query result has no
+        row labels, so it is not split to keep them. The SQL is a single SELECT
+        with at most one SETTINGS clause, so it can also be embedded as a
+        subquery.
         """
         from .query_planner import QueryPlanner
 
@@ -4127,6 +4108,7 @@ class DataStore(PandasCompatMixin):
             has_sql_source=True,
             schema=schema,
             local_source=False,  # non-Python source (excluded in _try_native_arrow)
+            keep_row_labels=False,
         )
         if len(exec_plan.segments) != 1:
             return None
