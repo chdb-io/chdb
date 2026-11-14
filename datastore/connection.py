@@ -597,7 +597,8 @@ class Connection:
         Check if the query is an aggregate query (has aggregate functions but no GROUP BY).
 
         Aggregate queries return a single row or reduced result set,
-        so row order preservation doesn't make sense.
+        so row order preservation doesn't make sense. ``sql_upper`` is the
+        upper-cased query with its quoted parts masked (``_mask_quoted``).
         """
         # Common aggregate functions (standard SQL and ClickHouse-specific)
         aggregate_functions = [
@@ -641,12 +642,16 @@ class Connection:
             "STOCHASTICLINEARREGRESSION(",
         ]
 
-        # Check if any aggregate function is present
-        has_aggregate = any(func in sql_upper for func in aggregate_functions)
-
         # It's an aggregate query if it has aggregate functions but no GROUP BY
-        # (GROUP BY is already handled separately)
-        return has_aggregate
+        # (GROUP BY is already handled separately). A window call
+        # (``sum(x) OVER (...)``) returns a value per row and doesn't count.
+        for func in aggregate_functions:
+            start = sql_upper.find(func)
+            while start != -1:
+                if not _is_window_call(sql_upper, start + len(func) - 1):
+                    return True
+                start = sql_upper.find(func, start + 1)
+        return False
 
     def _add_order_by(self, sql: str, order_col: str) -> str:
         """
