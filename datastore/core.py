@@ -1941,6 +1941,18 @@ class DataStore(PandasCompatMixin):
 
         else:
             # Subsequent segment: execute on DataFrame via Python() table function.
+            # SQL GROUP BY orders category labels as plain values and drops
+            # the categorical dtype; pandas groups in category order.
+            groupby_agg = segment.plan.groupby_agg if segment.plan else None
+            if groupby_agg is not None and any(
+                isinstance(df.dtypes.get(col), pd.CategoricalDtype)
+                for col in groupby_agg.groupby_cols
+            ):
+                self._logger.debug("  Categorical group key: executing segment with pandas")
+                for op in segment.ops:
+                    df = op.execute(df, self)
+                return df
+
             # An empty df is the previous segment's result (a pandas segment
             # reads the source itself), not a sign that nothing was read yet.
             if df.empty:
@@ -7581,6 +7593,7 @@ class DataStore(PandasCompatMixin):
         sort: bool = True,
         as_index: bool = True,
         dropna: bool = True,
+        observed: Optional[bool] = None,
         **kwargs,
     ) -> "LazyGroupBy":
         """
@@ -7604,6 +7617,8 @@ class DataStore(PandasCompatMixin):
                       If False, group keys are returned as columns in the result.
             dropna: If True (default), exclude NA/null values in keys.
                     If False, NA values are also grouped.
+            observed: For categorical keys, only show observed categories.
+                      None (default) uses the pandas default.
             **kwargs: Additional arguments (for pandas compatibility, currently ignored).
 
         Returns:
@@ -7702,6 +7717,7 @@ class DataStore(PandasCompatMixin):
             sort=sort,
             as_index=as_index,
             dropna=dropna,
+            observed=observed,
             selected_columns=selected_columns,
         )
 

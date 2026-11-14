@@ -557,7 +557,7 @@ class LazySeries:
             else:
                 # Fall back to pandas - get DataFrame directly (safe)
                 df = ds._get_df()
-                return df.groupby(cols, dropna=dropna).size()
+                return df.groupby(cols, dropna=dropna, **op_kwargs).size()
 
         elif op_type == "groupby_cumcount":
             # Execute using pandas - get DataFrame directly (safe)

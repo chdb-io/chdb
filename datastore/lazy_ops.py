@@ -1269,6 +1269,7 @@ class LazyGroupByAgg(LazyOp):
         dropna: bool = True,
         single_column_agg: bool = False,
         selected_columns: List[str] = None,
+        observed: Optional[bool] = None,
         **kwargs,
     ):
         """
@@ -1286,6 +1287,8 @@ class LazyGroupByAgg(LazyOp):
             single_column_agg: If True, this agg was called on a single column via
                                ColumnExpr.agg(['funcs']), which in pandas returns flat column names
             selected_columns: List of column names to aggregate (None = all columns).
+            observed: For categorical keys, only show observed categories.
+                      None (default) uses the pandas default.
             **kwargs: Additional arguments passed to aggregation function
         """
         super().__init__()
@@ -1298,6 +1301,7 @@ class LazyGroupByAgg(LazyOp):
         self.dropna = dropna
         self.single_column_agg = single_column_agg
         self.selected_columns = selected_columns
+        self.observed = observed
         self.kwargs = kwargs
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
@@ -1313,12 +1317,14 @@ class LazyGroupByAgg(LazyOp):
             cols_to_keep = self.groupby_cols + self.selected_columns
             df = df[cols_to_keep]
 
-        # Pass sort, as_index, and dropna parameters to pandas groupby
+        # Pass sort, as_index, dropna and observed parameters to pandas groupby
+        observed_kwargs = {} if self.observed is None else {"observed": self.observed}
         grouped = df.groupby(
             self.groupby_cols,
             sort=self.sort,
             as_index=self.as_index,
             dropna=self.dropna,
+            **observed_kwargs,
         )
 
         if self.named_agg is not None:

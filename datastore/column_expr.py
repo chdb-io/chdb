@@ -217,6 +217,7 @@ class ColumnExpr:
         groupby_as_index: bool = True,
         groupby_sort: bool = True,
         groupby_dropna: bool = True,
+        groupby_observed: Optional[bool] = None,
         # Method mode parameters
         source: "ColumnExpr" = None,
         method_name: str = None,
@@ -256,6 +257,8 @@ class ColumnExpr:
                               If False, groupby keys are returned as columns.
             groupby_sort: If True (default), sort by groupby keys.
             groupby_dropna: If True (default), exclude NA/null values in keys.
+            groupby_observed: For categorical keys, only show observed categories.
+                              None (default) uses the pandas default.
             source: Source ColumnExpr for method/aggregation mode
             method_name: Method name to call on source (method mode)
             method_args: Positional arguments for method call
@@ -279,6 +282,7 @@ class ColumnExpr:
         self._groupby_as_index = groupby_as_index
         self._groupby_sort = groupby_sort
         self._groupby_dropna = groupby_dropna
+        self._groupby_observed = groupby_observed
 
         # Method/Aggregation mode fields
         self._source = source
@@ -419,6 +423,7 @@ class ColumnExpr:
             groupby_as_index=self._groupby_as_index,
             groupby_sort=self._groupby_sort,
             groupby_dropna=self._groupby_dropna,
+            groupby_observed=self._groupby_observed,
         )
 
     # ========== Operation Descriptor Factory Methods ==========
@@ -662,6 +667,7 @@ class ColumnExpr:
             groupby_as_index=self._groupby_as_index,
             groupby_sort=self._groupby_sort,
             groupby_dropna=self._groupby_dropna,
+            groupby_observed=self._groupby_observed,
         )
         # Store fallback info for pandas execution if SQL fails
         result._window_method_fallback = {
@@ -1358,6 +1364,7 @@ class ColumnExpr:
                         sort=sort,
                         as_index=False,
                         dropna=dropna_val,
+                        observed=getattr(self, "_groupby_observed", None),
                         selected_columns=[col_name],
                     )
                 )
@@ -1399,15 +1406,28 @@ class ColumnExpr:
 
             # Check execution engine configuration
             engine = get_execution_engine()
+            # SQL GROUP BY orders category labels as plain values and drops
+            # the categorical dtype; pandas groups in category order.
+            has_categorical_key = any(
+                isinstance(df.dtypes.get(name), pd.CategoricalDtype)
+                for name in groupby_col_names
+            )
 
-            if engine == ExecutionEngine.PANDAS:
+            if engine == ExecutionEngine.PANDAS or has_categorical_key:
                 # Use pure pandas groupby with as_index, sort, and dropna parameters
                 dropna = getattr(self, "_groupby_dropna", True)
+                observed = getattr(self, "_groupby_observed", None)
                 grouped = df.groupby(
-                    groupby_col_names, sort=sort, as_index=as_index, dropna=dropna
+                    groupby_col_names,
+                    sort=sort,
+                    as_index=as_index,
+                    dropna=dropna,
+                    **({} if observed is None else {"observed": observed}),
                 )
                 agg_method = getattr(grouped[col_name], self._pandas_agg_func)
-                result = agg_method()
+                result = agg_method(
+                    **{k: v for k, v in self._method_kwargs.items() if k != "axis"}
+                )
                 if as_index:
                     # Returns Series with groupby keys as index
                     result.name = col_name
@@ -1560,6 +1580,7 @@ class ColumnExpr:
                 sort=sort,
                 as_index=False,  # always False in SQL-first; we handle indexing below
                 dropna=dropna,
+                observed=getattr(self, "_groupby_observed", None),
                 selected_columns=[col_name],
             )
         )
@@ -4282,6 +4303,7 @@ class ColumnExpr:
             groupby_as_index=self._groupby_as_index,
             groupby_sort=self._groupby_sort,
             groupby_dropna=self._groupby_dropna,
+            groupby_observed=self._groupby_observed,
         )
 
     def mean(
