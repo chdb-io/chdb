@@ -855,6 +855,32 @@ class SQLExecutionEngine:
                     pre_agg.append(op.condition)
         return pre_agg, post_agg
 
+    @staticmethod
+    def _split_wheres_by_case_when_position(
+        layer_ops: List[LazyOp],
+    ) -> Tuple[List[Any], List[Any]]:
+        """
+        Split WHERE conditions in a layer by the position of its first
+        LazyWhere/LazyMask: WHEREs before it filter the source rows, WHEREs
+        after it read the replaced values.
+
+        Returns:
+            (pre_case_conditions, post_case_conditions)
+        """
+        pre_case: List[Any] = []
+        post_case: List[Any] = []
+        seen_case = False
+        for op in layer_ops:
+            if isinstance(op, (LazyWhere, LazyMask)):
+                seen_case = True
+            elif (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "WHERE"
+                and op.condition is not None
+            ):
+                (post_case if seen_case else pre_case).append(op.condition)
+        return pre_case, post_case
+
     def _build_layer(
         self,
         layer_ops: List[LazyOp],
@@ -1109,6 +1135,11 @@ class SQLExecutionEngine:
                 # select_fields_for_sql already includes group keys /
                 # aggregations / temp aliases.
                 include_star = False
+            post_case_conditions: List[Any] = []
+            if where_needs_temp_alias and groupby_agg_op is None:
+                clauses.where_conditions, post_case_conditions = (
+                    self._split_wheres_by_case_when_position(layer_ops)
+                )
             sql = self._render_wrapper_layer_sql(
                 from_source,
                 clauses,
@@ -1122,6 +1153,7 @@ class SQLExecutionEngine:
                 where_temp_alias_columns=(
                     where_temp_alias_columns if where_needs_temp_alias else None
                 ),
+                post_case_conditions=post_case_conditions,
                 star_except=star_except,
             )
 
@@ -1302,6 +1334,7 @@ class SQLExecutionEngine:
         add_row_order_fallback: bool = False,
         include_star: bool = False,
         where_temp_alias_columns: Optional[List[Tuple[str, str]]] = None,
+        post_case_conditions: Optional[List[Any]] = None,
         star_except: Optional[List[str]] = None,
     ) -> str:
         """
@@ -1334,6 +1367,10 @@ class SQLExecutionEngine:
         user-visible column names. ORDER BY / LIMIT / OFFSET are pushed to
         the outer layer so they bind to the user-visible names.
 
+        ``post_case_conditions`` are the layer's WHEREs that come after its
+        where/mask; they go on the outer layer to filter the replaced
+        values, while ``clauses.where_conditions`` filter the source rows.
+
         ``star_except`` lists inherited columns ``*`` leaves out.
         """
         wrap_temp_aliases = bool(where_temp_alias_columns)
@@ -1354,13 +1391,12 @@ class SQLExecutionEngine:
 
         parts = [f"SELECT {select_sql}", f"FROM {from_source}"]
 
-        # When LazyMask/LazyWhere temp aliases wrap this layer, any
-        # WHERE in ``clauses.where_conditions`` semantically filters the
-        # MASKED values: ``mask(...)[mask] -> [filter]`` means filter
-        # after mask. Push the WHERE to the OUTER (post-rename) layer
-        # so it binds to the user-visible column names (= masked values).
-        # Otherwise emit it inline on the source columns as usual.
-        if clauses.where_conditions and not wrap_temp_aliases:
+        # A WHERE before the layer's where/mask filters the source rows, so
+        # it stays inline on the source columns. ``mask(...)[filter]``
+        # filters the MASKED values instead: those conditions arrive in
+        # ``post_case_conditions`` and go on the OUTER (post-rename) layer,
+        # where they bind to the user-visible column names.
+        if clauses.where_conditions:
             combined = clauses.where_conditions[0]
             for c in clauses.where_conditions[1:]:
                 combined = combined & c
@@ -1392,9 +1428,10 @@ class SQLExecutionEngine:
         row_order_fallback_allowed = add_row_order_fallback and not groupby_fields
 
         if wrap_temp_aliases:
-            # When CASE-WHEN temp aliases are present, postpone WHERE /
-            # ORDER BY / LIMIT / OFFSET to the outer rename layer so they
-            # reference user-visible column names (= the masked values).
+            # When CASE-WHEN temp aliases are present, postpone the
+            # post-case WHERE / ORDER BY / LIMIT / OFFSET to the outer rename
+            # layer so they reference user-visible column names (= the
+            # masked values).
             inner_sql = " ".join(parts)
             outer_select = ", ".join(
                 f"{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}"
@@ -1404,9 +1441,9 @@ class SQLExecutionEngine:
                 f"SELECT {outer_select}",
                 f"FROM ({inner_sql}) AS __case_subq__",
             ]
-            if clauses.where_conditions:
-                combined = clauses.where_conditions[0]
-                for c in clauses.where_conditions[1:]:
+            if post_case_conditions:
+                combined = post_case_conditions[0]
+                for c in post_case_conditions[1:]:
                     combined = combined & c
                 outer_parts.append(
                     f"WHERE {combined.to_sql(quote_char=self.quote_char)}"

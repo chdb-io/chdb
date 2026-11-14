@@ -1198,6 +1198,43 @@ class TestWhereWithFilterCombinations:
             )
 
 
+class TestFilterThenWhereDataFrameSource:
+    """A filter before where()/mask() on a DataFrame source filters the
+    original rows, not the replaced values (issue #767)."""
+
+    def test_filter_then_where(self):
+        df = pd.DataFrame({'a': [1, 2, 3, 4, 5, 6]})
+        ds = DataStore(df)
+
+        ds_result = ds[ds.a % 2 == 0].where(ds.a > 1, 0)
+        pd_result = df[df.a % 2 == 0].where(df.a > 1, 0)
+
+        assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
+
+    def test_filter_then_mask(self):
+        df = pd.DataFrame({'a': [1, 2, 3, 4, 5, 6], 'b': [10, 20, 30, 40, 50, 60]})
+        ds = DataStore(df)
+
+        ds_result = ds[ds.a % 2 == 0].mask(ds.a > 5, 1)
+        pd_result = df[df.a % 2 == 0].mask(df.a > 5, 1)
+
+        assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
+
+    def test_filter_where_then_filter_replaced_values(self):
+        df = pd.DataFrame({'a': [1, 2, 3, 4, 5, 6], 'b': [10, 20, 30, 40, 50, 60]})
+        ds = DataStore(df)
+
+        ds_filtered = ds[ds.a > 1]
+        ds_where = ds_filtered.where(ds_filtered.a > 3, 0)
+        ds_result = ds_where[ds_where.a % 2 == 0]
+
+        pd_filtered = df[df.a > 1]
+        pd_where = pd_filtered.where(pd_filtered.a > 3, 0)
+        pd_result = pd_where[pd_where.a % 2 == 0]
+
+        assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
+
+
 class TestWhereWithComputedColumns:
     """Test where/mask with lazy column assignments (computed columns).
 
