@@ -2383,9 +2383,13 @@ class DataStore(PandasCompatMixin):
             # SQL GROUP BY orders category labels as plain values and drops
             # the categorical dtype; pandas groups in category order.
             groupby_agg = segment.plan.groupby_agg if segment.plan else None
-            if groupby_agg is not None and any(
-                isinstance(df.dtypes.get(col), pd.CategoricalDtype)
-                for col in groupby_agg.groupby_cols
+            if (
+                groupby_agg is not None
+                and groupby_agg.runs_in_pandas()
+                and any(
+                    isinstance(df.dtypes.get(col), pd.CategoricalDtype)
+                    for col in groupby_agg.groupby_cols
+                )
             ):
                 self._logger.debug("  Categorical group key: executing segment with pandas")
                 for op in segment.ops:

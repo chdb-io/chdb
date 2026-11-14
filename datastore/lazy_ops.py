@@ -1419,6 +1419,68 @@ def _aggregate_dtype(dtype, func: str, values: pd.Series):
     return pd.UInt64Dtype() if nullable else np.dtype("uint64")
 
 
+# The pandas reduction of each SQL aggregate that an expression aggregate
+# (``agg(total=col('v').sum() * 2)``) may call, for running it in pandas
+_PANDAS_REDUCTIONS = {
+    "sum": ("sum", {}),
+    "avg": ("mean", {}),
+    "min": ("min", {}),
+    "max": ("max", {}),
+    "count": ("count", {}),
+    "uniqexact": ("nunique", {}),
+    "uniq": ("nunique", {}),
+    "median": ("median", {}),
+    "stddevsamp": ("std", {}),
+    "stddevpop": ("std", {"ddof": 0}),
+    "varsamp": ("var", {}),
+    "varpop": ("var", {"ddof": 0}),
+}
+
+
+def _pandas_reduction(node) -> Optional[Tuple[str, dict]]:
+    """
+    ``(pandas method, kwargs)`` of the aggregate call ``node``, or None when
+    it has no pandas equivalent. argMin/argMax over the row position are
+    first()/last() in row order (see ``functions.aggregate``).
+    """
+    from .functions import Function
+
+    name = node.name.lower()
+    if name in ("argmin", "argmax"):
+        position = node.args[1] if len(node.args) == 2 else None
+        if type(position).__name__ == "RowPosition" or (
+            isinstance(position, Function) and position.name == "rowNumberInAllBlocks"
+        ):
+            return ("first", {}) if name == "argmin" else ("last", {})
+        return None
+    if len(node.args) > 1:
+        return None
+    return _PANDAS_REDUCTIONS.get(name)
+
+
+def _has_pandas_form(expr) -> bool:
+    """
+    Whether an expression aggregate can run in pandas: each aggregate call
+    in it has a pandas reduction and reads a row-wise argument.
+    """
+    from .functions import AggregateFunction
+
+    for node in expr.subtree():
+        if getattr(node, "is_window", False):
+            return False
+        if isinstance(node, AggregateFunction):
+            if _pandas_reduction(node) is None:
+                return False
+            if any(
+                isinstance(inner, AggregateFunction)
+                for arg in node.args
+                if isinstance(arg, Expression)
+                for inner in arg.subtree()
+            ):
+                return False
+    return True
+
+
 class LazyGroupByAgg(LazyOp):
     """
     Lazy groupby aggregation operation.
@@ -1470,7 +1532,9 @@ class LazyGroupByAgg(LazyOp):
                       None (default) uses the pandas default.
             pandas_agg: ``(column, method, kwargs)``: the pandas reduction
                 of a column an ``expr_agg`` with one output stands for, run
-                when the step executes in pandas (categorical keys).
+                when the step executes in pandas (categorical keys). Without
+                it, the pandas form is derived from the expressions (see
+                ``_pandas_expr_agg``).
             **kwargs: Additional arguments passed to aggregation function
         """
         super().__init__()
@@ -1508,13 +1572,8 @@ class LazyGroupByAgg(LazyOp):
         if self.selected_columns:
             grouped = grouped[list(self.selected_columns)]
 
-        if self.expr_agg:
-            # A SQL expression aggregate runs in pandas only as the column
-            # reduction it stands for
-            if self.pandas_agg is None:
-                raise NotImplementedError(
-                    "a SQL expression aggregate has no pandas form: " + self.describe()
-                )
+        if self.expr_agg and self.pandas_agg is not None:
+            # A column reduction the builder named the pandas form of
             (alias,) = self.expr_agg
             column, method, method_kwargs = self.pandas_agg
             result = getattr(grouped[column], method)(**method_kwargs)
@@ -1522,6 +1581,8 @@ class LazyGroupByAgg(LazyOp):
                 result = result.to_frame(alias)
             else:
                 result = result.rename(columns={column: alias})
+        elif self.expr_agg:
+            result = self._pandas_expr_agg(df, context, observed_kwargs)
         elif self.named_agg is not None:
             # Pandas named aggregation: agg(alias=('col', 'func'))
             # Pass the named_agg dict as **kwargs to grouped.agg()
@@ -1542,6 +1603,84 @@ class LazyGroupByAgg(LazyOp):
             result = agg_method(**self.kwargs)
 
         self._logger.debug("      -> GroupBy result shape: %s", result.shape)
+        return result
+
+    def runs_in_pandas(self) -> bool:
+        """
+        Whether ``execute()`` can compute this aggregation with pandas, as
+        a categorical group key needs: a SQL expression aggregate needs a
+        pandas form (``pandas_agg``, or one derived from the expression).
+        """
+        if not self.expr_agg or self.pandas_agg is not None:
+            return True
+        return all(_has_pandas_form(expr) for expr in self.expr_agg.values())
+
+    def _pandas_expr_agg(self, df: pd.DataFrame, context, observed_kwargs: dict) -> pd.DataFrame:
+        """
+        The SQL expression aggregates computed with pandas: each aggregate
+        call is its pandas reduction of the row-wise argument over the
+        groups, and the rest of the expression is evaluated on those
+        per-group values. pandas orders the groups, and gives categories
+        without rows the reduction's value for no rows (0 for sum, NaN for
+        mean) when ``observed`` is False.
+        """
+        from copy import copy
+
+        from .expression_evaluator import ExpressionEvaluator
+        from .functions import AggregateFunction
+
+        evaluator = ExpressionEvaluator(df, context)
+        keys = df[list(self.groupby_cols)]
+        reduced = {}
+
+        def reduce(node):
+            func, func_kwargs = _pandas_reduction(node)
+            arg = node.args[0] if node.args else None
+            if arg is None or (isinstance(arg, Literal) and arg.value == "*"):
+                func, values = "size", np.zeros(len(df))
+            else:
+                values = evaluator.evaluate(arg)
+                values = values.to_numpy() if isinstance(values, pd.Series) else values
+            frame = keys.copy()
+            frame["__value__"] = values
+            grouped = frame.groupby(
+                list(self.groupby_cols), sort=self.sort, dropna=self.dropna, **observed_kwargs
+            )["__value__"]
+            return getattr(grouped, func)(**func_kwargs)
+
+        def substitute(node):
+            if isinstance(node, AggregateFunction):
+                name = f"__agg_{len(reduced)}__"
+                reduced[name] = reduce(node)
+                return Field(name)
+            if not isinstance(node, Expression):
+                return node
+            changed = {}
+            for attr, value in vars(node).items():
+                if isinstance(value, Expression):
+                    changed[attr] = substitute(value)
+                elif isinstance(value, (list, tuple)) and any(
+                    isinstance(v, Expression) for v in value
+                ):
+                    changed[attr] = type(value)(substitute(v) for v in value)
+            if not changed:
+                return node
+            node = copy(node)
+            for attr, value in changed.items():
+                setattr(node, attr, value)
+            return node
+
+        outputs = {alias: substitute(expr) for alias, expr in self.expr_agg.items()}
+        aggregated = pd.DataFrame(reduced)
+        output_evaluator = ExpressionEvaluator(aggregated, context)
+        result = pd.DataFrame(index=aggregated.index)
+        for alias, expr in outputs.items():
+            value = output_evaluator.evaluate(expr)
+            result[alias] = value if isinstance(value, pd.Series) else pd.Series(
+                value, index=aggregated.index
+            )
+        if not self.as_index:
+            result = result.reset_index()
         return result
 
     def describe(self) -> str:
