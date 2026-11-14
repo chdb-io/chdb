@@ -1132,31 +1132,19 @@ def merge(
         >>> result = merge(df1, df2, on='id')
         >>> result = merge(df1, df2, left_on='user_id', right_on='id')
     """
+    from .lazy_ops import _snapshot_operand
+
     DataStore = _get_datastore_class()
 
-    # Check if any input is a DataStore
-    has_datastore = isinstance(left, DataStore) or isinstance(right, DataStore)
+    def as_datastore(obj):
+        # Other lazy results (e.g. LazySeries) count as DataStore inputs
+        if hasattr(obj, "to_df") and not isinstance(obj, (DataStore, _pd.DataFrame)):
+            return DataStore.from_df(obj.to_df())
+        return obj
 
-    # Convert to DataFrames
-    if isinstance(left, DataStore):
-        left_df = left.to_df()
-    elif hasattr(left, "to_df") and not isinstance(left, _pd.DataFrame):
-        has_datastore = True
-        left_df = left.to_df()
-    else:
-        left_df = left
-
-    if isinstance(right, DataStore):
-        right_df = right.to_df()
-    elif hasattr(right, "to_df") and not isinstance(right, _pd.DataFrame):
-        has_datastore = True
-        right_df = right.to_df()
-    else:
-        right_df = right
-
-    result = _pd.merge(
-        left_df,
-        right_df,
+    left = as_datastore(left)
+    right = as_datastore(right)
+    merge_kwargs = dict(
         how=how,
         on=on,
         left_on=left_on,
@@ -1167,10 +1155,14 @@ def merge(
         **kwargs,
     )
 
-    # Only wrap in DataStore if the user passed DataStore objects
-    if has_datastore:
-        return DataStore.from_df(result)
-    return result
+    # Only return a DataStore if the user passed DataStore objects
+    if not isinstance(left, DataStore) and not isinstance(right, DataStore):
+        return _pd.merge(left, right, **merge_kwargs)
+
+    # DataStore.merge() builds the merge lazily
+    if not isinstance(left, DataStore):
+        left = DataStore.from_df(_snapshot_operand(left))
+    return left.merge(right, **merge_kwargs)
 
 
 def merge_asof(

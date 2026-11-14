@@ -1847,25 +1847,32 @@ class PandasCompatMixin:
             except Exception:
                 pass  # Fall back to pandas merge
 
-        # Pandas merge fallback
-        if hasattr(right, '_get_df'):
-            right = right._get_df()
-        return self._wrap_result(
-            self._get_df().merge(
-                right,
-                how=how,
-                on=on,
-                left_on=left_on,
-                right_on=right_on,
-                left_index=left_index,
-                right_index=right_index,
-                sort=sort,
-                suffixes=suffixes,
-                copy=copy,
-                indicator=indicator,
-                validate=validate,
-            )
+        # Pandas merge fallback. copy= only decides whether pandas may share
+        # the inputs' memory, so it is not passed on.
+        from .lazy_ops import LazyJoin
+
+        merge_kwargs = dict(
+            how=how,
+            on=on,
+            left_on=left_on,
+            right_on=right_on,
+            left_index=left_index,
+            right_index=right_index,
+            sort=sort,
+            suffixes=suffixes,
+            indicator=indicator,
+            validate=validate,
         )
+        if validate is not None:
+            # pandas checks the keys when merge() is called
+            if hasattr(right, '_get_df'):
+                right = right._get_df()
+            return self._wrap_result(self._get_df().merge(right, **merge_kwargs))
+
+        # Otherwise merge the result of this pipeline when it runs
+        new_ds = self.__copy__()
+        new_ds._add_lazy_op(LazyJoin(right, **merge_kwargs))
+        return new_ds
 
     def concat(
         self,

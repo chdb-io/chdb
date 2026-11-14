@@ -3799,19 +3799,25 @@ class DataStore(PandasCompatMixin):
             from .lazy_ops import (
                 LazyDataFrameSource,
                 LazyGroupByAgg,
+                LazyJoin,
                 LazyRelationalOp,
                 LazyColumnSelection,
+                LazyUnion,
             )
 
             # The table function stands for the DataFrame source and the ops
             # baked into it below; the pipeline keeps their lineage.
             lineage_identity, lineage_ops = self._lineage()
 
-            # Columns before the first aggregation: ops after it read the
-            # aggregated rows, so only the ops before it can be baked into the
-            # DataFrame below.
+            # Columns before the first aggregation, join or union: ops after
+            # it read the aggregated or combined rows, so only the ops before
+            # it can be baked into the DataFrame below.
             first_agg = next(
-                (i for i, op in enumerate(self._lazy_ops) if isinstance(op, LazyGroupByAgg)),
+                (
+                    i
+                    for i, op in enumerate(self._lazy_ops)
+                    if isinstance(op, (LazyGroupByAgg, LazyJoin, LazyUnion))
+                ),
                 len(self._lazy_ops),
             )
             current_cols = list(self._source_df.columns)
@@ -7415,10 +7421,10 @@ class DataStore(PandasCompatMixin):
         right_on: str = None,
     ) -> "DataStore":
         """
-        Join with another DataStore.
+        Join with another DataStore or a pandas DataFrame.
 
         Args:
-            other: Another DataStore to join with
+            other: Another DataStore or a pandas DataFrame to join with
             on: Join condition - can be:
                 - Condition object (e.g., ds1.id == ds2.user_id) -> generates ON clause
                 - str (e.g., "user_id") -> generates USING (user_id) clause
@@ -7434,7 +7440,10 @@ class DataStore(PandasCompatMixin):
             >>> ds1.join(ds2, left_on='id', right_on='user_id', how='left')
         """
         from .enums import JoinType
-        from .lazy_ops import LazyJoin
+        from .lazy_ops import LazyJoin, _snapshot_operand
+
+        if isinstance(other, pd.DataFrame):
+            other = DataStore.from_df(_snapshot_operand(other))
 
         # Convert how string to JoinType
         join_type_map = {
