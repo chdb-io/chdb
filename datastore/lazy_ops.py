@@ -1655,7 +1655,8 @@ class LazyGroupByAgg(LazyOp):
                 func, values = "size", np.zeros(len(df))
             else:
                 values = evaluator.evaluate(arg)
-                values = values.to_numpy() if isinstance(values, pd.Series) else values
+                # .array keeps an extension dtype (Int64 sums stay Int64)
+                values = values.array if isinstance(values, pd.Series) else values
             frame = keys.copy()
             frame[value_column] = values
             return getattr(grouped(frame)[value_column], func)(**func_kwargs)

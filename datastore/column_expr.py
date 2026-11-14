@@ -1424,15 +1424,21 @@ class ColumnExpr:
             source = copy(self._datastore)
             source._groupby_fields = []
             df = source._execute()
-            # The values reduced: the column, or the expression evaluated on
-            # the rows (an alias names the result, not a column read)
-            read = column.with_attrs(alias=None) if column.alias else column
-            values = ExpressionEvaluator(df, source).evaluate(read)
-            frame = df[groupby_col_names].copy()
-            value_column = "__value__"
-            while value_column in groupby_col_names:
-                value_column = f"_{value_column}"
-            frame[value_column] = values.to_numpy() if isinstance(values, pd.Series) else values
+            if isinstance(column, Field) and not column.alias and column.name in df.columns:
+                # A column of the rows: pandas selects it itself (a group key
+                # too)
+                frame, value_column, evaluated = df, column.name, False
+            else:
+                # An expression is evaluated on the rows first; an alias names
+                # the result, it is not a column read
+                read = column.with_attrs(alias=None) if column.alias else column
+                values = ExpressionEvaluator(df, source).evaluate(read)
+                frame = df[groupby_col_names].copy()
+                value_column = "__value__"
+                while value_column in groupby_col_names:
+                    value_column = f"_{value_column}"
+                frame[value_column] = values.array if isinstance(values, pd.Series) else values
+                evaluated = True
             grouped = frame.groupby(
                 groupby_col_names,
                 sort=sort,
@@ -1454,7 +1460,7 @@ class ColumnExpr:
             elif isinstance(result, pd.Series):
                 result = result.reset_index()
                 result.columns = list(groupby_col_names) + [name]
-            else:
+            elif evaluated:
                 result = result.rename(columns={value_column: name})
             return result
 

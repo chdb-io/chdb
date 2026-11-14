@@ -117,3 +117,11 @@ def test_key_named_like_value_column(tmp_path):
     ds_result = DataStore(frame.copy()).groupby("__value__", observed=True).agg(total=col("v").sum())
     pd_result = frame.groupby("__value__", observed=True).agg(total=("v", "sum"))
     assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
+
+
+@pytest.mark.parametrize("observed", [True, False])
+def test_nullable_integer_values(observed):
+    frame = FRAME.assign(n=pd.array([1, None, 3, 4, None], dtype="Int64"))
+    ds_result = DataStore(frame.copy()).groupby("g", observed=observed).agg(total=col("n").sum())
+    pd_result = frame.groupby("g", observed=observed)["n"].sum().rename("total").to_frame()
+    assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
