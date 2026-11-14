@@ -94,3 +94,26 @@ def test_reduction_arguments(kind, reduce, tmp_path):
     df = pd.DataFrame({"k": KEYS, "v": VALUES})
     ds = _make(kind, df, tmp_path)
     assert_series_equal(get_series(reduce(ds.groupby("k")["v"])), reduce(df.groupby("k")["v"]))
+
+
+@pytest.mark.parametrize(
+    "reduce",
+    [
+        pytest.param(lambda g: g.std(ddof=2), id="std_ddof2"),
+        pytest.param(lambda g: g.quantile(0.5, interpolation="lower"), id="quantile_lower"),
+    ],
+)
+@pytest.mark.parametrize("alias", [None, "w"])
+def test_reduction_arguments_of_computed_column(kind, reduce, alias, tmp_path):
+    # w is also a column of the frame: an alias names the result, it is not read
+    df = pd.DataFrame({"k": KEYS, "v": VALUES, "w": VALUES * 100})
+    ds = _make(kind, df, tmp_path)
+    computed = ds.groupby("k")["v"] + 1
+    if alias is not None:
+        computed = computed.as_(alias)
+    ds_result = get_series(reduce(computed))
+    pd_result = reduce((df["v"] + 1).groupby(df["k"]))
+    np.testing.assert_allclose(ds_result.to_numpy(), pd_result.to_numpy())
+    assert list(ds_result.index) == list(pd_result.index)
+    # The reduction keeps the name the supported path gives the same column
+    assert ds_result.name == get_series(computed.std()).name
