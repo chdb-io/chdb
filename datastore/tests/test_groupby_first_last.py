@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 
 import datastore as ds
-from tests.test_utils import assert_series_equal, get_dataframe, get_series
+from tests.test_utils import assert_series_equal, get_series
 from tests.xfail_markers import chdb_python_table_rownumber_nondeterministic
 
 
@@ -116,7 +116,7 @@ class TestGroupByFirstLast(unittest.TestCase):
 
         # Convert to pandas
         ds_first_series = get_series(ds_first)
-        ds_agg_df = get_dataframe(ds_agg)
+        ds_agg_series = ds_agg.to_pandas()
 
         # pandas first() and agg('first') should be equal
         assert_series_equal(pd_first, pd_agg)
@@ -124,6 +124,8 @@ class TestGroupByFirstLast(unittest.TestCase):
         # DataStore results should match pandas
         self.assertEqual(ds_first_series['A'], pd_first['A'])
         self.assertEqual(ds_first_series['B'], pd_first['B'])
+        self.assertIsInstance(ds_agg_series, pd.Series)
+        assert_series_equal(ds_agg_series, pd_agg)
 
 
 class TestRowNumberInAllBlocksBug(unittest.TestCase):

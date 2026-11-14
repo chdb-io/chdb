@@ -37,6 +37,12 @@ _PANDAS_HAS_LIMIT_AREA = _parse_pandas_version() >= (2, 1)
 # pandas 3.0 removed convert_dtype parameter from Series.apply()
 _PANDAS_3_PLUS = _parse_pandas_version() >= (3, 0)
 
+# Reductions that agg('<name>') on a grouped column runs through the
+# ColumnExpr method of the same name, as pandas SeriesGroupBy.agg does
+_GROUPBY_AGG_METHODS = frozenset(
+    {"sum", "mean", "min", "max", "count", "std", "var", "median", "first", "last", "nunique", "quantile"}
+)
+
 
 def _is_numeric_dtype(dtype) -> bool:
     """Safely check if dtype is numeric. Handles pandas extension dtypes."""
@@ -1501,9 +1507,9 @@ class ColumnExpr:
                     # ClickHouse natively skips NULL in aggregations
                     agg_sql = f"{self._agg_func_name}({col_expr_sql})"
 
-                # Wrap count in toInt64() to match pandas dtype (int64 instead of uint64)
+                # Wrap count/nunique in toInt64() to match pandas dtype (int64 instead of uint64)
                 # In performance mode, skip -- let SQL return native dtype
-                if self._agg_func_name == "count" and not is_performance_mode():
+                if self._agg_func_name in ("count", "uniqExact") and not is_performance_mode():
                     agg_sql = f"toInt64({agg_sql})"
 
                 # Add ORDER BY if sort=True (pandas default behavior)
@@ -3950,7 +3956,9 @@ class ColumnExpr:
         Aggregate using one or more operations (lazy).
 
         When called on a ColumnExpr with groupby context (e.g., df.groupby('city')['salary'].agg(...)),
-        returns a DataStore to preserve SQL semantics and enable chaining with sort_values(), head(), etc.
+        a single reduction name such as 'sum' returns the same lazy Series as calling that
+        method directly; other functions return a DataStore to preserve SQL semantics and
+        enable chaining with sort_values(), head(), etc.
 
         Args:
             func: Function to use for aggregating (str, list, or dict).
@@ -3959,7 +3967,8 @@ class ColumnExpr:
             **kwargs: Keyword arguments to pass to func.
 
         Returns:
-            DataStore: When called with groupby context - preserves SQL semantics
+            ColumnExpr: With groupby context and a reduction name (e.g. 'sum')
+            DataStore: With groupby context otherwise - preserves SQL semantics
             LazySeries: When called without groupby context - lazy wrapper
 
         Example:
@@ -3975,6 +3984,11 @@ class ColumnExpr:
         """
         # When called with groupby context, return DataStore to preserve SQL semantics
         if hasattr(self, "_groupby_fields") and self._groupby_fields:
+            # pandas: groupby(...)[col].agg('sum') is groupby(...)[col].sum(),
+            # a Series named after the column
+            if isinstance(func, str) and func in _GROUPBY_AGG_METHODS:
+                return getattr(self, func)(**kwargs)
+
             from .lazy_ops import LazyGroupByAgg
             from copy import copy
             from .expressions import Field as ExprField
