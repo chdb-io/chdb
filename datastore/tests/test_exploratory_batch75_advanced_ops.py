@@ -709,7 +709,6 @@ class TestKnownIssues:
         ds_comp = ds_df['A'].dt.components
         assert_datastore_equals_pandas(ds_comp, pd_comp)
 
-    @pytest.mark.xfail(reason="groupby observed=False returns repr string instead of result")
     def test_groupby_observed_false(self):
         """Test groupby with observed=False for categorical"""
         pd_df = pd.DataFrame({
@@ -723,4 +722,5 @@ class TestKnownIssues:
 
         pd_grp = pd_df.groupby('cat', observed=False)['val'].sum()
         ds_grp = ds_df.groupby('cat', observed=False)['val'].sum()
-        assert list(pd_grp) == list(ds_grp)
+        assert_datastore_equals_pandas(ds_grp, pd_grp)
+        assert list(ds_grp.index) == list(pd_grp.index)

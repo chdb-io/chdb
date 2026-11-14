@@ -201,11 +201,6 @@ chdb_duplicate_column_rename = pytest.mark.xfail(
     strict=True,
 )
 
-chdb_case_bool_conversion = pytest.mark.xfail(
-    reason="SQL CASE WHEN cannot convert Bool to Int64/String",
-    strict=True,
-)
-
 # Dtype Differences - values are CORRECT, only dtype differs from pandas
 # These are acceptable differences where DataStore returns more semantically correct types
 chdb_nat_returns_nullable_int = pytest.mark.xfail(
@@ -215,11 +210,6 @@ chdb_nat_returns_nullable_int = pytest.mark.xfail(
 
 chdb_replace_none_dtype = pytest.mark.xfail(
     reason="chDB replace with None returns nullable Int64, pandas returns object dtype - VALUES ARE CORRECT",
-    strict=True,
-)
-
-chdb_mask_dtype_nullable = pytest.mark.xfail(
-    reason="chDB mask/where on int returns nullable Int64, pandas returns float64 (due to NaN) - VALUES ARE CORRECT",
     strict=True,
 )
 
@@ -344,11 +334,6 @@ limit_str_join_array = pytest.mark.xfail(
 # These are conscious decisions, not bugs to be fixed.
 # =============================================================================
 
-design_datetime_fillna_nat = pytest.mark.xfail(
-    reason="Design decision: Pandas where/mask replaces datetime with 0/-1, DataStore uses NaT (semantically clearer)",
-    strict=True,
-)
-
 
 # FIXED: unstack() is now implemented on ColumnExpr
 def design_unstack_column_expr(func):
@@ -442,11 +427,11 @@ MARKER_REGISTRY = {
     "chdb_dt_month_type": ("chdb", None, "dt.month type inconsistency between SQL and DataFrame"),
     # SQL Behavior
     "chdb_duplicate_column_rename": ("chdb", None, "SQL auto-renames duplicate columns"),
-    "chdb_case_bool_conversion": ("chdb", None, "CASE WHEN cannot mix Bool with other types"),
+    "chdb_case_bool_conversion": ("fixed", None, "CASE WHEN cannot mix Bool with other types - FIXED"),
     # Dtype Differences (values correct, only dtype differs)
     "chdb_nat_returns_nullable_int": ("chdb", None, "dt accessor with NaT returns Nullable Int (values correct)"),
     "chdb_replace_none_dtype": ("chdb", None, "replace with None returns Nullable Int (values correct)"),
-    "chdb_mask_dtype_nullable": ("chdb", None, "mask/where returns Nullable Int64 (values correct)"),
+    "chdb_mask_dtype_nullable": ("fixed", None, "mask/where returns Nullable Int64 (values correct) - FIXED"),
     # =========================================================================
     # DataStore Bugs (should be fixed)
     # =========================================================================
@@ -467,7 +452,7 @@ MARKER_REGISTRY = {
     # =========================================================================
     # Design Decisions (intentional differences)
     # =========================================================================
-    "design_datetime_fillna_nat": ("design", None, "Use NaT instead of 0/-1 for datetime where/mask"),
+    "design_datetime_fillna_nat": ("fixed", None, "Use NaT instead of 0/-1 for datetime where/mask - FIXED"),
     "design_unstack_column_expr": ("fixed", None, "unstack() now implemented on ColumnExpr"),
     # =========================================================================
     # Deprecated Features (pandas deprecated)

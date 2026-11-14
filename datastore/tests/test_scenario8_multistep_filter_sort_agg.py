@@ -19,7 +19,6 @@ from tests.test_utils import (
     assert_datastore_equals_pandas,
     assert_series_equal,
 )
-from tests.xfail_markers import chdb_category_to_object
 
 
 # ============================================================================
@@ -588,7 +587,6 @@ class TestComplexChainEdgeCases:
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
-    @chdb_category_to_object
     def test_assign_then_groupby_on_assigned_column(self):
         """Assign a category column, then groupby on it."""
         pd_df, ds_df = make_sales_data()

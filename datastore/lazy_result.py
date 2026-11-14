@@ -289,7 +289,10 @@ class LazySeries:
             **kwargs: Keyword arguments for the method
         """
         from .column_expr import frozen_state
+        from .exceptions import ImmutableError
 
+        if kwargs.get("inplace"):
+            raise ImmutableError("LazySeries")
         self._column_expr = column_expr
         self._method_name = method_name
         self._args = args
@@ -494,7 +497,11 @@ class LazySeries:
             from .lazy_ops import LazyGroupByAgg
 
             sizes = LazyGroupByAgg(
-                groupby_cols=cols, agg_func="size", sort=sort, dropna=dropna
+                groupby_cols=cols,
+                agg_func="size",
+                sort=sort,
+                dropna=dropna,
+                observed=(op_kwargs or {}).get("observed"),
             ).run_on(ds)["size"]
             sizes.name = None
             return sizes

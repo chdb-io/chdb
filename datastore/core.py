@@ -19,7 +19,17 @@ if TYPE_CHECKING:
     from .case_when import CaseWhenBuilder
     from .query_planner import ExecutionSegment, QueryPlan
 
-from .expressions import Field, Expression, Literal, RowPosition, Star, bind_projection_item, projection_name
+from .expressions import (
+    ArithmeticExpression,
+    Field,
+    Expression,
+    Literal,
+    RowPosition,
+    Star,
+    bind_projection_item,
+    projection_name,
+    qualify_columns,
+)
 from .conditions import Condition
 from .utils import (
     immutable,
@@ -30,6 +40,7 @@ from .utils import (
     row_position_scope,
     DEFAULT_ROW_POSITION,
     compose_slice,
+    merge_orderby_fields,
 )
 from .exceptions import (
     QueryError,
@@ -88,6 +99,82 @@ def _clickhouse_type_null_is_nan(ch_type: str) -> bool:
         return True
     inner = ch_type[len("Nullable(") : -1]
     return inner.startswith(("Float", "String", "FixedString", "Date"))
+
+
+def _dtype_value_kind(dtype) -> Optional[str]:
+    """The kind of values ('int', 'float', 'bool' or 'str') a pandas column
+    of ``dtype`` holds, numpy or nullable; None for any other dtype (object,
+    datetime, categorical, a pd.NA string dtype, ...)."""
+    if isinstance(dtype, pd.StringDtype):
+        return "str" if _dtype_null_is_nan(dtype) else None
+    if isinstance(dtype, pd.CategoricalDtype):
+        return None
+    if pd.api.types.is_bool_dtype(dtype):
+        return "bool"
+    if pd.api.types.is_integer_dtype(dtype):
+        return "int"
+    if pd.api.types.is_float_dtype(dtype):
+        return "float"
+    return None
+
+
+def _clickhouse_type_value_kind(ch_type: str) -> Optional[str]:
+    """``_dtype_value_kind`` of the column a ClickHouse type materializes as."""
+    ch_type = ch_type.strip()
+    for wrapper in ("LowCardinality(", "Nullable(", "LowCardinality("):
+        if ch_type.startswith(wrapper) and ch_type.endswith(")"):
+            ch_type = ch_type[len(wrapper) : -1]
+    if ch_type.startswith("Float"):
+        return "float"
+    if ch_type.startswith(("Int", "UInt")):
+        return "int"
+    if ch_type == "Bool":
+        return "bool"
+    if ch_type.startswith(("String", "FixedString")):
+        return "str"
+    return None
+
+
+def _projected_value_kinds(fields, kinds: Dict[str, Optional[str]]) -> Dict[str, Optional[str]]:
+    """Value kinds (see ``_column_value_kinds``) of a SELECT field list's output."""
+    from .column_expr import ColumnExpr
+    from .expressions import is_star_item, projection_name
+
+    projected = dict(kinds) if any(is_star_item(f) for f in fields) else {}
+    for item in fields:
+        if is_star_item(item):
+            continue
+        if isinstance(item, str):
+            name = item.strip('"')
+            projected[name] = kinds.get(name)
+            continue
+        expr = item._expr if isinstance(item, ColumnExpr) else item
+        name = projection_name(expr) if isinstance(expr, Expression) else None
+        if name is not None:
+            projected[name] = kinds.get(expr.name) if isinstance(expr, Field) else None
+    return projected
+
+
+def _sql_replacement_keeps_dtype(kind: Optional[str], other, variant: bool = False) -> bool:
+    """
+    Whether SQL's if()/CASE of a column holding values of ``kind`` (see
+    ``_dtype_value_kind``) and the scalar replacement ``other`` gives what
+    pandas' where()/mask() gives: the column's dtype and ``other`` as that
+    dtype holds it. pandas turns the column into object for a replacement of
+    another kind (a str into numbers, a number into bools, ...), or into
+    float for a float into ints, which SQL's common type doesn't reproduce.
+    With ``variant``, a number into strings is kept as a number too (the
+    CASE casts both branches to a Variant, see ``WhereMaskCaseExpr``).
+    """
+    if isinstance(other, (bool, np.bool_)):
+        return kind == "bool"
+    if isinstance(other, (int, np.integer)):
+        return kind in ("int", "float") or (variant and kind == "str")
+    if isinstance(other, (float, np.floating)):
+        return not math.isnan(other) and (kind == "float" or (variant and kind == "str"))
+    if isinstance(other, str):
+        return kind == "str"
+    return False
 
 
 _PROVENANCE_TOKENS = itertools.count(1)
@@ -200,6 +287,19 @@ def _columns_read(value) -> Optional[set]:
     return names
 
 
+def _reads_within(reads: Optional[set], names) -> bool:
+    """Whether every column in ``reads`` is one of ``names``; False when the
+    columns read are unknown (``None``)."""
+    return reads is not None and reads <= set(names)
+
+
+def _may_read(reads: Optional[set], names) -> bool:
+    """Whether ``reads`` may include one of ``names``; True when the columns
+    read are unknown (``None``)."""
+    names = set(names)
+    return bool(names) and (reads is None or bool(reads & names))
+
+
 def _keeps_read_columns(
     effect: tuple, reads: Optional[set], rowwise: bool, values_only: bool = False
 ) -> bool:
@@ -214,15 +314,13 @@ def _keeps_read_columns(
         return rowwise
     if kind == "columns":
         return values_only
-    if reads is None:
-        return False
     if kind == "assign":
-        return effect[1] not in reads
+        return not _may_read(reads, {effect[1]})
     if kind == "select":
         names, keeps_others, computed = effect[1], effect[2], effect[3]
         if keeps_others or values_only:
-            return not reads & computed
-        return reads <= names
+            return not _may_read(reads, computed)
+        return _reads_within(reads, names)
     return False
 
 
@@ -235,7 +333,10 @@ def _is_row_wise(value) -> bool:
     """Whether a value is computed row by row, so a row of it depends only on
     the same row of its input (see ``Expression.is_row_wise``)."""
     from .column_expr import ColumnExpr
+    from .lazy_result import LazyCondition
 
+    if isinstance(value, LazyCondition):
+        value = value.condition
     if isinstance(value, ColumnExpr):
         if value._exec_mode != "expr" or value._expr is None:
             return False
@@ -280,8 +381,7 @@ def _is_lazy_value(value) -> bool:
 def _reads_null_as_nan(expr: Expression, kinds: Dict[str, bool]) -> bool:
     """Whether every column ``expr`` reads is True in ``kinds``; False when
     the columns it reads aren't known."""
-    reads = expr.columns_read()
-    return reads is not None and all(kinds.get(name) for name in reads)
+    return _reads_within(expr.columns_read(), {name for name, kind in kinds.items() if kind})
 
 
 def _assigned_null_as_nan(op, kinds: Dict[str, bool]) -> bool:
@@ -305,6 +405,58 @@ def _assigned_null_as_nan(op, kinds: Dict[str, bool]) -> bool:
     if pd.api.types.is_scalar(value):
         return _dtype_null_is_nan(pd.Series([value]).dtype)
     return False
+
+
+_CLICKHOUSE_NUMERIC_TYPES = frozenset(
+    {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float32", "Float64"}
+)
+
+
+def _clickhouse_type_numpy_dtype(ch_type: str) -> Optional[np.dtype]:
+    """NumPy dtype of a numeric column of ClickHouse type ``ch_type`` in
+    pandas (int8 for Nullable(Int8)), or None for other types."""
+    ch_type = ch_type.strip()
+    for wrapper in ("LowCardinality(", "Nullable("):
+        if ch_type.startswith(wrapper) and ch_type.endswith(")"):
+            ch_type = ch_type[len(wrapper) : -1]
+    return np.dtype(ch_type.lower()) if ch_type in _CLICKHOUSE_NUMERIC_TYPES else None
+
+
+def _assigned_numpy_dtype(op, dtypes: Dict[str, np.dtype]) -> Optional[np.dtype]:
+    """NumPy dtype (see ``_column_numpy_dtypes``) of the column a
+    LazyColumnAssignment produces, or None if unknown."""
+    from .column_expr import ColumnExpr
+    from .lazy_ops import numpy_result_dtype
+
+    value = op.expr
+    if isinstance(value, ColumnExpr):
+        if value._exec_mode != "expr":
+            return None
+        value = value._expr
+    if not op.reads_frame or not isinstance(value, Expression):
+        return None
+    return numpy_result_dtype(value, dtypes)
+
+
+def _projected_numpy_dtypes(fields, dtypes: Dict[str, np.dtype]) -> Dict[str, np.dtype]:
+    """NumPy dtypes (see ``_column_numpy_dtypes``) of a SELECT field list's output."""
+    from .column_expr import ColumnExpr
+    from .expressions import is_star_item, projection_name
+    from .lazy_ops import numpy_result_dtype
+
+    projected = dict(dtypes) if any(is_star_item(f) for f in fields) else {}
+    for item in fields:
+        if is_star_item(item):
+            continue
+        if isinstance(item, str):
+            name = item.strip('"')
+            projected[name] = dtypes.get(name)
+            continue
+        expr = item._expr if isinstance(item, ColumnExpr) else item
+        name = projection_name(expr) if isinstance(expr, Expression) else None
+        if name is not None:
+            projected[name] = numpy_result_dtype(expr, dtypes)
+    return projected
 
 
 def _projected_null_kinds(fields, kinds: Dict[str, bool]) -> Dict[str, bool]:
@@ -1439,10 +1591,20 @@ class DataStore(PandasCompatMixin):
         Args:
             op: The lazy operation to add
         """
-        from .lazy_ops import LazyColumnAssignment
+        from .lazy_ops import LazyColumnAssignment, LazyWhere
 
-        if isinstance(op, LazyColumnAssignment) and op.null_as_nan is None:
-            op.null_as_nan = self._null_as_nan_inputs(op.expr)
+        if isinstance(op, LazyColumnAssignment):
+            if op.null_as_nan is None:
+                op.null_as_nan = self._null_as_nan_inputs(op.expr)
+            if (
+                op.input_dtypes is None
+                and op.reads_frame
+                and isinstance(op._sql_tree(), ArithmeticExpression)
+            ):
+                op.input_dtypes = self._column_numpy_dtypes()
+        if isinstance(op, LazyWhere) and op.nan_columns is None:
+            op.nan_columns = self._nan_columns(op.condition)
+            op.value_kinds = self._column_value_kinds()
         self._lazy_ops.append(op)
         self._invalidate_cache()
 
@@ -1560,7 +1722,8 @@ class DataStore(PandasCompatMixin):
         pandas). The mask is a condition expression taken from this frame's
         state or an earlier one whose later ops keep the values of the
         columns it reads, and the frame can still read those columns; a
-        later filter or sort keeps them, an overwrite or fillna of a column
+        later filter or sort keeps them unless the mask isn't row-wise (e.g.
+        a shift or rank, see ``_is_row_wise``), an overwrite or fillna of a column
         it reads doesn't, and a projection or drop that leaves one out keeps
         its values but not the column (see ``_reads_available``).
 
@@ -1583,10 +1746,11 @@ class DataStore(PandasCompatMixin):
         )
         if expression:
             reads = _columns_read(mask)
+            rowwise = _is_row_wise(mask)
             if (
                 later is not None
                 and all(
-                    _keeps_read_columns(effect, reads, rowwise=True, values_only=True)
+                    _keeps_read_columns(effect, reads, rowwise=rowwise, values_only=True)
                     for effect in later
                 )
                 and self._reads_available(reads, later, mask, where_clause)
@@ -1594,13 +1758,13 @@ class DataStore(PandasCompatMixin):
                 return None
             # A column its own state doesn't have is a name for the frame's
             # column (nat.add_prefix('col_').filter(nat.col_age > 25)).
-            if reads is None:
+            if reads is None and rowwise:
                 return None
             try:
                 own_columns = set(source._get_current_columns())
             except Exception:
                 own_columns = None
-            if own_columns and not reads <= own_columns:
+            if own_columns and reads is not None and not _reads_within(reads, own_columns):
                 return None
         if later is not None and all(_keeps_rows(effect) for effect in later):
             return "position"
@@ -1640,7 +1804,7 @@ class DataStore(PandasCompatMixin):
         first, columns, known = self._columns_entering(list(self._lazy_ops) + [probe], probe)
         if first:
             return True
-        return known and reads <= set(columns)
+        return known and _reads_within(reads, columns)
 
     def _ops_after(self, state: "DataStore") -> Optional[list]:
         """
@@ -1671,6 +1835,28 @@ class DataStore(PandasCompatMixin):
             return True
         return _reads_null_as_nan(expr, self._column_null_kinds())
 
+    def _nan_columns(self, mask) -> frozenset:
+        """
+        The columns, at the current end of the pipeline, that are never NULL
+        or NULL only where pandas has NaN/NaT, when the boolean ``mask`` (an
+        expression, ColumnExpr or LazyCondition) compares values; empty
+        otherwise. A where()/mask() condition computed in SQL compares these
+        null-safely (NaN compares False, != True, as in pandas); a NULL from
+        any other column stands for pandas NA, which where() and mask() both
+        replace.
+        """
+        from .column_expr import ColumnExpr
+        from .conditions import BinaryCondition
+        from .lazy_result import LazyCondition
+
+        if isinstance(mask, LazyCondition):
+            mask = mask.condition
+        elif isinstance(mask, ColumnExpr):
+            mask = mask._expr
+        if not isinstance(mask, Expression) or not mask.find(BinaryCondition):
+            return frozenset()
+        return frozenset(self._column_null_kinds())
+
     def _column_null_kinds(self) -> Dict[str, bool]:
         """
         Map columns at the end of the pipeline to True when they are never
@@ -1682,6 +1868,87 @@ class DataStore(PandasCompatMixin):
         operations keep it, a SELECT projects or computes it, and a column
         assignment derives it from the columns its expression reads or from
         the dtype of its value. Any other op makes every column unknown.
+        """
+        kinds = self._column_traits(
+            _dtype_null_is_nan,
+            _clickhouse_type_null_is_nan,
+            _assigned_null_as_nan,
+            _projected_null_kinds,
+        )
+        return {name: kind for name, kind in kinds.items() if kind}
+
+    def _column_value_kinds(self) -> Dict[str, Optional[str]]:
+        """
+        Map every column at the end of the pipeline to the kind of values it
+        holds (see ``_dtype_value_kind``), None when it isn't known; empty
+        when the columns can't be followed. Followed like
+        ``_column_null_kinds``; an assigned column is unknown.
+        """
+        return self._column_traits(
+            _dtype_value_kind,
+            _clickhouse_type_value_kind,
+            lambda op, kinds: None,
+            _projected_value_kinds,
+        )
+
+    def _column_numpy_dtypes(self) -> Dict[str, np.dtype]:
+        """
+        Map numeric columns at the end of the pipeline to the NumPy dtype
+        pandas arithmetic on them computes in (see ``numeric_numpy_dtype``);
+        other and unknown columns are left out.
+
+        Columns are followed from the source like in ``_column_null_kinds``;
+        a computed column gets the dtype pandas gives its expression (see
+        ``numpy_result_dtype``). A JOIN makes every column unknown.
+        """
+        from .lazy_ops import numeric_numpy_dtype
+
+        if self._joins:
+            return {}
+        dtypes = self._column_traits(
+            numeric_numpy_dtype,
+            _clickhouse_type_numpy_dtype,
+            _assigned_numpy_dtype,
+            _projected_numpy_dtypes,
+        )
+        return {name: dtype for name, dtype in dtypes.items() if dtype is not None}
+
+    def _column_traits(self, of_dtype, of_clickhouse_type, of_assignment, of_projection) -> dict:
+        """
+        A property of each column at the end of the pipeline, followed from
+        the source's dtypes (``of_dtype``) or DESCRIBE types
+        (``of_clickhouse_type``) through row operations (kept), SELECTs
+        (``of_projection``) and column assignments (``of_assignment``); empty
+        when another op makes the columns unknown (see
+        ``_pipeline_source_types``).
+        """
+        from .lazy_ops import LazyColumnAssignment
+
+        source = self._pipeline_source_types()
+        if source is None:
+            return {}
+        ops, dtypes, schema = source
+        if dtypes is not None:
+            traits = {name: of_dtype(dtype) for name, dtype in dtypes.items()}
+        else:
+            traits = {name: of_clickhouse_type(ch_type) for name, ch_type in schema.items()}
+        for op in ops:
+            if isinstance(op, LazyColumnAssignment):
+                traits[op.column] = of_assignment(op, traits)
+            elif op.op_type == "SELECT" and op.fields:
+                traits = of_projection(op.fields, traits)
+        return traits
+
+    def _pipeline_source_types(self):
+        """
+        ``(ops, dtypes, schema)`` to follow columns from the source through the
+        lazy ops without executing: the ops after the source, and either the
+        source DataFrame's pandas dtypes by column name (``schema`` None) or
+        the DESCRIBE types of a SQL source (``dtypes`` None).
+
+        None when an op other than a row operation, SELECT or column
+        assignment changes the columns, the source DataFrame has duplicate
+        column names, or the schema is unavailable.
         """
         from .lazy_ops import LazyColumnAssignment, LazyDataFrameSource
 
@@ -1696,29 +1963,17 @@ class DataStore(PandasCompatMixin):
             source_df = self._table_function._df
 
         if not all(isinstance(op, (LazyRelationalOp, LazyColumnAssignment)) for op in ops):
-            return {}
+            return None
 
         if source_df is not None:
-            kinds = {
-                str(name): _dtype_null_is_nan(dtype)
-                for name, dtype in source_df.dtypes.items()
-            }
-        else:
-            try:
-                schema = self.schema() or {}
-            except Exception:
-                return {}
-            kinds = {
-                name: _clickhouse_type_null_is_nan(ch_type)
-                for name, ch_type in schema.items()
-            }
-
-        for op in ops:
-            if isinstance(op, LazyColumnAssignment):
-                kinds[op.column] = _assigned_null_as_nan(op, kinds)
-            elif op.op_type == "SELECT" and op.fields:
-                kinds = _projected_null_kinds(op.fields, kinds)
-        return {name: kind for name, kind in kinds.items() if kind}
+            if not source_df.columns.is_unique:
+                return None
+            return ops, {str(name): dtype for name, dtype in source_df.dtypes.items()}, None
+        try:
+            schema = self.schema() or {}
+        except Exception:
+            return None
+        return ops, None, schema
 
     def _get_source_df_if_pristine(self) -> "Optional[pd.DataFrame]":
         """
@@ -2008,6 +2263,18 @@ class DataStore(PandasCompatMixin):
 
         return df
 
+    def _source_labels_repeat(self) -> bool:
+        """Whether this DataStore reads a DataFrame whose column labels
+        repeat, which chDB can't read."""
+        from .lazy_ops import LazyDataFrameSource
+
+        source_df = self._source_df
+        if self._lazy_ops and isinstance(self._lazy_ops[0], LazyDataFrameSource):
+            source_df = self._lazy_ops[0]._df
+        elif source_df is None and isinstance(self._table_function, PythonTableFunction):
+            source_df = self._table_function._df
+        return source_df is not None and not source_df.columns.is_unique
+
     def _execute_sql_segment(
         self,
         segment: "ExecutionSegment",
@@ -2146,6 +2413,18 @@ class DataStore(PandasCompatMixin):
             elif df is None:
                 df = pd.DataFrame()
 
+            # SQL GROUP BY orders category labels as plain values and drops
+            # the categorical dtype; pandas groups in category order.
+            groupby_agg = segment.plan.groupby_agg if segment.plan else None
+            if groupby_agg is not None and any(
+                isinstance(df.dtypes.get(col), pd.CategoricalDtype)
+                for col in groupby_agg.groupby_cols
+            ):
+                self._logger.debug("  Categorical group key: executing segment with pandas")
+                for op in segment.ops:
+                    df = op.execute(df, self)
+                return df
+
             plan = segment.plan
             if plan is None:
                 from .query_planner import QueryPlan
@@ -2222,7 +2501,7 @@ class DataStore(PandasCompatMixin):
                 load_sql = f"{load_sql} SETTINGS {', '.join(settings_parts)}"
             self._logger.debug("  Load SQL for Pandas: %s", load_sql)
             result = self._executor.execute(load_sql)
-            df = result.to_df()
+            df = self._match_outer_join_dtypes(result.to_df())
             self._logger.debug(
                 "  Loaded raw data from source for Pandas: %s rows", len(df)
             )
@@ -2266,6 +2545,8 @@ class DataStore(PandasCompatMixin):
         # For GroupBy SQL pushdown: set group keys as index
         from .config import is_performance_mode
 
+        df = self._match_outer_join_dtypes(df)
+
         if plan.groupby_agg and not is_performance_mode():
             if isinstance(self._table_function, PythonTableFunction):
                 df = plan.groupby_agg.restore_input_dtypes(
@@ -2305,6 +2586,87 @@ class DataStore(PandasCompatMixin):
                         self._logger.debug("  Converted flat columns to MultiIndex")
 
         return df
+
+    def _match_outer_join_dtypes(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Give the columns an outer JOIN filled with NULL the dtypes pandas merge
+        gives them.
+
+        chDB returns such integer and bool columns as nullable Int64 / boolean
+        with <NA>; pandas merge turns them into float64 / object with NaN. A
+        column that holds nulls in its own source already reads as Int64 /
+        boolean there, and pandas merge keeps that dtype, so it is left as is.
+        """
+        from .config import is_performance_mode
+
+        if not self._joins or is_performance_mode() or not df.columns.is_unique:
+            return df
+        candidates = [
+            c
+            for c in df.columns
+            if (
+                pd.api.types.is_integer_dtype(df[c].dtype)
+                or pd.api.types.is_bool_dtype(df[c].dtype)
+            )
+            and df[c].isna().any()
+        ]
+        if not candidates:
+            return df
+
+        try:
+            filled = self._outer_join_filled_columns()
+            by_source = {}
+            for col in candidates:
+                if col in filled:
+                    ds = filled[col]
+                    by_source.setdefault(id(ds), (ds, []))[1].append(col)
+            for ds, cols in by_source.values():
+                own_nulls = self._columns_with_nulls(ds, cols)
+                for col in cols:
+                    if col in own_nulls:
+                        continue
+                    if pd.api.types.is_bool_dtype(df[col].dtype):
+                        df[col] = df[col].astype(object).where(df[col].notna(), np.nan)
+                    else:
+                        df[col] = df[col].astype("float64")
+        except Exception as e:
+            self._logger.debug("  Outer join dtype matching skipped: %s", e)
+        return df
+
+    def _outer_join_filled_columns(self) -> Dict[str, "DataStore"]:
+        """Map each column an outer JOIN can fill with NULL to its DataStore."""
+        from .enums import JoinType
+
+        owner = {col: self for col in self.schema()}
+        filled = {}
+        for other_ds, join_type, _ in self._joins:
+            other_cols = list(other_ds.schema())
+            if join_type in (JoinType.right, JoinType.right_outer, JoinType.full_outer):
+                for col, ds in owner.items():
+                    if col not in other_cols:
+                        filled[col] = ds
+            if join_type in (JoinType.left, JoinType.left_outer, JoinType.full_outer):
+                for col in other_cols:
+                    if col not in owner:
+                        filled[col] = other_ds
+            for col in other_cols:
+                owner.setdefault(col, other_ds)
+        return filled
+
+    def _columns_with_nulls(self, ds: "DataStore", cols: List[str]) -> set:
+        """Which of ``cols`` hold a NULL in the source ``ds`` is joined from."""
+        if ds._is_subquery:
+            source = ds.to_sql(quote_char=self.quote_char, as_subquery=True)
+        elif ds._table_function:
+            source = ds._table_function.to_sql()
+        else:
+            source = format_identifier(ds.table_name, self.quote_char)
+        checks = ", ".join(
+            f"max(isNull({format_identifier(col, self.quote_char)}))" for col in cols
+        )
+        sql = self._append_format_settings(f"SELECT {checks} FROM {source}")
+        row = self._executor.execute(sql).rows[0]
+        return {col for col, has_null in zip(cols, row) if has_null}
 
     def _build_execution_sql(self) -> Optional[str]:
         """
@@ -3536,6 +3898,10 @@ class DataStore(PandasCompatMixin):
         # Fallback to table name or generic
         return self.table_name if self.table_name else "tbl"
 
+    def _join_table_name(self) -> Optional[str]:
+        """The name a JOIN gives this DataStore's table, if it has one."""
+        return self._get_table_alias() if self._table_function else self.table_name
+
     def _resolve_expr_dependencies(
         self, expr: "Expression", _visited: set = None
     ) -> "Expression":
@@ -4031,11 +4397,12 @@ class DataStore(PandasCompatMixin):
         Return the ``SQLBuildResult`` iff the entire pipeline collapses to ONE
         first-segment SQL query against the original source (so the query result
         is the *final* result); return ``None`` otherwise. Mirrors the segment
-        planning done in :meth:`_execute`. The SQL is a single SELECT with at
-        most one SETTINGS clause, so it can also be embedded as a subquery.
-        With ``row_labels`` it is the query ``_execute()`` runs, whose result
-        rows ``_label_source_rows`` labels. A pending write (INSERT, UPDATE,
-        DELETE) is not a SELECT: None.
+        planning done in :meth:`_execute`, except that the query result has no
+        row labels, so it is not split to keep them. The SQL is a single SELECT
+        with at most one SETTINGS clause, so it can also be embedded as a
+        subquery. With ``row_labels`` it is the query ``_execute()`` runs, whose
+        result rows ``_label_source_rows`` labels. A pending write (INSERT,
+        UPDATE, DELETE) is not a SELECT: None.
         """
         from .query_planner import QueryPlanner
 
@@ -4067,6 +4434,7 @@ class DataStore(PandasCompatMixin):
             has_sql_source=True,
             schema=schema,
             local_source=False,  # non-Python source (excluded in _try_native_arrow)
+            keep_row_labels=False,
         )
         if len(exec_plan.segments) != 1:
             return None
@@ -4329,8 +4697,9 @@ class DataStore(PandasCompatMixin):
             if pd.api.types.is_numeric_dtype(dtypes[col])
         ]
 
+        # Without numeric columns pandas describes the others (count, unique, top, freq), which the pandas path does.
         if not numeric_cols:
-            return self._wrap_result(pd.DataFrame(), "describe()")
+            return None
 
         # Default percentiles (matching pandas behavior)
         if percentiles is None:
@@ -6786,6 +7155,7 @@ class DataStore(PandasCompatMixin):
             >>> ds.select("*", ds.name.str.upper().as_("name_upper"))  # All columns + computed
         """
         from .column_expr import ColumnExpr
+        from .expressions import projection_name
         from .functions import Function
 
         # Check if any field is a SQL expression (Function, Expression, ColumnExpr with expression)
@@ -6816,7 +7186,30 @@ class DataStore(PandasCompatMixin):
             f._expr if isinstance(f, ColumnExpr) and f._expr is not None else f
             for f in fields
         ]
-        self._add_lazy_op(LazyRelationalOp("SELECT", field_names, fields=op_fields))
+        hidden = self._hidden_select_aliases(op_fields)
+        if hidden:
+            # In one SELECT a column's name refers to the field aliased to it,
+            # so a field that reads a column another field's alias replaces is
+            # computed under a hidden name first and renamed in a second SELECT.
+            first = [
+                f.with_attrs(alias=hidden[i]) if i in hidden else f
+                for i, f in enumerate(op_fields)
+            ]
+            second = [
+                Field(hidden[i], alias=projection_name(f)) if i in hidden
+                else projection_name(f)
+                for i, f in enumerate(op_fields)
+            ]
+            for step in (first, second):
+                self._add_lazy_op(
+                    LazyRelationalOp(
+                        "SELECT", ", ".join(str(f) for f in step), fields=step
+                    )
+                )
+        else:
+            self._add_lazy_op(
+                LazyRelationalOp("SELECT", field_names, fields=op_fields)
+            )
 
         named_here = set()
         for field in fields:
@@ -6844,6 +7237,47 @@ class DataStore(PandasCompatMixin):
             named_here.add(name)
 
         return self
+
+    @staticmethod
+    def _hidden_select_aliases(fields) -> Dict[int, str]:
+        """
+        Hidden names, by position, for the fields of an explicit SELECT whose
+        alias names a column another of its fields reads.
+        """
+        from .expressions import is_star_item, projection_name
+
+        if any(is_star_item(f) for f in fields) or not all(
+            isinstance(f, (str, Expression)) and projection_name(f) for f in fields
+        ):
+            return {}
+        # A plain column reference keeps its name; computed fields read
+        # their columns, or unknown ones (None)
+        reads = [
+            set()
+            if isinstance(f, str) or (isinstance(f, Field) and not f.alias)
+            else f.columns_read()
+            for f in fields
+        ]
+        shadowing = [
+            i
+            for i, f in enumerate(fields)
+            if isinstance(f, Expression)
+            and f.alias
+            and not (isinstance(f, Field) and f.name == f.alias)
+            and any(
+                r is None or f.alias in r for j, r in enumerate(reads) if j != i
+            )
+        ]
+        taken = {projection_name(f) for f in fields}.union(*(r or () for r in reads))
+        hidden = {}
+        for i in shadowing:
+            alias = fields[i].alias
+            name, suffix = f"__{alias}__", 1
+            while name in taken:
+                name, suffix = f"__{alias}_{suffix}__", suffix + 1
+            taken.add(name)
+            hidden[i] = name
+        return hidden
 
     @immutable
     def filter(
@@ -7287,18 +7721,18 @@ class DataStore(PandasCompatMixin):
                 join_condition = on
                 # For Condition objects, we can't easily extract columns, so use SQL path
         elif left_on and right_on:
-            # Create condition from column names
-            # Use table alias for table functions
-            left_table = (
-                self._get_table_alias() if self._table_function else self.table_name
+            # Create condition from column names, one equality per key pair
+            left_keys = list(left_on) if isinstance(left_on, (list, tuple)) else [left_on]
+            right_keys = list(right_on) if isinstance(right_on, (list, tuple)) else [right_on]
+            if len(left_keys) != len(right_keys):
+                raise QueryError("left_on and right_on must have the same number of columns")
+            join_condition = Condition.all(
+                [
+                    Field(lk, table=self._join_table_name())
+                    == Field(rk, table=other._join_table_name())
+                    for lk, rk in zip(left_keys, right_keys)
+                ]
             )
-            right_table = (
-                other._get_table_alias() if other._table_function else other.table_name
-            )
-
-            left_field = Field(left_on, table=left_table)
-            right_field = Field(right_on, table=right_table)
-            join_condition = left_field == right_field
         else:
             raise QueryError(
                 "Either 'on' or both 'left_on' and 'right_on' must be specified"
@@ -7311,8 +7745,16 @@ class DataStore(PandasCompatMixin):
         both_sql = has_sql_source and other_has_sql_source and join_type.runs_in_sql
         right = other._join_operand() if both_sql else None
 
+        if right is not None and self._lazy_ops and not self._read_pipeline_as_source():
+            # The left side's pipeline needs pandas: the join runs in pandas
+            right = None
+
         if right is not None:
-            # Both sides have SQL sources - use SQL JOIN only
+            # Both sides run as SQL: one JOIN of the left side's result (its
+            # ops so far applied first, as pandas merges the frame they
+            # produce) and the right side's
+            if not isinstance(join_condition, tuple):
+                join_condition = self._qualify_join_condition(join_condition, right)
             self._joins.append((right, join_type, join_condition))
         elif join_condition is not None and not (
             pandas_on or (pandas_left_on and pandas_right_on)
@@ -7334,6 +7776,28 @@ class DataStore(PandasCompatMixin):
                 )
             )
         # Note: Don't return self - @immutable decorator will return the copy
+
+    def _qualify_join_condition(self, condition, other: "DataStore"):
+        """
+        Qualify the columns of a JOIN ... ON condition that were taken from
+        the joined DataStores (``ds.col``, ``ds['col']``) with their table's
+        name, so ``l.id == r.id`` compares the two tables' columns.
+        """
+        from .column_expr import ColumnExpr
+
+        expr = condition._expr if isinstance(condition, ColumnExpr) else condition
+        if not isinstance(expr, Expression):
+            return condition
+        joined = [ds for ds, _, _ in self._joins] + [other]
+        names = [self._join_table_name()] + [
+            ds._join_table_name()
+            for ds in joined
+            if isinstance(ds, DataStore) and not ds._is_subquery
+        ]
+        # A name two tables share can't tell them apart
+        tables = {name for name in names if name and names.count(name) == 1}
+        qualified = qualify_columns(expr, tables)
+        return condition if qualified is expr else qualified
 
     @immutable
     def union(self, other: "DataStore", all: bool = False) -> "DataStore":
@@ -7577,6 +8041,29 @@ class DataStore(PandasCompatMixin):
         self._distinct_subset = None
         self._select_star = False
 
+    def _read_pipeline_as_source(self) -> bool:
+        """
+        Make this DataStore read its complete pipeline's result (see
+        ``_operand_sql``) as a subquery under the same table alias, so clauses
+        added later (a JOIN) apply to that result. Return False and leave it
+        unchanged when the pipeline does not run as one SQL query.
+        """
+        result = self._operand_sql()
+        if result is None:
+            return False
+        sql, settings = result
+        from .table_functions import SubqueryTableFunction
+
+        self._start_from(
+            SubqueryTableFunction(
+                sql,
+                alias=self._get_table_alias(),
+                source_tables=self._get_all_source_tables(),
+                query_settings=settings,
+            )
+        )
+        return True
+
     @immutable
     def with_column(self, name: str, expr: Union[Expression, Any]) -> "DataStore":
         """
@@ -7616,6 +8103,7 @@ class DataStore(PandasCompatMixin):
         sort: bool = True,
         as_index: bool = True,
         dropna: bool = True,
+        observed: Optional[bool] = None,
         **kwargs,
     ) -> "LazyGroupBy":
         """
@@ -7639,6 +8127,8 @@ class DataStore(PandasCompatMixin):
                       If False, group keys are returned as columns in the result.
             dropna: If True (default), exclude NA/null values in keys.
                     If False, NA values are also grouped.
+            observed: For categorical keys, only show observed categories.
+                      None (default) uses the pandas default.
             **kwargs: Additional arguments (for pandas compatibility, currently ignored).
 
         Returns:
@@ -7720,6 +8210,7 @@ class DataStore(PandasCompatMixin):
             sort=sort,
             as_index=as_index,
             dropna=dropna,
+            observed=observed,
         )
 
     @immutable
@@ -8019,9 +8510,18 @@ class DataStore(PandasCompatMixin):
     def _assign_sql_columns(self, sql_kwargs) -> "DataStore":
         """Assign SQL-compatible expressions, all reading the current frame."""
         from .column_expr import ColumnExpr
-        from .lazy_ops import LazyColumnAssignment
+        from .lazy_ops import LazyColumnAssignment, numpy_result_dtype
 
         result = self
+        exprs = {
+            alias: expr._expr if isinstance(expr, ColumnExpr) else expr
+            for alias, expr in sql_kwargs.items()
+        }
+        input_dtypes = (
+            result._column_numpy_dtypes()
+            if any(isinstance(expr, ArithmeticExpression) for expr in exprs.values())
+            else None
+        )
         # Ensure we have a SQL source (create PythonTableFunction if needed)
         result._ensure_sql_source()
 
@@ -8037,12 +8537,17 @@ class DataStore(PandasCompatMixin):
         # overwrites. _computed_columns keeps the fully resolved form for
         # consumers that expand computed columns in place (GROUP BY).
         expr_map = {}
-        for alias, expr in sql_kwargs.items():
-            if isinstance(expr, ColumnExpr):
-                expr = expr._expr
+        for alias, expr in exprs.items():
             if isinstance(expr, Expression):
                 result._computed_columns[alias] = result._resolve_expr_dependencies(expr)
-                expr_map[alias] = LazyColumnAssignment(alias, expr).get_sql_expression()
+                expr_map[alias] = LazyColumnAssignment(
+                    alias, expr, input_dtypes=input_dtypes
+                ).get_sql_expression()
+                if input_dtypes is not None and alias not in existing_columns_set:
+                    # A later callable's value can read the new column
+                    dtype = numpy_result_dtype(expr, input_dtypes)
+                    if dtype is not None:
+                        input_dtypes = {**input_dtypes, alias: dtype}
 
         # All values are evaluated against the frame before this step, so new
         # columns are selected before any column is overwritten. In one SELECT
@@ -8052,8 +8557,7 @@ class DataStore(PandasCompatMixin):
         added = [alias for alias in sql_kwargs if alias not in existing_columns_set]
         hidden = {}
         def reads_other_overwrite(col):
-            reads = expr_map[col].columns_read()
-            return reads is None or bool(reads & (columns_to_overwrite - {col}))
+            return _may_read(expr_map[col].columns_read(), columns_to_overwrite - {col})
 
         if any(reads_other_overwrite(col) for col in columns_to_overwrite):
             taken = existing_columns_set | set(added)
@@ -8174,6 +8678,7 @@ class DataStore(PandasCompatMixin):
             )
         )
 
+        orderby_fields = []
         for field, asc in zip(fields, ascending_list):
             if isinstance(field, str):
                 # Don't add table prefix for string fields
@@ -8184,7 +8689,9 @@ class DataStore(PandasCompatMixin):
             elif not isinstance(field, Expression):
                 # Convert other types to Field
                 field = Field(str(field))
-            self._orderby_fields.append((field, asc))
+            orderby_fields.append((field, asc))
+        # Keys of an earlier sort break this sort's ties
+        self._orderby_fields = merge_orderby_fields(self._orderby_fields, orderby_fields)
 
         # Store kind for SQL building
         self._orderby_kind = kind
@@ -8265,7 +8772,7 @@ class DataStore(PandasCompatMixin):
         # Set SQL flag for SQL execution path
         if subset is not None:
             # Use LIMIT 1 BY for subset-based deduplication
-            self._distinct_subset = [subset] if isinstance(subset, str) else list(subset)
+            self._distinct_subset = list(subset) if pd.api.types.is_list_like(subset) else [subset]
         else:
             # Use SELECT DISTINCT for full-row deduplication
             self._distinct = True
@@ -8746,7 +9253,7 @@ class DataStore(PandasCompatMixin):
             #   result = ds.assign(name_upper=ds['name'].str.upper())
             #   result['name_upper'].tolist()  # Would try to evaluate upper("name") on result
             #   # But result's DataFrame only has 'name_upper', not 'name'!
-            return ColumnExpr(Field(key), self)
+            return ColumnExpr(Field(key, source_table=self._join_table_name()), self)
 
         elif isinstance(key, tuple):
             # Tuple indexing: support for MultiIndex columns
@@ -8929,7 +9436,9 @@ class DataStore(PandasCompatMixin):
 
         elif isinstance(key, int):
             # Integer column name access: df[0] when column name is 0
-            return ColumnExpr(Field(str(key)), self)
+            return ColumnExpr(
+                Field(str(key), source_table=self._join_table_name()), self
+            )
 
         elif callable(key):
             # Callable indexing: df[lambda x: x['a'] > 2]
@@ -9597,8 +10106,9 @@ class DataStore(PandasCompatMixin):
 
         Note:
             Dynamic field access does NOT add table prefix by default.
-            For JOIN conditions where disambiguation is needed, use left_on/right_on
-            parameters or explicitly create Field with table: Field('col', table='t').
+            join() qualifies the columns of its ON condition with the name of
+            the table they were taken from, so ds1.id == ds2.id compares the
+            two tables' columns.
         """
         from .column_expr import ColumnExpr
 
@@ -9615,7 +10125,7 @@ class DataStore(PandasCompatMixin):
             )
 
         # Return ColumnExpr that wraps a Field and can execute
-        return ColumnExpr(Field(name), self)
+        return ColumnExpr(Field(name, source_table=self._join_table_name()), self)
 
     # ========== Copy Support ==========
 

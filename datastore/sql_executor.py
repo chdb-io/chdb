@@ -44,11 +44,13 @@ from .lazy_ops import (
     LazyMask,
     LazyDistinct,
 )
+from .functions import window_reads_row_number
 from .sql_builder import SQLBuilder
 from .utils import (
     normalize_ascending,
     map_agg_func,
     build_orderby_clause,
+    merge_orderby_fields,
     is_stable_sort,
     format_identifier,
     compose_slice,
@@ -56,6 +58,7 @@ from .utils import (
     row_position_scope,
     row_position_sql,
     DEFAULT_ROW_POSITION,
+    SKIPNA_AGG_FUNCS,
 )
 from .config import get_logger
 
@@ -190,6 +193,8 @@ class WhereMaskCaseExpr(Expression):
         """Generate SQL CASE WHEN expression."""
         from .column_expr import ColumnExpr
         from .conditions import Condition
+        from .config import is_performance_mode
+        from .lazy_ops import _null_safe_comparisons
 
         qc = quote_char or self.quote_char
         col_quoted = f"{qc}{self.column}{qc}"
@@ -215,6 +220,10 @@ class WhereMaskCaseExpr(Expression):
                 cond = cond._expr if hasattr(cond, "_expr") else cond
 
             if isinstance(cond, Condition):
+                if not is_performance_mode():
+                    # NaN compares as pandas does; a NULL left stands for
+                    # pandas NA, which the ELSE branch replaces as pandas does.
+                    cond = _null_safe_comparisons(cond, op.nan_columns or frozenset())
                 cond_sql = cond.to_sql(quote_char=qc)
             else:
                 raise ValueError(f"Cannot convert condition to SQL: {type(cond)}")
@@ -328,17 +337,21 @@ def extract_clauses_from_ops(
             result.where_conditions.append(op.condition)
 
         elif op.op_type == "ORDER BY" and op.fields:
-            # Later ORDER BY replaces earlier ones (pandas semantics)
-            result.orderby_fields = []
+            # A later ORDER BY sorts the rows an earlier one sorted: the
+            # earlier keys break its ties (pandas semantics)
             result.orderby_kind = getattr(op, "kind", "quicksort")
 
+            orderby_fields = []
             ascending_list = normalize_ascending(op.ascending, len(op.fields))
             for i, f in enumerate(op.fields):
                 asc = ascending_list[i] if i < len(ascending_list) else True
                 if isinstance(f, str):
-                    result.orderby_fields.append((Field(f), asc))
+                    orderby_fields.append((Field(f), asc))
                 else:
-                    result.orderby_fields.append((f, asc))
+                    orderby_fields.append((f, asc))
+            result.orderby_fields = merge_orderby_fields(
+                result.orderby_fields, orderby_fields
+            )
 
         elif op.op_type in ("LIMIT", "OFFSET"):
             n = op.limit_value if op.op_type == "LIMIT" else op.offset_value
@@ -485,6 +498,21 @@ def _type_of_expression_sql(expr_sql: str, typed_columns: Tuple[Tuple[str, str],
     return result.bytes().decode().strip().strip('"') or None
 
 
+def null_if_any_missing(agg: Expression, col_expr: Expression) -> Expression:
+    """
+    ``agg``, or NULL for a group holding a NULL or NaN in ``col_expr``: a
+    pandas reduction with ``skipna=False`` gives NaN there. Plain aggregates
+    skip NULL, and min/max skip NaN too.
+    """
+    from .functions import AggregateFunction, Function
+
+    missing = Function(
+        'or', Function('isNull', col_expr), Function('notEquals', col_expr, col_expr)
+    )
+    has_missing = Function('greater', AggregateFunction('countIf', missing), Literal(0))
+    return Function('if', has_missing, Literal(None), agg)
+
+
 def build_groupby_select_fields(
     groupby_agg: LazyGroupByAgg,
     reserved_names: Optional[Set[str]] = None,
@@ -532,6 +560,7 @@ def build_groupby_select_fields(
         return Field(col_name)
 
     min_count = groupby_agg.kwargs.get("min_count") or 0
+    skipna = groupby_agg.kwargs.get("skipna", True)
 
     def with_min_count(func: str, col_expr: Expression) -> Expression:
         """
@@ -591,34 +620,22 @@ def build_groupby_select_fields(
             expr = Function('if', enough, expr, Literal(None))
         return expr
 
-    def create_agg_expr(func: str, col_expr: Expression) -> AggregateFunction:
-        """
-        Create aggregation expression, handling special cases for first/last.
+    def create_agg_expr(func: str, col_expr: Expression) -> Expression:
+        """Create aggregation expression (first/last in row order, see ``aggregate``)."""
+        from .functions import aggregate
 
-        For first/last, we use argMin/argMax over the rows' source positions
-        to preserve row order semantics. ClickHouse's any()/anyLast() return
-        arbitrary values, not row-order based first/last.
-
-        In performance mode, use any()/anyLast() directly (faster, non-deterministic).
-        """
-        from .config import is_performance_mode
-
-        if func == 'first':
-            if is_performance_mode():
-                return AggregateFunction('any', col_expr)
-            return AggregateFunction('argMin', col_expr, RowPosition())
-        elif func == 'last':
-            if is_performance_mode():
-                return AggregateFunction('anyLast', col_expr)
-            return AggregateFunction('argMax', col_expr, RowPosition())
+        if func in ('first', 'last'):
+            return aggregate(func, col_expr)
         elif func == 'size':
             # size() counts ALL rows including NULL
             return AggregateFunction('count', Star())
         elif func in ('sum', 'prod'):
-            return with_min_count(func, col_expr)
+            expr = with_min_count(func, col_expr)
         else:
-            sql_func = map_agg_func(func)
-            return AggregateFunction(sql_func, col_expr)
+            expr = AggregateFunction(map_agg_func(func), col_expr)
+        if skipna or func not in SKIPNA_AGG_FUNCS:
+            return expr
+        return null_if_any_missing(expr, col_expr)
 
     # Group keys, expanded when computed, with their result columns
     keys = [
@@ -902,6 +919,32 @@ class SQLExecutionEngine:
             return None
         subset = self._layer_distinct.subset
         return [subset] if isinstance(subset, str) else list(subset)
+
+    @staticmethod
+    def _split_wheres_by_case_when_position(
+        layer_ops: List[LazyOp],
+    ) -> Tuple[List[Any], List[Any]]:
+        """
+        Split WHERE conditions in a layer by the position of its first
+        LazyWhere/LazyMask: WHEREs before it filter the source rows, WHEREs
+        after it read the replaced values.
+
+        Returns:
+            (pre_case_conditions, post_case_conditions)
+        """
+        pre_case: List[Any] = []
+        post_case: List[Any] = []
+        seen_case = False
+        for op in layer_ops:
+            if isinstance(op, (LazyWhere, LazyMask)):
+                seen_case = True
+            elif (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "WHERE"
+                and op.condition is not None
+            ):
+                (post_case if seen_case else pre_case).append(op.condition)
+        return pre_case, post_case
 
     def _build_layer_sql(
         self,
@@ -1236,6 +1279,11 @@ class SQLExecutionEngine:
                 # select_fields_for_sql already includes group keys /
                 # aggregations / temp aliases.
                 include_star = False
+            post_case_conditions: List[Any] = []
+            if where_needs_temp_alias and groupby_agg_op is None:
+                clauses.where_conditions, post_case_conditions = (
+                    self._split_wheres_by_case_when_position(layer_ops)
+                )
             sql = self._render_wrapper_layer_sql(
                 from_source,
                 clauses,
@@ -1249,6 +1297,7 @@ class SQLExecutionEngine:
                 where_temp_alias_columns=(
                     where_temp_alias_columns if where_needs_temp_alias else None
                 ),
+                post_case_conditions=post_case_conditions,
                 star_except=star_except,
             )
 
@@ -1405,10 +1454,12 @@ class SQLExecutionEngine:
             )
 
         effective_orderby = clauses.orderby_fields
-        if (
-            needs_row_order
-            and not clauses.orderby_fields
-            and (clauses.where_conditions or self.ds._joins)
+        if not clauses.orderby_fields and (
+            (needs_row_order and (clauses.where_conditions or self.ds._joins))
+            or (
+                not groupby_fields
+                and any(window_reads_row_number(f) for f in select_fields)
+            )
         ):
             effective_orderby = [("__rowNumberInAllBlocks__", True)]
 
@@ -1442,6 +1493,7 @@ class SQLExecutionEngine:
         add_row_order_fallback: bool = False,
         include_star: bool = False,
         where_temp_alias_columns: Optional[List[Tuple[str, str]]] = None,
+        post_case_conditions: Optional[List[Any]] = None,
         star_except: Optional[List[str]] = None,
     ) -> str:
         """
@@ -1473,6 +1525,10 @@ class SQLExecutionEngine:
         ``SELECT __tmp_col__ AS col, ...`` so the final result keeps the
         user-visible column names. ORDER BY / LIMIT / OFFSET are pushed to
         the outer layer so they bind to the user-visible names.
+
+        ``post_case_conditions`` are the layer's WHEREs that come after its
+        where/mask; they go on the outer layer to filter the replaced
+        values, while ``clauses.where_conditions`` filter the source rows.
 
         ``star_except`` lists inherited columns ``*`` leaves out.
         """
@@ -1506,13 +1562,12 @@ class SQLExecutionEngine:
 
         parts = [f"SELECT {distinct_keyword}{select_sql}", f"FROM {from_source}"]
 
-        # When LazyMask/LazyWhere temp aliases wrap this layer, any
-        # WHERE in ``clauses.where_conditions`` semantically filters the
-        # MASKED values: ``mask(...)[mask] -> [filter]`` means filter
-        # after mask. Push the WHERE to the OUTER (post-rename) layer
-        # so it binds to the user-visible column names (= masked values).
-        # Otherwise emit it inline on the source columns as usual.
-        if clauses.where_conditions and not wrap_temp_aliases:
+        # A WHERE before the layer's where/mask filters the source rows, so
+        # it stays inline on the source columns. ``mask(...)[filter]``
+        # filters the MASKED values instead: those conditions arrive in
+        # ``post_case_conditions`` and go on the OUTER (post-rename) layer,
+        # where they bind to the user-visible column names.
+        if clauses.where_conditions:
             combined = clauses.where_conditions[0]
             for c in clauses.where_conditions[1:]:
                 combined = combined & c
@@ -1544,9 +1599,10 @@ class SQLExecutionEngine:
         row_order_fallback_allowed = add_row_order_fallback and not groupby_fields
 
         if wrap_temp_aliases:
-            # When CASE-WHEN temp aliases are present, postpone WHERE /
-            # ORDER BY / LIMIT / OFFSET to the outer rename layer so they
-            # reference user-visible column names (= the masked values).
+            # When CASE-WHEN temp aliases are present, postpone the
+            # post-case WHERE / ORDER BY / LIMIT / OFFSET to the outer rename
+            # layer so they reference user-visible column names (= the
+            # masked values).
             inner_sql = " ".join(parts)
             outer_select = ", ".join(
                 f"{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}"
@@ -1556,9 +1612,9 @@ class SQLExecutionEngine:
                 f"SELECT {outer_select}",
                 f"FROM ({inner_sql}) AS __case_subq__",
             ]
-            if clauses.where_conditions:
-                combined = clauses.where_conditions[0]
-                for c in clauses.where_conditions[1:]:
+            if post_case_conditions:
+                combined = post_case_conditions[0]
+                for c in post_case_conditions[1:]:
                     combined = combined & c
                 outer_parts.append(
                     f"WHERE {combined.to_sql(quote_char=self.quote_char)}"
@@ -1594,6 +1650,10 @@ class SQLExecutionEngine:
             # Preserve pandas-like row order for the DataFrame source; _row_id
             # is chDB's deterministic virtual column for Python() sources.
             parts.append("ORDER BY _row_id")
+        elif not groupby_fields and any(
+            window_reads_row_number(f) for f in select_fields
+        ):
+            parts.append(f"ORDER BY {self.get_row_number_expr()}")
 
         if limit_by:
             parts.append(limit_by)

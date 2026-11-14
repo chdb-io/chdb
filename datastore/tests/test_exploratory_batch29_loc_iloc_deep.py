@@ -567,7 +567,8 @@ class TestMixedOperations:
         ds_filtered = ds_df[ds_df['A'] > 2]
         ds_result = ds_filtered.loc[:, ['A', 'B']]
 
-        assert_frame_equal(ds_result, pd_result)
+        assert isinstance(ds_result, DataStore)
+        assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
 
     def test_iloc_after_sort(self, df_basic):
         """Test iloc after sort operation."""

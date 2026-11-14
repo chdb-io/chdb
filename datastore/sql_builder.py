@@ -38,7 +38,8 @@ from typing import List, Optional, Tuple, Union, Set, Any
 from copy import copy
 
 from .expressions import Expression, Field
-from .utils import compose_slice, row_position_sql
+from .functions import window_reads_row_number
+from .utils import compose_slice, merge_orderby_fields, row_position_sql
 from .conditions import Condition, CompoundCondition, BinaryCondition, NotCondition
 from .conditions import InCondition, BetweenCondition, UnaryCondition
 
@@ -134,7 +135,10 @@ class SQLLayer:
         if self.orderby_fields:
             orderby_clause = self._build_orderby_clause(quote_char)
             parts.append(orderby_clause)
-        elif self.preserve_row_order and not self.groupby_fields:
+        elif not self.groupby_fields and (
+            self.preserve_row_order
+            or any(window_reads_row_number(e) for _, e in self.computed_columns)
+        ):
             # Preserve original row order by source position
             parts.append(f"ORDER BY {row_position_sql()}")
 
@@ -395,6 +399,7 @@ class SQLBuilder:
         Add ORDER BY clause.
 
         If any sort field references a computed column, wraps first.
+        A layer that is already sorted keeps its keys as tie-breakers.
 
         Args:
             fields: List of (field, ascending) tuples
@@ -411,7 +416,9 @@ class SQLBuilder:
         if referenced & current_computed:
             self._wrap_current_layer()
 
-        self.current_layer.orderby_fields = fields
+        self.current_layer.orderby_fields = merge_orderby_fields(
+            self.current_layer.orderby_fields, fields
+        )
         return self
 
     def add_limit(self, value: int) -> "SQLBuilder":

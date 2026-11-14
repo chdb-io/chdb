@@ -274,6 +274,30 @@ class DataStoreLocIndexer:
         elif callable(key):
             key = key(self._datastore)
 
+        # loc[:, columns] is a plain column selection, same as ds[columns]
+        if (
+            isinstance(key, tuple)
+            and len(key) == 2
+            and isinstance(key[0], slice)
+            and key[0] == slice(None)
+        ):
+            col_key = key[1]
+            if isinstance(col_key, pd.Index):
+                col_key = col_key.tolist()
+            if isinstance(col_key, str):
+                return self._datastore[col_key]
+            # Boolean masks select columns here but rows in ds[...], and
+            # ds[...] renames duplicate labels, so those stay on pandas.
+            if (
+                isinstance(col_key, list)
+                and all(
+                    isinstance(col, str) or (isinstance(col, int) and not isinstance(col, bool))
+                    for col in col_key
+                )
+                and len(set(col_key)) == len(col_key)
+            ):
+                return self._datastore[col_key]
+
         # Check for loc[condition, columns] pattern that can be pushed to SQL
         if isinstance(key, tuple) and len(key) == 2:
             row_key, col_key = key
@@ -1203,7 +1227,7 @@ class PandasCompatMixin:
             new_ds = copy(self)
             if subset is not None:
                 # Use LIMIT 1 BY for subset-based deduplication
-                new_ds._distinct_subset = [subset] if isinstance(subset, str) else list(subset)
+                new_ds._distinct_subset = list(subset) if pd.api.types.is_list_like(subset) else [subset]
             else:
                 # Use SELECT DISTINCT for full-row deduplication
                 new_ds._distinct = True
@@ -1698,15 +1722,20 @@ class PandasCompatMixin:
         DataStore = type(self)
         join_type = JoinType.parse(how)
 
+        # left_on/right_on naming the same columns pairwise merge like on=,
+        # with one column per key
+        if on is None and left_on is not None and right_on is not None:
+            lk = list(left_on) if isinstance(left_on, (list, tuple)) else [left_on]
+            rk = list(right_on) if isinstance(right_on, (list, tuple)) else [right_on]
+            if lk == rk and all(isinstance(c, str) for c in lk):
+                on, left_on, right_on = left_on, None, None
+
         # Try lazy SQL JOIN path when both sides are DataStores with SQL sources
         # and no pandas-only merge features are used
-        # Determine join key columns
+        # Determine join key columns. A JOIN ... ON keeps the key columns of
+        # both sides, so with left_on/right_on no shared name is a key.
         if on is not None:
             key_cols = set(on) if isinstance(on, (list, tuple)) else {on}
-        elif left_on is not None and right_on is not None:
-            lk = set(left_on) if isinstance(left_on, (list, tuple)) else {left_on}
-            rk = set(right_on) if isinstance(right_on, (list, tuple)) else {right_on}
-            key_cols = lk | rk
         else:
             key_cols = set()
 

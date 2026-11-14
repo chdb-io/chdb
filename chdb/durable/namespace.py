@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 from typing import Iterable, List, Optional, Tuple
 
-from .backends import make_backend
+from .backends import make_backend, refuse_credentials
 from .errors import LeaseHeld, NotFound
 from .head import Head
 from .object import DEFAULT_DATABASE, DurableObject, validate_oid
@@ -30,6 +30,7 @@ class Namespace:
         `object_kwargs` are passed to every `DurableObject` this namespace
         opens — `lease_ttl`, `clock_skew`, `heartbeat_interval`,
         `commit_deadline`."""
+        refuse_credentials(url)
         self.url = url
         self.owner = owner
         self.db = db

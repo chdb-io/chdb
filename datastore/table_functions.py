@@ -238,7 +238,7 @@ class SubqueryTableFunction(TableFunction):
     """
     Wraps a raw SQL subquery as a table source.
 
-    Used for UNION ALL and other composite SQL expressions, and for the right
+    Used for UNION ALL and other composite SQL expressions, and for either
     side of a JOIN whose pipeline has lazy ops. ``alias`` is the table alias
     JOIN clauses and conditions use for it; ``source_tables`` lists the
     ``(database, table)`` pairs the subquery reads; ``query_settings`` are
