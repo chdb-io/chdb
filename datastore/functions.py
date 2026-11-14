@@ -265,20 +265,18 @@ def aggregate(func: str, expr: Expression) -> "AggregateFunction":
     The SQL aggregate of ``expr`` for the pandas aggregation ``func``.
 
     first()/last() read the value of the first/last row in row order:
-    argMin/argMax over the row position. ClickHouse's any()/anyLast() return
-    the value of whichever row a thread reads first or last, so only
-    performance mode uses them.
-
-    NOTE: For Python() table function, connection.py replaces rowNumberInAllBlocks()
-    with _row_id (deterministic) at execution time (chDB v4.0.0b5+).
+    argMin/argMax over the row's source position (``RowPosition``).
+    ClickHouse's any()/anyLast() return the value of whichever row a thread
+    reads first or last, so only performance mode uses them.
     """
     from .config import is_performance_mode
+    from .expressions import RowPosition
     from .utils import map_agg_func
 
     if func in ("first", "last"):
         if is_performance_mode():
             return AggregateFunction("any" if func == "first" else "anyLast", expr)
-        position = Function("rowNumberInAllBlocks")
+        position = RowPosition()
         return AggregateFunction("argMin" if func == "first" else "argMax", expr, position)
     return AggregateFunction(map_agg_func(func), expr)
 
@@ -499,18 +497,21 @@ class WindowFunction(Function):
 
 def window_reads_row_number(expr) -> bool:
     """
-    Whether ``expr`` has a window that reads rowNumberInAllBlocks(), as
-    groupby cumsum/cummax/cummin and rank ties do to follow the source row
-    order. ClickHouse returns the rows of such a window grouped by partition,
-    and computes rowNumberInAllBlocks() once, before the window, so the query
-    gets the source row order back with ORDER BY rowNumberInAllBlocks().
+    Whether ``expr`` has a window that reads the row's source position
+    (``RowPosition``, or a literal rowNumberInAllBlocks()), as groupby
+    cumsum/cummax/cummin and rank ties do to follow the source row order.
+    ClickHouse returns the rows of such a window grouped by partition, so the
+    query gets the source row order back with ORDER BY that position.
     """
+    from .expressions import RowPosition
+
     if not isinstance(expr, Expression):
         return False
     return any(
         getattr(node, "is_window", False)
         and any(
-            isinstance(inner, Function) and inner.name == "rowNumberInAllBlocks"
+            isinstance(inner, RowPosition)
+            or (isinstance(inner, Function) and inner.name == "rowNumberInAllBlocks")
             for inner in node.subtree()
         )
         for node in expr.subtree()

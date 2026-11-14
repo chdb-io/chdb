@@ -16,12 +16,6 @@ from tests.test_utils import assert_datastore_equals_pandas
 
 _counter = itertools.count()
 
-NEEDS_FILE_ROW_LABELS = pytest.mark.xfail(
-    strict=True,
-    reason="#735: a filter on a file source relabels the rows 0..n-1, so a "
-    "mask of the unfiltered frame is matched to the wrong rows",
-)
-
 
 def _write(df, tmp_path):
     path = str(tmp_path / f"t{next(_counter)}.parquet")
@@ -103,9 +97,7 @@ class TestMaskOfValuesOverwrittenSince:
         df = _frame()
         assert_datastore_equals_pandas(then(*_overwrite(source(df))), then(*_overwrite(df)))
 
-    def test_then_filter(self, source, request):
-        if source.kind == "file":
-            request.applymarker(NEEDS_FILE_ROW_LABELS)
+    def test_then_filter(self, source):
         df = _frame()
 
         def chain(d):
@@ -278,9 +270,7 @@ class TestMaskOfColumnProjectedOutEarlier:
                 return e[d["a"] > 2]
         return d.select("b").limit(3).offset(1).select("b").filter(d.a > 2)
 
-    def test_mask_of_column_dropped_by_earlier_projection(self, source, request):
-        if source.kind == "file":
-            request.applymarker(NEEDS_FILE_ROW_LABELS)
+    def test_mask_of_column_dropped_by_earlier_projection(self, source):
         df = pd.DataFrame({"a": [1, 2, 3, 4, 5, 6], "b": [60, 50, 40, 30, 20, 10]})
         assert_datastore_equals_pandas(self._chain(source(df)), self._chain(df))
 

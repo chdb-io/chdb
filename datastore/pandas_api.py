@@ -1132,7 +1132,7 @@ def merge(
         >>> result = merge(df1, df2, on='id')
         >>> result = merge(df1, df2, left_on='user_id', right_on='id')
     """
-    from .lazy_ops import _snapshot_operand
+    from .lazy_ops import _operand_state
 
     DataStore = _get_datastore_class()
 
@@ -1161,7 +1161,7 @@ def merge(
 
     # DataStore.merge() builds the merge lazily
     if not isinstance(left, DataStore):
-        left = DataStore.from_df(_snapshot_operand(left))
+        left = DataStore.from_df(_operand_state(left))
     return left.merge(right, **merge_kwargs)
 
 

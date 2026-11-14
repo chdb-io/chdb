@@ -485,15 +485,11 @@ class TestSliceStyleLimit(unittest.TestCase):
         self.assertEqual(len(result), 0)
 
     def test_slice_start_equals_stop(self):
-        """Test ds[5:5] behavior - current implementation uses stop as limit."""
-        # Note: When start == stop, current implementation uses stop as limit
-        # ds[5:5] becomes LIMIT 5 OFFSET 5, not LIMIT 0 OFFSET 5
-        # This matches the code: limit_val = stop - start if stop > start else stop
+        """Test ds[5:5] returns no rows, as df[5:5] does."""
         result = self.ds[5:5]
-        # With 20 rows, OFFSET 5 LIMIT 5 gives rows 5-9
-        self.assertEqual(len(result), 5)
+        self.assertEqual(len(result), len(self.df[5:5]))
         df = result.to_df()
-        self.assertEqual(list(df['id']), [5, 6, 7, 8, 9])
+        self.assertEqual(list(df['id']), list(self.df[5:5]['id']))
 
     def test_slice_single_element(self):
         """Test ds[5:6] returns single row."""

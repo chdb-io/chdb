@@ -64,4 +64,4 @@ def test_drop_duplicates_in_chain(make_source, chain):
 
     ds_result = CHAINS[chain](make_source())
 
-    assert_datastore_equals_pandas(ds_result, pd_result)
+    assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)

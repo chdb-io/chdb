@@ -39,7 +39,7 @@ from copy import copy
 
 from .expressions import Expression, Field
 from .functions import window_reads_row_number
-from .utils import merge_orderby_fields
+from .utils import compose_slice, merge_orderby_fields, row_position_sql
 from .conditions import Condition, CompoundCondition, BinaryCondition, NotCondition
 from .conditions import InCondition, BetweenCondition, UnaryCondition
 
@@ -139,8 +139,8 @@ class SQLLayer:
             self.preserve_row_order
             or any(window_reads_row_number(e) for _, e in self.computed_columns)
         ):
-            # Preserve original row order using rowNumberInAllBlocks()
-            parts.append("ORDER BY rowNumberInAllBlocks()")
+            # Preserve original row order by source position
+            parts.append(f"ORDER BY {row_position_sql()}")
 
         # === LIMIT / OFFSET ===
         if self.limit_value is not None:
@@ -422,13 +422,18 @@ class SQLBuilder:
         return self
 
     def add_limit(self, value: int) -> "SQLBuilder":
-        """Add LIMIT clause."""
-        self.current_layer.limit_value = value
-        return self
+        """Take at most ``value`` rows of the current layer's rows."""
+        return self._add_slice("LIMIT", value)
 
     def add_offset(self, value: int) -> "SQLBuilder":
-        """Add OFFSET clause."""
-        self.current_layer.offset_value = value
+        """Skip the first ``value`` rows of the current layer's rows."""
+        return self._add_slice("OFFSET", value)
+
+    def _add_slice(self, op_type: str, value: int) -> "SQLBuilder":
+        layer = self.current_layer
+        layer.offset_value, layer.limit_value = compose_slice(
+            layer.offset_value, layer.limit_value, op_type, value
+        )
         return self
 
     def add_groupby(self, fields: List[Field]) -> "SQLBuilder":
