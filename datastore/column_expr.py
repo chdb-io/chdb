@@ -18,7 +18,7 @@ import pandas as pd
 
 from .expressions import Expression, Field, ArithmeticExpression, Literal, Node
 from .lazy_result import LazySeries, LazyCondition
-from .utils import SKIPNA_AGG_FUNCS, immutable
+from .utils import SKIPNA_AGG_FUNCS, immutable, unique_name
 from .exceptions import ImmutableError
 
 
@@ -1241,6 +1241,12 @@ class ColumnExpr:
                 col_sql = col_name  # Already a SQL expression
                 is_simple_column = False
 
+            # Result columns unlike the counted column (an alias would be
+            # read in its place)
+            taken = set(df.columns) | {col_name}
+            value_column = unique_name("__value__", taken)
+            count_column = unique_name("__count__", taken)
+
             # Build WHERE clause for dropna
             where_clause = ""
             if dropna:
@@ -1251,9 +1257,9 @@ class ColumnExpr:
                 # For normalize, we need to calculate proportion
                 # Use subquery to get total count
                 total_sql = f"(SELECT COUNT(*) FROM __df__{where_clause})"
-                select_sql = f"{col_sql} AS __value__, CAST(COUNT(*) AS Float64) / {total_sql} AS __count__"
+                select_sql = f"{col_sql} AS {value_column}, CAST(COUNT(*) AS Float64) / {total_sql} AS {count_column}"
             else:
-                select_sql = f"{col_sql} AS __value__, toInt64(COUNT(*)) AS __count__"
+                select_sql = f"{col_sql} AS {value_column}, toInt64(COUNT(*)) AS {count_column}"
 
             # Build complete SQL (no ORDER BY - sorting done in Python)
             sql = f"SELECT {select_sql} FROM __df__{where_clause} GROUP BY {col_sql}"
@@ -1284,11 +1290,11 @@ class ColumnExpr:
             else:
                 # For expressions, we can't easily get first appearance, use index order
                 first_appearance = {
-                    val: idx for idx, val in enumerate(result_df["__value__"])
+                    val: idx for idx, val in enumerate(result_df[value_column])
                 }
 
             # Create result Series
-            result = result_df.set_index("__value__")["__count__"]
+            result = result_df.set_index(value_column)[count_column]
 
             # Sort according to pandas behavior
             if sort:
@@ -1448,9 +1454,7 @@ class ColumnExpr:
                 read = column.with_attrs(alias=None) if column.alias else column
                 values = ExpressionEvaluator(df, source).evaluate(read)
                 frame = df[groupby_col_names].copy()
-                value_column = "__value__"
-                while value_column in groupby_col_names:
-                    value_column = f"_{value_column}"
+                value_column = unique_name("__value__", set(groupby_col_names))
                 frame[value_column] = values.array if isinstance(values, pd.Series) else values
                 evaluated = True
             grouped = frame.groupby(

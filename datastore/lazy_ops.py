@@ -1635,13 +1635,14 @@ class LazyGroupByAgg(LazyOp):
         from .expression_evaluator import ExpressionEvaluator
         from .functions import AggregateFunction
 
+        from .utils import unique_name
+
         key_names = list(self.groupby_cols)
         evaluator = ExpressionEvaluator(df, context)
         keys = df[key_names]
-        # The column the values to reduce are put in, unlike every key
-        value_column = "__value__"
-        while value_column in key_names:
-            value_column = f"_{value_column}"
+        # Temporary columns are unlike every key, source column and output
+        taken = set(key_names) | set(df.columns) | set(self.expr_agg)
+        value_column = unique_name("__value__", taken)
 
         def grouped(frame):
             return frame.groupby(key_names, sort=self.sort, dropna=self.dropna, **observed_kwargs)
@@ -1666,7 +1667,7 @@ class LazyGroupByAgg(LazyOp):
             lists, tuples and dicts (CASE WHEN branches), replaced by a
             reference to its per-group values."""
             if isinstance(value, AggregateFunction):
-                name = f"__agg_{len(reduced)}__"
+                name = unique_name(f"__agg_{len(reduced)}__", taken)
                 reduced[name] = reduce(value)
                 return Field(name)
             if isinstance(value, (list, tuple)):
@@ -1700,8 +1701,7 @@ class LazyGroupByAgg(LazyOp):
         # Outside an aggregate an expression reads the group keys
         frame = aggregated.copy()
         for name in key_names:
-            if name not in frame.columns:
-                frame[name] = index.get_level_values(name)
+            frame[name] = index.get_level_values(name)
         output_evaluator = ExpressionEvaluator(frame, context)
         result = pd.DataFrame(index=index)
         for alias, expr in outputs.items():
@@ -1755,20 +1755,14 @@ class LazyGroupByAgg(LazyOp):
         it with ``as_index=False``. A hidden name is unlike every key and
         output name.
         """
+        from .utils import unique_name
+
         outputs = {name for name, _, _ in self.aggregate_outputs()}
         taken = set(self.groupby_cols) | outputs
-        columns = []
-        for key in self.groupby_cols:
-            column = key
-            if key in outputs:
-                column = f"__key_{key}__"
-                suffix = 1
-                while column in taken:
-                    column = f"__key_{key}_{suffix}__"
-                    suffix += 1
-                taken.add(column)
-            columns.append(column)
-        return columns
+        return [
+            unique_name(f"__key_{key}__", taken) if key in outputs else key
+            for key in self.groupby_cols
+        ]
 
     def hidden_key_columns(self) -> List[str]:
         """Key columns under a hidden name; only execution reads them, to

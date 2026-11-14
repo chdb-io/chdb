@@ -51,6 +51,7 @@ from .utils import (
     merge_orderby_fields,
     is_stable_sort,
     format_identifier,
+    unique_name,
     SKIPNA_AGG_FUNCS,
 )
 from .config import get_logger
@@ -669,12 +670,7 @@ def build_groupby_select_fields(
         taken |= _referenced_identifiers(expr)
 
     def temp_alias_for(stem: str, name: str) -> str:
-        temp_alias = f"__{stem}_{name}__"
-        suffix = 1
-        while temp_alias in taken:
-            temp_alias = f"__{stem}_{name}_{suffix}__"
-            suffix += 1
-        taken.add(temp_alias)
+        temp_alias = unique_name(f"__{stem}_{name}__", taken)
         emitted_renames[temp_alias] = name
         return temp_alias
 
@@ -1021,6 +1017,8 @@ class SQLExecutionEngine:
                     c for c in passthrough_columns or [] if c not in (star_except or [])
                 ]
                 select_fields_for_sql = []
+                # An alias equal to any column would be read in its place
+                taken = set(all_columns) | set(passthrough_columns or ())
                 for col in list(all_columns) + [
                     c for c in passthrough_columns or [] if c not in all_columns
                 ]:
@@ -1029,7 +1027,7 @@ class SQLExecutionEngine:
                             where_temp_alias_columns.append((col, col))
                         select_fields_for_sql.append(Field(col))
                         continue
-                    temp_alias = f"__tmp_{col}__"
+                    temp_alias = unique_name(f"__tmp_{col}__", taken)
                     where_temp_alias_columns.append((temp_alias, col))
                     select_fields_for_sql.append(
                         CaseWhenExpr(
@@ -2483,7 +2481,7 @@ class SQLExecutionEngine:
             if layer_has_agg:
                 hidden_columns = []
                 if not is_last or not layer_agg.sort:
-                    group_position = self._unique_hidden_name(
+                    group_position = unique_name(
                         "__group_pos__", taken_names
                     )
                     if not is_last:
@@ -2508,7 +2506,7 @@ class SQLExecutionEngine:
                 and not is_last
                 and self._keeps_inner_order(layers[layer_idx + 1])
             ):
-                sort_position = self._unique_hidden_name("__sort_pos__", taken_names)
+                sort_position = unique_name("__sort_pos__", taken_names)
                 order_sql = build_orderby_clause(
                     layer_orderby,
                     self.quote_char,
@@ -2525,7 +2523,7 @@ class SQLExecutionEngine:
 
             row_position = None
             if is_first and needs_row_position and not layer_orderby:
-                row_position = self._unique_hidden_name("__row_pos__", taken_names)
+                row_position = unique_name("__row_pos__", taken_names)
                 effective_select_fields.append(
                     Function("rowNumberInAllBlocks", alias=row_position)
                 )
@@ -2600,16 +2598,6 @@ class SQLExecutionEngine:
         if agg is not None:
             return not agg.sort
         return True
-
-    @staticmethod
-    def _unique_hidden_name(base: str, taken: set) -> str:
-        stem = base.strip("_")
-        name, suffix = base, 1
-        while name in taken:
-            name = f"__{stem}_{suffix}__"
-            suffix += 1
-        taken.add(name)
-        return name
 
     def _build_temp_alias_query(
         self,
@@ -3123,9 +3111,10 @@ class SQLExecutionEngine:
 
         if plan.where_ops:
             all_columns = list(df.columns)
+            taken = set(all_columns)
             for col in all_columns:
                 col_type = schema.get(col, str(df[col].dtype))
-                temp_alias = f"__tmp_{col}__"
+                temp_alias = unique_name(f"__tmp_{col}__", taken)
                 case_expr = CaseWhenExpr(
                     col, plan.where_ops, self.quote_char, col_type, alias=temp_alias
                 )
