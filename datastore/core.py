@@ -3097,6 +3097,11 @@ class DataStore(PandasCompatMixin):
             if not is_performance_mode():
                 ds._format_settings["input_format_parquet_preserve_order"] = 1
 
+        # For CSV/TSV files, infer exponent-notation numbers such as 3.2e-05 as
+        # Float64 like pandas does; ClickHouse infers them as String by default
+        if format and format.lower().startswith(("csv", "tsv", "tabseparated")):
+            ds._format_settings["input_format_try_infer_exponent_floats"] = 1
+
         return ds
 
     @classmethod
