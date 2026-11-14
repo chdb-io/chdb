@@ -1635,8 +1635,17 @@ class LazyGroupByAgg(LazyOp):
         from .expression_evaluator import ExpressionEvaluator
         from .functions import AggregateFunction
 
+        key_names = list(self.groupby_cols)
         evaluator = ExpressionEvaluator(df, context)
-        keys = df[list(self.groupby_cols)]
+        keys = df[key_names]
+        # The column the values to reduce are put in, unlike every key
+        value_column = "__value__"
+        while value_column in key_names:
+            value_column = f"_{value_column}"
+
+        def grouped(frame):
+            return frame.groupby(key_names, sort=self.sort, dropna=self.dropna, **observed_kwargs)
+
         reduced = {}
 
         def reduce(node):
@@ -1646,47 +1655,66 @@ class LazyGroupByAgg(LazyOp):
                 func, values = "size", np.zeros(len(df))
             else:
                 values = evaluator.evaluate(arg)
-                values = values.to_numpy() if isinstance(values, pd.Series) else values
+                # .array keeps an extension dtype (Int64 sums stay Int64)
+                values = values.array if isinstance(values, pd.Series) else values
             frame = keys.copy()
-            frame["__value__"] = values
-            grouped = frame.groupby(
-                list(self.groupby_cols), sort=self.sort, dropna=self.dropna, **observed_kwargs
-            )["__value__"]
-            return getattr(grouped, func)(**func_kwargs)
+            frame[value_column] = values
+            return getattr(grouped(frame)[value_column], func)(**func_kwargs)
 
-        def substitute(node):
-            if isinstance(node, AggregateFunction):
+        def substitute(value):
+            """``value`` with every aggregate call in it, also in nested
+            lists, tuples and dicts (CASE WHEN branches), replaced by a
+            reference to its per-group values."""
+            if isinstance(value, AggregateFunction):
                 name = f"__agg_{len(reduced)}__"
-                reduced[name] = reduce(node)
+                reduced[name] = reduce(value)
                 return Field(name)
-            if not isinstance(node, Expression):
-                return node
+            if isinstance(value, (list, tuple)):
+                items = [substitute(item) for item in value]
+                if all(a is b for a, b in zip(items, value)):
+                    return value
+                return type(value)(items)
+            if isinstance(value, dict):
+                items = {key: substitute(item) for key, item in value.items()}
+                if all(items[key] is value[key] for key in value):
+                    return value
+                return items
+            if not isinstance(value, Expression):
+                return value
             changed = {}
-            for attr, value in vars(node).items():
-                if isinstance(value, Expression):
-                    changed[attr] = substitute(value)
-                elif isinstance(value, (list, tuple)) and any(
-                    isinstance(v, Expression) for v in value
-                ):
-                    changed[attr] = type(value)(substitute(v) for v in value)
+            for attr, item in vars(value).items():
+                new = substitute(item)
+                if new is not item:
+                    changed[attr] = new
             if not changed:
-                return node
-            node = copy(node)
-            for attr, value in changed.items():
-                setattr(node, attr, value)
-            return node
+                return value
+            value = copy(value)
+            for attr, item in changed.items():
+                setattr(value, attr, item)
+            return value
 
         outputs = {alias: substitute(expr) for alias, expr in self.expr_agg.items()}
-        aggregated = pd.DataFrame(reduced)
-        output_evaluator = ExpressionEvaluator(aggregated, context)
-        result = pd.DataFrame(index=aggregated.index)
+        # One row per group, also for groups the aggregates leave out
+        index = grouped(keys.assign(**{value_column: 0}))[value_column].size().index
+        aggregated = pd.DataFrame(reduced, index=index)
+        # Outside an aggregate an expression reads the group keys
+        frame = aggregated.copy()
+        for name in key_names:
+            if name not in frame.columns:
+                frame[name] = index.get_level_values(name)
+        output_evaluator = ExpressionEvaluator(frame, context)
+        result = pd.DataFrame(index=index)
         for alias, expr in outputs.items():
             value = output_evaluator.evaluate(expr)
-            result[alias] = value if isinstance(value, pd.Series) else pd.Series(
-                value, index=aggregated.index
-            )
+            result[alias] = value if isinstance(value, pd.Series) else pd.Series(value, index=index)
         if not self.as_index:
-            result = result.reset_index()
+            # The keys become columns; a key an output is named like is
+            # dropped, as pandas does
+            kept = [name for name in key_names if name not in result.columns]
+            if kept:
+                result = result.reset_index(level=kept)
+            if len(kept) < len(key_names):
+                result = result.reset_index(drop=True)
         return result
 
     def describe(self) -> str:

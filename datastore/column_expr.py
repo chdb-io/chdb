@@ -1408,21 +1408,44 @@ class ColumnExpr:
         pandas_func = self._pandas_agg_func or self._agg_func_name
         skipna_kwargs = self._groupby_skipna_kwargs()
 
+        column = (
+            self._source._expr
+            if self._source is not None and self._source._expr is not None
+            else Field(col_name)
+        )
         if (
             get_execution_engine() == ExecutionEngine.PANDAS
             or self._datastore._source_labels_repeat()
             or not _sql_reduction_supports(pandas_func, self._method_kwargs)
         ):
+            from .expression_evaluator import ExpressionEvaluator
+
             source = copy(self._datastore)
             source._groupby_fields = []
-            grouped = source._execute().groupby(
+            df = source._execute()
+            if isinstance(column, Field) and not column.alias and column.name in df.columns:
+                # A column of the rows: pandas selects it itself (a group key
+                # too)
+                frame, value_column, evaluated = df, column.name, False
+            else:
+                # An expression is evaluated on the rows first; an alias names
+                # the result, it is not a column read
+                read = column.with_attrs(alias=None) if column.alias else column
+                values = ExpressionEvaluator(df, source).evaluate(read)
+                frame = df[groupby_col_names].copy()
+                value_column = "__value__"
+                while value_column in groupby_col_names:
+                    value_column = f"_{value_column}"
+                frame[value_column] = values.array if isinstance(values, pd.Series) else values
+                evaluated = True
+            grouped = frame.groupby(
                 groupby_col_names,
                 sort=sort,
                 as_index=as_index,
                 dropna=dropna,
                 **({} if observed is None else {"observed": observed}),
             )
-            result = getattr(grouped[col_name], pandas_func)(
+            result = getattr(grouped[value_column], pandas_func)(
                 **{
                     k: v
                     for k, v in self._method_kwargs.items()
@@ -1430,18 +1453,16 @@ class ColumnExpr:
                 },
                 **skipna_kwargs,
             )
+            name = col_name if self._source is None or self._source._alias else _pandas_name(column)
             if as_index:
-                result.name = col_name
+                result.name = name
             elif isinstance(result, pd.Series):
                 result = result.reset_index()
-                result.columns = list(groupby_col_names) + [col_name]
+                result.columns = list(groupby_col_names) + [name]
+            elif evaluated:
+                result = result.rename(columns={value_column: name})
             return result
 
-        column = (
-            self._source._expr
-            if self._source is not None and self._source._expr is not None
-            else Field(col_name)
-        )
         if (
             isinstance(column, Field)
             and column.name == col_name
