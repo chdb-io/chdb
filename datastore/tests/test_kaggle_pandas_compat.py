@@ -231,13 +231,12 @@ class TestColumnSelection:
         pd_df = pd.DataFrame(simple_df)
         ds_df = ds.DataStore.from_df(pd.DataFrame(simple_df))
 
-        # iloc returns native pandas DataFrame - this is expected behavior
         pd_result = pd_df.iloc[0:2, 0:2]
         ds_result = ds_df.iloc[0:2, 0:2]
 
-        # Both return pandas DataFrame
-        assert isinstance(ds_result, pd.DataFrame)
-        np.testing.assert_array_equal(ds_result.values, pd_result.values)
+        # iloc stays lazy, like other DataFrame-returning selections
+        assert isinstance(ds_result, ds.DataStore)
+        pd.testing.assert_frame_equal(ds_result.to_pandas(), pd_result)
 
 
 # ============================================================================

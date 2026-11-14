@@ -368,6 +368,96 @@ class DataStoreLocIndexer:
         self._datastore._invalidate_cache()
 
 
+def _iloc_positions(key):
+    """Return an iloc row/column key that selects a DataFrame axis: a slice
+    of integer positions, or a list of integer positions or booleans.
+    Returns None for anything else (scalars, callables, labels)."""
+    import numpy as np
+
+    if isinstance(key, slice):
+        bounds = (key.start, key.stop, key.step)
+        if key.step != 0 and all(v is None or pd.api.types.is_integer(v) for v in bounds):
+            return key
+        return None
+    if isinstance(key, (list, range, pd.Index)) or (
+        isinstance(key, np.ndarray) and key.ndim == 1
+    ):
+        values = list(key)
+        if all(pd.api.types.is_integer(v) for v in values) or all(
+            pd.api.types.is_bool(v) for v in values
+        ):
+            return values
+    return None
+
+
+class DataStoreILocIndexer:
+    """
+    Positional indexer for ds.iloc[...].
+
+    Row slices, position lists and boolean masks stay lazy: the rows become a
+    LazyILoc step and column positions a plain column selection, like
+    ds[cols] (or ds[col] for a single column). Single rows and scalars are
+    pandas objects, so they run on pandas.
+    """
+
+    def __init__(self, datastore):
+        self._datastore = datastore
+
+    def _column_labels(self, col_key):
+        """Labels selected by an iloc column key, or None to use pandas."""
+        single = pd.api.types.is_integer(col_key)
+        positions = col_key if single else _iloc_positions(col_key)
+        if positions is None:
+            return None
+        columns = self._datastore.columns
+        # ds[...] can't tell duplicate column labels apart
+        if not columns.is_unique:
+            return None
+        try:
+            labels = columns[positions]
+        except IndexError:
+            # Out of bounds: let pandas raise its own error
+            return None
+        if single:
+            return labels if isinstance(labels, str) else None
+        labels = list(labels)
+        if labels and all(isinstance(c, str) for c in labels) and len(set(labels)) == len(labels):
+            return labels
+        return None
+
+    def __getitem__(self, key):
+        from .lazy_ops import LazyILoc
+
+        if isinstance(key, tuple) and len(key) == 2:
+            row_key, col_key = key
+        else:
+            row_key, col_key = key, slice(None)
+
+        rows = _iloc_positions(row_key)
+        all_columns = isinstance(col_key, slice) and col_key == slice(None)
+        labels = None if rows is None or all_columns else self._column_labels(col_key)
+        if rows is None or (labels is None and not all_columns):
+            return self._datastore._get_df().iloc[key]
+
+        all_rows = rows == slice(None)
+        if all_rows and isinstance(labels, str):
+            return self._datastore[labels]
+        if isinstance(labels, list):
+            result = self._datastore[labels]
+        else:
+            result = copy(self._datastore)
+            result._cached_result = None
+            result._cache_version = 0
+            result._cached_at_version = -1
+            result._cache_timestamp = None
+        if not all_rows:
+            result._add_lazy_op(LazyILoc(rows))
+        return result[labels] if isinstance(labels, str) else result
+
+    def __setitem__(self, key, value):
+        self._datastore._get_df().iloc[key] = value
+
+
 class PandasCompatMixin:
     """
     Mixin class that adds pandas DataFrame compatibility to DataStore.
@@ -632,7 +722,7 @@ class PandasCompatMixin:
     @property
     def iloc(self):
         """Access a group of rows and columns by integer position(s)."""
-        return self._get_df().iloc
+        return DataStoreILocIndexer(self)
 
     @property
     def at(self):
