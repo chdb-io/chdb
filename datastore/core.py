@@ -344,15 +344,6 @@ def _is_row_wise(value) -> bool:
     return isinstance(value, Expression) and value.is_row_wise
 
 
-def _operand_state(other):
-    """
-    The other operand of a join or union run in pandas, as it is now: a
-    DataStore's frozen view (later in-place changes to the DataStore don't
-    reach the result), or the given DataFrame.
-    """
-    return other._frozen() if isinstance(other, DataStore) else other
-
-
 def _label_source_rows(df: pd.DataFrame, build_result) -> pd.DataFrame:
     """
     Label the rows of ``df``, the result of ``build_result``'s SQL, with
@@ -3953,19 +3944,25 @@ class DataStore(PandasCompatMixin):
             from .lazy_ops import (
                 LazyDataFrameSource,
                 LazyGroupByAgg,
+                LazyJoin,
                 LazyRelationalOp,
                 LazyColumnSelection,
+                LazyUnion,
             )
 
             # The table function stands for the DataFrame source and the ops
             # baked into it below; the pipeline keeps their lineage.
             lineage_identity, lineage_ops = self._lineage()
 
-            # Columns before the first aggregation: ops after it read the
-            # aggregated rows, so only the ops before it can be baked into the
-            # DataFrame below.
+            # Columns before the first aggregation, join or union: ops after
+            # it read the aggregated or combined rows, so only the ops before
+            # it can be baked into the DataFrame below.
             first_agg = next(
-                (i for i, op in enumerate(self._lazy_ops) if isinstance(op, LazyGroupByAgg)),
+                (
+                    i
+                    for i, op in enumerate(self._lazy_ops)
+                    if isinstance(op, (LazyGroupByAgg, LazyJoin, LazyUnion))
+                ),
                 len(self._lazy_ops),
             )
             current_cols = list(self._source_df.columns)
@@ -7683,10 +7680,10 @@ class DataStore(PandasCompatMixin):
         right_on: str = None,
     ) -> "DataStore":
         """
-        Join with another DataStore.
+        Join with another DataStore or a pandas DataFrame.
 
         Args:
-            other: Another DataStore to join with
+            other: Another DataStore or a pandas DataFrame to join with
             on: Join condition - can be:
                 - Condition object (e.g., ds1.id == ds2.user_id) -> generates ON clause
                 - str (e.g., "user_id") -> generates USING (user_id) clause
@@ -7704,7 +7701,10 @@ class DataStore(PandasCompatMixin):
             >>> ds1.join(ds2, left_on='id', right_on='user_id', how='left')
         """
         from .enums import JoinType
-        from .lazy_ops import LazyJoin
+        from .lazy_ops import LazyJoin, _operand_state
+
+        if isinstance(other, pd.DataFrame):
+            other = DataStore.from_df(_operand_state(other))
 
         join_type = JoinType.parse(how)
 
@@ -7779,7 +7779,7 @@ class DataStore(PandasCompatMixin):
             # pandas merge, with the right side as it is now
             self._add_lazy_op(
                 LazyJoin(
-                    right=_operand_state(other),
+                    right=other,
                     on=pandas_on,
                     how=join_type,
                     left_on=pandas_left_on,
@@ -7847,7 +7847,7 @@ class DataStore(PandasCompatMixin):
 
         # Add LazyUnion operation with the other side as it is now
         # Execution is deferred until needed
-        self._add_lazy_op(LazyUnion(other=_operand_state(other), all=all))
+        self._add_lazy_op(LazyUnion(other=other, all=all))
         # Note: Don't return self - @immutable decorator will return the copy
 
     def _build_union_all_sql(self, other) -> Optional[Tuple[str, List[str]]]:

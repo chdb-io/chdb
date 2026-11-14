@@ -76,6 +76,24 @@ def _needs_memory_copy(df: pd.DataFrame) -> bool:
     return False
 
 
+def _operand_state(obj):
+    """
+    The other operand of a lazy join, merge or union as it is now, so changes
+    made to it before execution don't reach the result (pandas reads it at
+    call time): a DataStore's frozen view, or a copy of a pandas DataFrame or
+    Series (a shallow one under Copy-on-Write).
+    """
+    from .core import DataStore
+
+    if isinstance(obj, DataStore):
+        return obj._frozen()
+    if isinstance(obj, (pd.DataFrame, pd.Series)):
+        from .pandas_col_compat import PANDAS_3_PLUS
+
+        return obj.copy(deep=not PANDAS_3_PLUS)
+    return obj
+
+
 if TYPE_CHECKING:
     from .core import DataStore
 
@@ -2943,7 +2961,9 @@ class LazyJoin(LazyOp):
         ds1.join(ds2, on='user_id', how='inner')
     """
 
-    def __init__(self, right, on=None, how="inner", left_on=None, right_on=None):
+    def __init__(
+        self, right, on=None, how="inner", left_on=None, right_on=None, **merge_kwargs
+    ):
         """
         Args:
             right: Right DataFrame or DataStore to join with (lazy - executed when needed)
@@ -2951,15 +2971,17 @@ class LazyJoin(LazyOp):
             how: Join type, as ``JoinType.parse()`` accepts it
             left_on: Column name in left DataFrame
             right_on: Column name in right DataFrame
+            **merge_kwargs: Other pandas.merge() arguments (suffixes, left_index, ...)
         """
         from .enums import JoinType
 
         super().__init__()
-        self.right = right  # Can be DataFrame or DataStore
+        self.right = _operand_state(right)  # Can be DataFrame or DataStore
         self.on = on
         self.how = JoinType.parse(how).pandas_how
         self.left_on = left_on
         self.right_on = right_on
+        self.merge_kwargs = merge_kwargs
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute pandas merge."""
@@ -2983,6 +3005,7 @@ class LazyJoin(LazyOp):
             how=self.how,
             left_on=self.left_on,
             right_on=self.right_on,
+            **self.merge_kwargs,
         )
 
         self._logger.debug(
@@ -2998,6 +3021,34 @@ class LazyJoin(LazyOp):
             self.on if self.on else f"left_on={self.left_on}, right_on={self.right_on}"
         )
         return f"Join (how='{self.how}', on={on_desc})"
+
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """Columns pandas.merge() returns, found by merging empty frames."""
+        from .core import DataStore
+
+        right = self.right
+        try:
+            if isinstance(right, DataStore):
+                right_columns = right._get_current_columns()
+            elif isinstance(right, pd.DataFrame):
+                right_columns = list(right.columns)
+            elif isinstance(right, pd.Series):
+                right_columns = [right.name]
+            else:
+                return columns
+            empty_index = pd.Index([], dtype=object)
+            merged = pd.merge(
+                pd.DataFrame(columns=columns, index=empty_index),
+                pd.DataFrame(columns=right_columns, index=empty_index),
+                on=self.on,
+                how=self.how,
+                left_on=self.left_on,
+                right_on=self.right_on,
+                **self.merge_kwargs,
+            )
+        except Exception:
+            return columns
+        return list(merged.columns)
 
     def can_push_to_sql(self) -> bool:
         # Join can be pushed to SQL when both sides have SQL sources
@@ -3024,7 +3075,7 @@ class LazyUnion(LazyOp):
             all: If True, keep all rows (UNION ALL). If False, remove duplicates (UNION).
         """
         super().__init__()
-        self.other = other  # Can be DataFrame or DataStore
+        self.other = _operand_state(other)  # Can be DataFrame or DataStore
         self.all = all
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
