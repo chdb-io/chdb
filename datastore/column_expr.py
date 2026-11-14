@@ -1413,10 +1413,24 @@ class ColumnExpr:
             if self._source is not None and self._source._expr is not None
             else Field(col_name)
         )
+        aggregates_column = (
+            isinstance(column, Field)
+            and column.name == col_name
+            and map_agg_func(pandas_func) == self._agg_func_name
+        )
         if (
             get_execution_engine() == ExecutionEngine.PANDAS
             or self._datastore._source_labels_repeat()
             or not _sql_reduction_supports(pandas_func, self._method_kwargs)
+            # An aggregated SQL expression has no min_count or dropna
+            or (
+                not aggregates_column
+                and any(
+                    value not in _REDUCTION_DEFAULTS[key]
+                    for key, value in self._method_kwargs.items()
+                    if key in ("min_count", "dropna")
+                )
+            )
         ):
             from .expression_evaluator import ExpressionEvaluator
 
@@ -1465,11 +1479,7 @@ class ColumnExpr:
                 result = result.rename(columns={value_column: name})
             return result
 
-        if (
-            isinstance(column, Field)
-            and column.name == col_name
-            and map_agg_func(pandas_func) == self._agg_func_name
-        ):
+        if aggregates_column:
             agg = LazyGroupByAgg(
                 groupby_cols=groupby_col_names,
                 agg_func=pandas_func,
