@@ -553,6 +553,7 @@ def build_groupby_select_fields(
 
     min_count = groupby_agg.kwargs.get("min_count") or 0
     skipna = groupby_agg.kwargs.get("skipna", True)
+    nunique_dropna = groupby_agg.kwargs.get("nunique_dropna", True)
 
     def with_min_count(func: str, col_expr: Expression) -> Expression:
         """
@@ -623,6 +624,19 @@ def build_groupby_select_fields(
             return AggregateFunction('count', Star())
         elif func in ('sum', 'prod'):
             expr = with_min_count(func, col_expr)
+        elif func == 'nunique' and not nunique_dropna:
+            # dropna=False: a missing value (NULL, or NaN, which isn't equal
+            # to itself) counts as one more distinct value
+            present = Function('ifNull', Function('equals', col_expr, col_expr), Literal(0))
+            missing = Function('or', Function('isNull', col_expr), Function('not', present))
+            expr = Function(
+                'toInt64',
+                Function(
+                    'plus',
+                    AggregateFunction('uniqExactIf', col_expr, present),
+                    Function('greater', AggregateFunction('countIf', missing), Literal(0)),
+                ),
+            )
         else:
             expr = AggregateFunction(map_agg_func(func), col_expr)
         if skipna or func not in SKIPNA_AGG_FUNCS:

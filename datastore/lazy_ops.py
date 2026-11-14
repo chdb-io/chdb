@@ -1598,9 +1598,15 @@ class LazyGroupByAgg(LazyOp):
             if not self.as_index:
                 result = result.reset_index()
         else:
-            # Single function for all columns
+            # Single function for all columns; nunique's own dropna is kept
+            # apart from the group keys' dropna
             agg_method = getattr(grouped, self.agg_func)
-            result = agg_method(**self.kwargs)
+            result = agg_method(
+                **{
+                    ("dropna" if key == "nunique_dropna" else key): value
+                    for key, value in self.kwargs.items()
+                }
+            )
 
         self._logger.debug("      -> GroupBy result shape: %s", result.shape)
         return result
