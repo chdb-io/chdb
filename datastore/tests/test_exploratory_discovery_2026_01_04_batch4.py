@@ -10,7 +10,6 @@ Based on architecture analysis, test the following edge cases:
 """
 
 import pytest
-from tests.xfail_markers import chdb_no_product_function
 import pandas as pd
 import numpy as np
 from datastore import DataStore
@@ -83,7 +82,6 @@ class TestGroupByMissingMethods:
         ds_result = ds.groupby('category').tail(2)
         assert_datastore_equals_pandas(ds_result, pd_result, check_row_order=False)
 
-    @chdb_no_product_function
     def test_groupby_prod(self, sample_df):
         pd_df = sample_df
         ds = DataStore(sample_df)

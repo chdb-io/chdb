@@ -20,7 +20,8 @@ class DataStoreImmutabilityTests(unittest.TestCase):
         self.assertIsNot(ds1, ds2)
         self.assertNotEqual(ds1.to_sql(), ds2.to_sql())
         self.assertEqual('SELECT "foo" FROM "test"', ds1.to_sql())
-        self.assertEqual('SELECT "foo", "bar" FROM "test"', ds2.to_sql())
+        # The second select selects from the first one's columns
+        self.assertEqual('SELECT "bar" FROM "test"', ds2.to_sql())
 
     def test_filter_returns_new_instance(self):
         """Test that filter() returns a new DataStore instance"""

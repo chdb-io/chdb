@@ -121,6 +121,22 @@ def ignore_copy(func: Callable) -> Callable:
     return wrapper
 
 
+def unique_name(base: str, taken: set) -> str:
+    """
+    ``base``, or ``__<stem>_<n>__`` for the first free ``n``, unlike every
+    name in ``taken``, which it is added to. Internal temporary columns take
+    their names here, so no source column, group key or output is read in
+    their place.
+    """
+    stem = base.strip("_")
+    name, suffix = base, 1
+    while name in taken:
+        name = f"__{stem}_{suffix}__"
+        suffix += 1
+    taken.add(name)
+    return name
+
+
 def format_identifier(name: str, quote_char: str = '"') -> str:
     """
     Format an identifier (table/column name) with quotes, properly escaping special characters.

@@ -22,7 +22,7 @@ import pytest
 from datastore import DataStore, LazyGroupBy
 from datastore.config import config
 from datastore.lazy_ops import LazyColumnAssignment
-from tests.test_utils import assert_frame_equal, assert_series_equal
+from tests.test_utils import assert_datastore_equals_pandas, assert_frame_equal, assert_series_equal
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -578,34 +578,20 @@ class TitanicExecutionLogicTest(unittest.TestCase):
         assert_series_equal(
             ds_final["FamilySize"].reset_index(drop=True), pd_df["FamilySize"].reset_index(drop=True))
 
-    def test_checkpoint_applied_after_groupby_mean(self):
-        """Verify checkpoint is applied after groupby().mean() execution."""
-        # Use from_dataframe to ensure we have lazy ops
+    def test_groupby_mean_leaves_source_pipeline(self):
+        """groupby().mean() aggregates a copy of the pipeline: the source
+        DataStore keeps its lazy ops, and both match pandas."""
         pd_df = pd.read_csv(self.titanic_path)
         ds = DataStore.from_dataframe(pd_df)
         ds["FamilySize"] = ds["SibSp"] + ds["Parch"] + 1
+        pd_df["FamilySize"] = pd_df["SibSp"] + pd_df["Parch"] + 1
+        ops_before = list(ds._lazy_ops)
 
-        # Before groupby, should have 2 lazy ops (DataFrameSource + ColumnAssignment)
-        initial_ops_count = len(ds._lazy_ops)
-        self.assertEqual(initial_ops_count, 2, f"Expected 2 lazy ops, got {initial_ops_count}")
-
-        # Trigger execution via groupby
         result = ds.groupby("FamilySize")["Survived"].mean()
-        _ = repr(result)  # Force execution
+        assert_series_equal(result, pd_df.groupby("FamilySize")["Survived"].mean())
 
-        # After checkpoint, should have 1 lazy op (LazyDataFrameSource with executed result)
-        self.assertEqual(len(ds._lazy_ops), 1, f"Expected 1 lazy op after checkpoint, got {len(ds._lazy_ops)}")
-
-        # The lazy op should be LazyDataFrameSource (executed DataFrame)
-        from datastore.lazy_ops import LazyDataFrameSource
-
-        self.assertIsInstance(
-            ds._lazy_ops[0], LazyDataFrameSource, f"Expected LazyDataFrameSource, got {type(ds._lazy_ops[0]).__name__}"
-        )
-
-        # Verify the DataFrame includes FamilySize column
-        df = ds._lazy_ops[0]._df
-        self.assertIn("FamilySize", df.columns)
+        self.assertEqual(ds._lazy_ops, ops_before)
+        assert_datastore_equals_pandas(ds, pd_df)
 
     def test_cache_used_on_second_to_df(self):
         """Verify cached result is used on second to_df() call."""

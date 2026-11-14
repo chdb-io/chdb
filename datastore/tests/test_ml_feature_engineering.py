@@ -21,6 +21,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from datastore import DataStore, col, F, Field, Sum, Count, Avg, Min, Max
+from tests.test_utils import assert_datastore_equals_pandas
 
 
 class TestMLFeatureEngineering:
@@ -453,14 +454,14 @@ class TestMLFeatureEngineering:
             min_purchases=col('purchases').min(),
         )
 
-        result = stats.to_df()
-
-        # 3 devices * 6 countries = up to 18 combinations
-        assert len(result) <= 18
-        assert 'device_type' in result.columns
-        assert 'country' in result.columns
-        assert 'total_purchases' in result.columns
-        assert result['user_count'].sum() == 1000
+        expected = self.df.groupby(['device_type', 'country']).agg(
+            user_count=('user_id', 'count'),
+            total_purchases=('purchases', 'sum'),
+            avg_purchases=('purchases', 'mean'),
+            max_purchases=('purchases', 'max'),
+            min_purchases=('purchases', 'min'),
+        )
+        assert_datastore_equals_pandas(stats, expected, check_index=True)
 
     def test_lazy_chain_retention_features(self):
         """

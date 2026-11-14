@@ -150,9 +150,11 @@ class TestChdbBasics(unittest.TestCase):
         self.assertEqual(3, len(result))  # 5 total - 2 offset = 3
 
     def test_limit_and_offset(self):
-        """Test LIMIT and OFFSET together"""
+        """OFFSET after LIMIT skips rows of the first LIMIT rows"""
         result = self.ds.select("*").limit(2).offset(1).execute()
+        self.assertEqual(1, len(result))
 
+        result = self.ds.select("*").offset(1).limit(2).execute()
         self.assertEqual(2, len(result))
 
     def test_distinct(self):

@@ -127,7 +127,6 @@ class TestSortGroupbyFirstLast:
 class TestGroupbyAggregationTypes:
     """Test groupby aggregation return types"""
 
-    @pytest.mark.xfail(reason="DataStore returns uint64, pandas returns int64")
     def test_groupby_nunique_dtype(self):
         """GroupBy nunique should return int64 like pandas"""
         pd_df = pd.DataFrame({

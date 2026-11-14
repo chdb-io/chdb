@@ -2400,7 +2400,7 @@ def _build_count(expr='*', alias=None):
     from .functions import AggregateFunction
     from .expressions import Expression, Literal
 
-    if expr == '*':
+    if isinstance(expr, str) and expr == '*':
         return AggregateFunction('count', Literal('*'), alias=alias)
     return AggregateFunction('count', Expression.wrap(expr), alias=alias)
 
