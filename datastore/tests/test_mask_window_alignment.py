@@ -39,23 +39,12 @@ APPLY = {
     "filter": (lambda f, m: f.filter(m), lambda f, m: f[m]),
 }
 
-# A file source numbers its rows from 0 again after a filter, so a mask
-# computed on the unfiltered rows is aligned to the wrong rows; pandas keeps
-# the source labels.
-FILE_SOURCE_RENUMBERS_ROWS = pytest.mark.xfail(
-    strict=True, reason="a filtered file source renumbers its rows instead of keeping its labels"
-)
-
-
 def _cases():
     for source in ("dataframe", "parquet"):
         for mask in MASKS:
             for later in LATER:
                 for apply in APPLY:
-                    marks = ()
-                    if source == "parquet" and later == "filter" and mask != "row_wise":
-                        marks = (FILE_SOURCE_RENUMBERS_ROWS,)
-                    yield pytest.param(source, mask, later, apply, marks=marks, id=f"{source}-{mask}-{later}-{apply}")
+                    yield pytest.param(source, mask, later, apply, id=f"{source}-{mask}-{later}-{apply}")
 
 
 @pytest.fixture

@@ -127,7 +127,6 @@ def test_large_file_filtered_values(large_file):
     np.testing.assert_array_equal(result.to_numpy(), expected.to_numpy())
 
 
-@pytest.mark.xfail(strict=True, reason="a filtered file source is relabelled 0..n-1 (#735)")
 def test_large_file_filtered_labels(large_file):
     df, path = large_file
     ds = DataStore.from_file(path)
