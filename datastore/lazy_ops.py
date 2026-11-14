@@ -171,6 +171,7 @@ class LazyColumnAssignment(LazyOp):
         expr: Union[Expression, Any],
         null_as_nan: Optional[bool] = None,
         reads_frame: bool = True,
+        input_dtypes: Optional[Dict[str, np.dtype]] = None,
     ):
         """
         Args:
@@ -186,12 +187,17 @@ class LazyColumnAssignment(LazyOp):
                 a value taken from another DataStore or state: it is evaluated
                 on the state it was taken from and assigned aligned by index,
                 as pandas assigns a Series.
+            input_dtypes: NumPy dtypes of the numeric columns of the frame
+                ``expr`` reads (see ``DataStore._column_numpy_dtypes``), used
+                to keep pandas' result dtype for arithmetic computed in SQL.
+                ``DataStore._add_lazy_op`` fills it for arithmetic.
         """
         super().__init__()
         self.column = column
         self.expr = expr
         self.null_as_nan = null_as_nan
         self.reads_frame = reads_frame
+        self.input_dtypes = input_dtypes
 
     def transform_columns(self, columns: List[str]) -> List[str]:
         """Add the assigned column if it doesn't exist."""
@@ -580,6 +586,9 @@ class LazyColumnAssignment(LazyOp):
         - 'str' != NULL returns True (not NULL)
         In performance mode the condition is rendered as is.
 
+        In pandas mode arithmetic is also converted to the dtype pandas
+        gives it where ClickHouse would widen it (see ``keep_numpy_dtypes``).
+
         Raises:
             ValueError: If expression is not SQL-convertible
         """
@@ -601,8 +610,119 @@ class LazyColumnAssignment(LazyOp):
         else:
             # Copy the expression to avoid modifying the original
             expr = copy(expr)
+            if self.input_dtypes and not is_performance_mode():
+                expr = keep_numpy_dtypes(expr, self.input_dtypes)
         expr.alias = self.column
         return expr
+
+
+# Conversions to the dtypes pandas arithmetic can keep narrower than
+# ClickHouse's result type (int8 + 1 is Int16 there, float32 + 1 Float64,
+# uint64 - 1 Int64). Like NumPy they wrap integers around and turn a float out
+# of float32's range into inf, and keep Nullable.
+_NUMPY_DTYPE_CONVERSIONS = {
+    "int8": "toInt8",
+    "int16": "toInt16",
+    "int32": "toInt32",
+    "uint8": "toUInt8",
+    "uint16": "toUInt16",
+    "uint32": "toUInt32",
+    "uint64": "toUInt64",
+    "float32": "toFloat32",
+}
+_CONVERSION_NUMPY_DTYPES = {
+    func.lower(): np.dtype(dtype) for dtype, func in _NUMPY_DTYPE_CONVERSIONS.items()
+}
+_NUMPY_ARITHMETIC = {
+    "+": np.add,
+    "-": np.subtract,
+    "*": np.multiply,
+    "/": np.true_divide,
+}
+
+
+def numeric_numpy_dtype(dtype) -> Optional[np.dtype]:
+    """
+    The NumPy dtype pandas arithmetic on a column of ``dtype`` computes in
+    (a nullable Int8 column's is int8), or None for a non-numeric dtype.
+    """
+    if isinstance(dtype, pd.ArrowDtype):
+        return None
+    dtype = getattr(dtype, "numpy_dtype", dtype)
+    if isinstance(dtype, np.dtype) and dtype.kind in "iuf":
+        return dtype
+    return None
+
+
+def numpy_result_dtype(expr, dtypes: Dict[str, np.dtype]) -> Optional[np.dtype]:
+    """
+    NumPy dtype pandas gives ``expr`` (a column, a conversion or +, -, *, /
+    arithmetic on them and number literals) on columns of ``dtypes``, or None
+    when unknown.
+
+    The dtype comes from running the arithmetic on empty arrays, so a number
+    literal promotes the way it does for the installed NumPy (NumPy 2 keeps
+    int8 + 1 as int8). pandas passes a NumPy scalar on as a Python number,
+    so it promotes the same way. A literal NumPy rejects for the column's
+    dtype, like int8 + 300, gives None.
+    """
+    from .functions import Function
+
+    if isinstance(expr, Field):
+        return dtypes.get(expr.name)
+    if isinstance(expr, Function):
+        if len(expr.args) == 1:
+            return _CONVERSION_NUMPY_DTYPES.get(expr.name.lower())
+        return None
+    if (
+        not isinstance(expr, ArithmeticExpression)
+        or expr.operator not in _NUMPY_ARITHMETIC
+        or expr._involves_string_operand()
+    ):
+        return None
+
+    def operand(side):
+        if isinstance(side, Literal):
+            value = side.value
+            if isinstance(value, np.number):
+                value = value.item()
+            return value if isinstance(value, (int, float)) else None
+        dtype = numpy_result_dtype(side, dtypes)
+        return None if dtype is None else np.empty(0, dtype)
+
+    left, right = operand(expr.left), operand(expr.right)
+    if left is None or right is None:
+        return None
+    if not isinstance(left, np.ndarray) and not isinstance(right, np.ndarray):
+        return None
+    try:
+        with np.errstate(all="ignore"):
+            return _NUMPY_ARITHMETIC[expr.operator](left, right).dtype
+    except (OverflowError, TypeError):
+        return None
+
+
+def keep_numpy_dtypes(expr: Expression, dtypes: Dict[str, np.dtype]) -> Expression:
+    """
+    ``expr`` with each arithmetic step whose pandas dtype ClickHouse would
+    widen converted to that dtype, so int8 + 1 stays int8 and wraps around
+    and float32 * 1e100 stays float32 (inf), as in pandas.
+    """
+    from .functions import Function
+
+    if not isinstance(expr, ArithmeticExpression) or expr._involves_string_operand():
+        return expr
+    left = keep_numpy_dtypes(expr.left, dtypes)
+    right = keep_numpy_dtypes(expr.right, dtypes)
+    if left is not expr.left or right is not expr.right:
+        expr = ArithmeticExpression(expr.operator, left, right, expr.alias)
+    dtype = numpy_result_dtype(expr, dtypes)
+    conversion = _NUMPY_DTYPE_CONVERSIONS.get(str(dtype)) if dtype is not None else None
+    if conversion is None:
+        return expr
+    return Function(
+        conversion, ArithmeticExpression(expr.operator, left, right), alias=expr.alias
+    )
 
 
 def _null_safe_comparisons(cond):

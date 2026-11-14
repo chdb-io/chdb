@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .case_when import CaseWhenBuilder
     from .query_planner import ExecutionSegment, QueryPlan
 
-from .expressions import Field, Expression, Literal, Star, qualify_columns
+from .expressions import ArithmeticExpression, Field, Expression, Literal, Star, qualify_columns
 from .conditions import Condition
 from .utils import (
     immutable,
@@ -243,6 +243,58 @@ def _assigned_null_as_nan(op, kinds: Dict[str, bool]) -> bool:
     if pd.api.types.is_scalar(value):
         return _dtype_null_is_nan(pd.Series([value]).dtype)
     return False
+
+
+_CLICKHOUSE_NUMERIC_TYPES = frozenset(
+    {"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float32", "Float64"}
+)
+
+
+def _clickhouse_type_numpy_dtype(ch_type: str) -> Optional[np.dtype]:
+    """NumPy dtype of a numeric column of ClickHouse type ``ch_type`` in
+    pandas (int8 for Nullable(Int8)), or None for other types."""
+    ch_type = ch_type.strip()
+    for wrapper in ("LowCardinality(", "Nullable("):
+        if ch_type.startswith(wrapper) and ch_type.endswith(")"):
+            ch_type = ch_type[len(wrapper) : -1]
+    return np.dtype(ch_type.lower()) if ch_type in _CLICKHOUSE_NUMERIC_TYPES else None
+
+
+def _assigned_numpy_dtype(op, dtypes: Dict[str, np.dtype]) -> Optional[np.dtype]:
+    """NumPy dtype (see ``_column_numpy_dtypes``) of the column a
+    LazyColumnAssignment produces, or None if unknown."""
+    from .column_expr import ColumnExpr
+    from .lazy_ops import numpy_result_dtype
+
+    value = op.expr
+    if isinstance(value, ColumnExpr):
+        if value._exec_mode != "expr":
+            return None
+        value = value._expr
+    if not op.reads_frame or not isinstance(value, Expression):
+        return None
+    return numpy_result_dtype(value, dtypes)
+
+
+def _projected_numpy_dtypes(fields, dtypes: Dict[str, np.dtype]) -> Dict[str, np.dtype]:
+    """NumPy dtypes (see ``_column_numpy_dtypes``) of a SELECT field list's output."""
+    from .column_expr import ColumnExpr
+    from .expressions import is_star_item, projection_name
+    from .lazy_ops import numpy_result_dtype
+
+    projected = dict(dtypes) if any(is_star_item(f) for f in fields) else {}
+    for item in fields:
+        if is_star_item(item):
+            continue
+        if isinstance(item, str):
+            name = item.strip('"')
+            projected[name] = dtypes.get(name)
+            continue
+        expr = item._expr if isinstance(item, ColumnExpr) else item
+        name = projection_name(expr) if isinstance(expr, Expression) else None
+        if name is not None:
+            projected[name] = numpy_result_dtype(expr, dtypes)
+    return projected
 
 
 def _projected_null_kinds(fields, kinds: Dict[str, bool]) -> Dict[str, bool]:
@@ -1379,8 +1431,15 @@ class DataStore(PandasCompatMixin):
         """
         from .lazy_ops import LazyColumnAssignment
 
-        if isinstance(op, LazyColumnAssignment) and op.null_as_nan is None:
-            op.null_as_nan = self._null_as_nan_inputs(op.expr)
+        if isinstance(op, LazyColumnAssignment):
+            if op.null_as_nan is None:
+                op.null_as_nan = self._null_as_nan_inputs(op.expr)
+            if (
+                op.input_dtypes is None
+                and op.reads_frame
+                and isinstance(op._sql_tree(), ArithmeticExpression)
+            ):
+                op.input_dtypes = self._column_numpy_dtypes()
         self._lazy_ops.append(op)
         self._invalidate_cache()
 
@@ -1516,6 +1575,68 @@ class DataStore(PandasCompatMixin):
         assignment derives it from the columns its expression reads or from
         the dtype of its value. Any other op makes every column unknown.
         """
+        from .lazy_ops import LazyColumnAssignment
+
+        source = self._pipeline_source_types()
+        if source is None:
+            return {}
+        ops, dtypes, schema = source
+        if dtypes is not None:
+            kinds = {name: _dtype_null_is_nan(dtype) for name, dtype in dtypes.items()}
+        else:
+            kinds = {
+                name: _clickhouse_type_null_is_nan(ch_type)
+                for name, ch_type in schema.items()
+            }
+
+        for op in ops:
+            if isinstance(op, LazyColumnAssignment):
+                kinds[op.column] = _assigned_null_as_nan(op, kinds)
+            elif op.op_type == "SELECT" and op.fields:
+                kinds = _projected_null_kinds(op.fields, kinds)
+        return {name: kind for name, kind in kinds.items() if kind}
+
+    def _column_numpy_dtypes(self) -> Dict[str, np.dtype]:
+        """
+        Map numeric columns at the end of the pipeline to the NumPy dtype
+        pandas arithmetic on them computes in (see ``numeric_numpy_dtype``);
+        other and unknown columns are left out.
+
+        Columns are followed from the source like in ``_column_null_kinds``;
+        a computed column gets the dtype pandas gives its expression (see
+        ``numpy_result_dtype``). A JOIN makes every column unknown.
+        """
+        from .lazy_ops import LazyColumnAssignment, numeric_numpy_dtype
+
+        source = None if self._joins else self._pipeline_source_types()
+        if source is None:
+            return {}
+        ops, dtypes, schema = source
+        if dtypes is not None:
+            result = {name: numeric_numpy_dtype(dtype) for name, dtype in dtypes.items()}
+        else:
+            result = {
+                name: _clickhouse_type_numpy_dtype(ch_type)
+                for name, ch_type in schema.items()
+            }
+
+        for op in ops:
+            if isinstance(op, LazyColumnAssignment):
+                result[op.column] = _assigned_numpy_dtype(op, result)
+            elif op.op_type == "SELECT" and op.fields:
+                result = _projected_numpy_dtypes(op.fields, result)
+        return {name: dtype for name, dtype in result.items() if dtype is not None}
+
+    def _pipeline_source_types(self):
+        """
+        ``(ops, dtypes, schema)`` to follow columns from the source through the
+        lazy ops without executing: the ops after the source, and either the
+        source DataFrame's pandas dtypes by column name (``schema`` None) or
+        the DESCRIBE types of a SQL source (``dtypes`` None).
+
+        None when an op other than a row operation, SELECT or column
+        assignment changes the columns, or the schema is unavailable.
+        """
         from .lazy_ops import LazyColumnAssignment, LazyDataFrameSource
 
         ops = list(self._lazy_ops)
@@ -1529,29 +1650,15 @@ class DataStore(PandasCompatMixin):
             source_df = self._table_function._df
 
         if not all(isinstance(op, (LazyRelationalOp, LazyColumnAssignment)) for op in ops):
-            return {}
+            return None
 
         if source_df is not None:
-            kinds = {
-                str(name): _dtype_null_is_nan(dtype)
-                for name, dtype in source_df.dtypes.items()
-            }
-        else:
-            try:
-                schema = self.schema() or {}
-            except Exception:
-                return {}
-            kinds = {
-                name: _clickhouse_type_null_is_nan(ch_type)
-                for name, ch_type in schema.items()
-            }
-
-        for op in ops:
-            if isinstance(op, LazyColumnAssignment):
-                kinds[op.column] = _assigned_null_as_nan(op, kinds)
-            elif op.op_type == "SELECT" and op.fields:
-                kinds = _projected_null_kinds(op.fields, kinds)
-        return {name: kind for name, kind in kinds.items() if kind}
+            return ops, {str(name): dtype for name, dtype in source_df.dtypes.items()}, None
+        try:
+            schema = self.schema() or {}
+        except Exception:
+            return None
+        return ops, None, schema
 
     def _get_source_df_if_pristine(self) -> "Optional[pd.DataFrame]":
         """
@@ -8040,9 +8147,18 @@ class DataStore(PandasCompatMixin):
     def _assign_sql_columns(self, sql_kwargs) -> "DataStore":
         """Assign SQL-compatible expressions, all reading the current frame."""
         from .column_expr import ColumnExpr
-        from .lazy_ops import LazyColumnAssignment
+        from .lazy_ops import LazyColumnAssignment, numpy_result_dtype
 
         result = self
+        exprs = {
+            alias: expr._expr if isinstance(expr, ColumnExpr) else expr
+            for alias, expr in sql_kwargs.items()
+        }
+        input_dtypes = (
+            result._column_numpy_dtypes()
+            if any(isinstance(expr, ArithmeticExpression) for expr in exprs.values())
+            else None
+        )
         # Ensure we have a SQL source (create PythonTableFunction if needed)
         result._ensure_sql_source()
 
@@ -8057,12 +8173,17 @@ class DataStore(PandasCompatMixin):
         # overwrites. _computed_columns keeps the fully resolved form for
         # consumers that expand computed columns in place (GROUP BY).
         expr_map = {}
-        for alias, expr in sql_kwargs.items():
-            if isinstance(expr, ColumnExpr):
-                expr = expr._expr
+        for alias, expr in exprs.items():
             if isinstance(expr, Expression):
                 result._computed_columns[alias] = result._resolve_expr_dependencies(expr)
-                expr_map[alias] = LazyColumnAssignment(alias, expr).get_sql_expression()
+                expr_map[alias] = LazyColumnAssignment(
+                    alias, expr, input_dtypes=input_dtypes
+                ).get_sql_expression()
+                if input_dtypes is not None and alias not in existing_columns_set:
+                    # A later callable's value can read the new column
+                    dtype = numpy_result_dtype(expr, input_dtypes)
+                    if dtype is not None:
+                        input_dtypes = {**input_dtypes, alias: dtype}
 
         # All values are evaluated against the frame before this step, so new
         # columns are selected before any column is overwritten. In one SELECT
