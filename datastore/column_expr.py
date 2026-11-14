@@ -18,7 +18,7 @@ import pandas as pd
 
 from .expressions import Expression, Field, ArithmeticExpression, Literal, Node
 from .lazy_result import LazySeries, LazyCondition
-from .utils import immutable
+from .utils import SKIPNA_AGG_FUNCS, immutable
 from .exceptions import ImmutableError
 
 
@@ -1303,6 +1303,16 @@ class ColumnExpr:
                 }
             )
 
+    def _groupby_skipna_kwargs(self) -> dict:
+        """
+        ``{'skipna': False}`` when this groupby reduction must not skip
+        missing values, else ``{}``: pandas < 3 groupby reductions don't take
+        ``skipna``.
+        """
+        if not self._skipna and self._pandas_agg_func in SKIPNA_AGG_FUNCS:
+            return {"skipna": False}
+        return {}
+
     def _execute_groupby_aggregation(self):
         """Execute aggregation with GROUP BY."""
         from .config import get_execution_engine, ExecutionEngine, is_performance_mode
@@ -1366,6 +1376,7 @@ class ColumnExpr:
                         dropna=dropna_val,
                         observed=getattr(self, "_groupby_observed", None),
                         selected_columns=[col_name],
+                        **self._groupby_skipna_kwargs(),
                     )
                 )
                 result_df = new_ds._execute()
@@ -1426,7 +1437,8 @@ class ColumnExpr:
                 )
                 agg_method = getattr(grouped[col_name], self._pandas_agg_func)
                 result = agg_method(
-                    **{k: v for k, v in self._method_kwargs.items() if k != "axis"}
+                    **{k: v for k, v in self._method_kwargs.items() if k != "axis"},
+                    **self._groupby_skipna_kwargs(),
                 )
                 if as_index:
                     # Returns Series with groupby keys as index
@@ -1477,6 +1489,13 @@ class ColumnExpr:
                 elif self._skipna and not is_performance_mode():
                     # In pandas compat mode, use -If suffix to skip NaN/NULL
                     agg_sql = f"{self._agg_func_name}If({col_expr_sql}, NOT {null_check_fn}({col_expr_sql}))"
+                elif self._groupby_skipna_kwargs():
+                    # skipna=False: a group holding a NULL or NaN gives NULL (NaN
+                    # in pandas). Plain aggregates skip NULL; min/max skip NaN too.
+                    agg_sql = (
+                        f"if(countIf(isNull({col_expr_sql}) OR {col_expr_sql} != {col_expr_sql}) > 0, "
+                        f"NULL, {self._agg_func_name}({col_expr_sql}))"
+                    )
                 else:
                     # In performance mode or when skipna=False, use plain aggregation
                     # ClickHouse natively skips NULL in aggregations
@@ -4287,6 +4306,8 @@ class ColumnExpr:
                 for k, v in (method_kwargs or {}).items()
                 if k not in ("axis", "numeric_only")
             }
+            if pandas_agg_func in SKIPNA_AGG_FUNCS:
+                filtered_kwargs["skipna"] = skipna
             return agg_method(**filtered_kwargs)
 
         # With groupby, return lazy ColumnExpr for SQL generation

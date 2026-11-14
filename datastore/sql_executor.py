@@ -24,6 +24,7 @@ import pandas as pd
 from .expressions import (
     Field,
     Expression,
+    Literal,
     Star,
     bind_projection_item,
     is_star_item,
@@ -48,6 +49,7 @@ from .utils import (
     merge_orderby_fields,
     is_stable_sort,
     format_identifier,
+    SKIPNA_AGG_FUNCS,
 )
 from .config import get_logger
 
@@ -630,9 +632,12 @@ def build_groupby_select_fields(
             return computed_columns[col_name]
         return Field(col_name)
 
-    def create_agg_expr(func: str, col_expr: Expression) -> AggregateFunction:
+    skipna = groupby_agg.kwargs.get("skipna", True)
+
+    def create_agg_expr(func: str, col_expr: Expression) -> Expression:
         """
-        Create aggregation expression, handling special cases for first/last.
+        Create aggregation expression, handling special cases for first/last
+        and skipna=False.
 
         For first/last, we use argMin/argMax with rowNumberInAllBlocks() to preserve
         row order semantics. ClickHouse's any()/anyLast() return arbitrary values,
@@ -657,9 +662,14 @@ def build_groupby_select_fields(
             # last() -> argMax(col, rowNumberInAllBlocks())
             row_num_func = Function('rowNumberInAllBlocks')
             return AggregateFunction('argMax', col_expr, row_num_func)
-        else:
-            sql_func = map_agg_func(func)
-            return AggregateFunction(sql_func, col_expr)
+        agg = AggregateFunction(map_agg_func(func), col_expr)
+        if skipna or func not in SKIPNA_AGG_FUNCS:
+            return agg
+        # skipna=False: a group holding a NULL or NaN gives NULL (NaN in
+        # pandas). Plain aggregates skip NULL; min/max skip NaN too.
+        missing = Function('or', Function('isNull', col_expr), Function('notEquals', col_expr, col_expr))
+        has_missing = Function('greater', AggregateFunction('countIf', missing), Literal(0))
+        return Function('if', has_missing, Literal(None), agg)
 
     # Build GROUP BY fields
     # Use resolve_column to expand computed columns in groupby keys
