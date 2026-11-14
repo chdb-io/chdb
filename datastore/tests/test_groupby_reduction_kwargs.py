@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from datastore import DataStore
+from datastore.config import ExecutionEngine, set_execution_engine
 from tests.test_utils import assert_series_equal, get_series
 
 KEYS = ["a", "a", "a", "b", "b", "c"]
@@ -117,3 +118,34 @@ def test_reduction_arguments_of_computed_column(kind, reduce, alias, tmp_path):
     assert list(ds_result.index) == list(pd_result.index)
     # The reduction keeps the name the supported path gives the same column
     assert ds_result.name == get_series(computed.std()).name
+
+
+@pytest.fixture(params=["auto", "pandas"])
+def engine(request):
+    set_execution_engine(
+        ExecutionEngine.PANDAS if request.param == "pandas" else ExecutionEngine.AUTO
+    )
+    yield
+    set_execution_engine(ExecutionEngine.AUTO)
+
+
+# A group with a missing value first (a), last (b), only missing values (c)
+# and none (d)
+EDGE_KEYS = ["a", "a", "a", "b", "b", "c", "c", "d", "d"]
+EDGE_COLUMNS = {
+    "float": [None, 1.0, 2.0, 3.0, None, None, None, 4.0, 5.0],
+    "nullable_int": pd.array([None, 1, 2, 3, None, None, None, 4, 5], dtype="Int64"),
+    "str": [None, "x", "y", "z", None, None, None, "u", "w"],
+}
+
+
+@pytest.mark.parametrize("column", list(EDGE_COLUMNS))
+@pytest.mark.parametrize("method", ["first", "last"])
+@pytest.mark.parametrize("skipna", [True, False])
+def test_first_last_skipna(engine, kind, column, method, skipna, tmp_path):
+    df = pd.DataFrame({"k": EDGE_KEYS, "v": EDGE_COLUMNS[column]})
+    ds = _make(kind, df, tmp_path)
+    assert_series_equal(
+        get_series(getattr(ds.groupby("k")["v"], method)(skipna=skipna)),
+        getattr(df.groupby("k")["v"], method)(skipna=skipna),
+    )
