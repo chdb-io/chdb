@@ -1449,7 +1449,9 @@ class ColumnExpr:
                 **{
                     k: v
                     for k, v in self._method_kwargs.items()
-                    if k not in ("axis", "numeric_only", "skipna")
+                    if k not in ("axis", "numeric_only")
+                    # skipna_kwargs passes it to these where pandas takes it
+                    and not (k == "skipna" and pandas_func in SKIPNA_AGG_FUNCS)
                 },
                 **skipna_kwargs,
             )
