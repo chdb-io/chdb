@@ -26,6 +26,7 @@ import pandas as pd
 import pytest
 
 from datastore import DataStore
+from tests.test_utils import assert_datastore_equals_pandas
 
 
 class TestClickHouseTypeRoundTrip:
@@ -110,6 +111,19 @@ class TestClickHouseTypeRoundTrip:
             assert val == pytest.approx(100000000000000.0)
         finally:
             self._cleanup(ds, conn, "t_decimal_lg")
+
+    def test_describe_string_only_matches_pandas(self):
+        """describe() of a table with only String columns gives count, unique, top and freq, as pandas does."""
+        ds, conn = self._setup_table(
+            "t_string_desc",
+            "CREATE TABLE t_string_desc (s String) ENGINE = Memory",
+            "INSERT INTO t_string_desc VALUES ('a'), ('b'), ('a')",
+        )
+        try:
+            pd_df = pd.DataFrame({"s": ["a", "b", "a"]})
+            assert_datastore_equals_pandas(ds.describe(), pd_df.describe())
+        finally:
+            self._cleanup(ds, conn, "t_string_desc")
 
     # -- FixedString(16) --
 

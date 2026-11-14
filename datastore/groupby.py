@@ -10,7 +10,7 @@ This implements pandas-like groupby semantics where:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Union, Any
+from typing import TYPE_CHECKING, List, Optional, Union, Any
 
 import pandas as pd
 
@@ -47,6 +47,7 @@ class LazyGroupBy:
         as_index: bool = True,
         dropna: bool = True,
         selected_columns: List[str] = None,
+        observed: Optional[bool] = None,
     ):
         """
         Initialize LazyGroupBy.
@@ -63,6 +64,8 @@ class LazyGroupBy:
             selected_columns: List of column names to aggregate (None = all columns).
                               When set via groupby()[['col1', 'col2']], only these columns
                               are included in aggregation results.
+            observed: For categorical keys, only show observed categories.
+                      None (default) uses the pandas default.
         """
         self._datastore = datastore
         self._groupby_fields = groupby_fields.copy()  # Copy the list, not the DataStore
@@ -70,6 +73,7 @@ class LazyGroupBy:
         self._as_index = as_index
         self._dropna = dropna
         self._selected_columns = selected_columns
+        self._observed = observed
 
     @property
     def datastore(self) -> 'DataStore':
@@ -245,6 +249,7 @@ class LazyGroupBy:
                 groupby_as_index=self._as_index,
                 groupby_sort=self._sort,
                 groupby_dropna=self._dropna,
+                groupby_observed=self._observed,
             )
 
         elif isinstance(key, list):
@@ -256,6 +261,7 @@ class LazyGroupBy:
                 as_index=self._as_index,
                 dropna=self._dropna,
                 selected_columns=key,
+                observed=self._observed,
             )
 
         else:
@@ -442,6 +448,7 @@ class LazyGroupBy:
             op_groupby_cols=groupby_cols,
             op_sort=self._sort,
             op_dropna=self._dropna,
+            op_kwargs={} if self._observed is None else {'observed': self._observed},
         )
 
     def min(self, numeric_only: bool = False) -> 'DataStore':
@@ -716,6 +723,7 @@ class LazyGroupBy:
                 sort=self._sort,
                 as_index=self._as_index,
                 dropna=self._dropna,
+                observed=self._observed,
                 selected_columns=self._selected_columns,
                 **kwargs,
             )

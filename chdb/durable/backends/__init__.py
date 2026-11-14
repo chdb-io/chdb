@@ -34,6 +34,10 @@ state machine reconciles it (§5.8) into success, `lease_fenced`, or
     s3://bucket/prefix          (endpoint via CHDB_DURABLE_S3_ENDPOINT for MinIO/R2)
     gcs://bucket/prefix
     azure://container/prefix
+
+Credentials never go in the URL, which gets logged, committed and pasted into
+issues. A URL carrying them (`s3://key:secret@bucket/...`) is refused rather
+than stripped; they come from the environment or the provider's own chain.
 """
 from __future__ import annotations
 
@@ -59,8 +63,33 @@ class Backend(Protocol):
     def delete_prefix(self, prefix: str = "") -> None: ...  # not V1
 
 
+def refuse_credentials(url: str) -> None:
+    """Raise if `url` carries a `user:secret@` part in its authority.
+
+    Otherwise `s3://key:secret@bucket/p` would make `key:secret@bucket` the
+    bucket name, and the provider SDK quotes the bucket in its own errors.
+    `:` as well as `@`, because a secret may contain `/`, which ends the
+    authority at `key:sec` before the `@` is reached; neither character is
+    legal in a bucket or container name. An `@` below the authority
+    (`s3://bucket/a@b`) is an ordinary key character and stays allowed.
+    Refused rather than stripped, because a caller who wrote credentials here
+    believes they are being used. The message must quote no part of the URL.
+    """
+    u = urlparse(url)
+    if (u.username is not None or u.password is not None
+            or "@" in u.netloc or ":" in u.netloc):
+        raise ValueError(
+            "a durable namespace URL must not carry credentials; the URL is "
+            "logged, committed and pasted into issues. Remove the `user:secret@` "
+            "part and supply credentials through the provider's usual chain: "
+            "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY or ~/.aws/credentials for "
+            "s3, Application Default Credentials or CHDB_DURABLE_GCS_TOKEN for "
+            "gcs, CHDB_DURABLE_AZURE_CONN for azure")
+
+
 def make_backend(url: str, sub: str = "") -> Backend:
     """Build a backend scoped to `<base_prefix>/<sub>` from a URL."""
+    refuse_credentials(url)
     u = urlparse(url)
     scheme = u.scheme or "local"
 
@@ -86,6 +115,8 @@ def make_backend(url: str, sub: str = "") -> Backend:
             raise ValueError(f"object id escapes backend root: {sub!r}")
         return LocalFSBackend(full)
 
+    # refuse_credentials left the authority a bare name. Not `u.hostname`,
+    # which lowercases it.
     container = u.netloc
     base = u.path.strip("/")
     prefix = f"{base}/{sub}".strip("/") if sub else base

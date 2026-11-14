@@ -456,11 +456,6 @@ class TestBooleanIndexingEdgeCases:
 class TestCategoricalOperations:
     """Test categorical dtype operations"""
 
-    # chDB v4.x supports categorical SQL operations but converts dtype to object
-    @pytest.mark.xfail(
-        reason="chDB converts categorical to object dtype after SQL execution - VALUES ARE CORRECT",
-        strict=True,
-    )
     def test_categorical_groupby(self):
         """GroupBy on categorical column"""
         pd_df = pd.DataFrame({

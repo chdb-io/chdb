@@ -497,7 +497,11 @@ class LazySeries:
             from .lazy_ops import LazyGroupByAgg
 
             sizes = LazyGroupByAgg(
-                groupby_cols=cols, agg_func="size", sort=sort, dropna=dropna
+                groupby_cols=cols,
+                agg_func="size",
+                sort=sort,
+                dropna=dropna,
+                observed=(op_kwargs or {}).get("observed"),
             ).run_on(ds)["size"]
             sizes.name = None
             return sizes

@@ -119,6 +119,17 @@ class TestDropDuplicatesSQLGeneration:
         assert "LIMIT 1 BY" in sql
         assert "DISTINCT" not in sql
 
+    def test_string_subset_limit_by_single_column(self, tmp_path):
+        """A string subset is one column name, not a sequence of characters."""
+        df = pd.DataFrame({"region": ["n", "s", "n", "e"], "v": [1, 2, 3, 4]})
+        path = _make_parquet(df, tmp_path)
+        ds = DataStore.from_file(path)
+
+        for ds_dedup in (ds.drop_duplicates("region"), ds.distinct(subset="region")):
+            sql = ds_dedup.to_sql()
+            assert 'LIMIT 1 BY "region"' in sql, sql
+            assert '"r"' not in sql, sql
+
 
 # ===========================================================================
 # drop_duplicates correctness (Mirror Pattern)
@@ -135,6 +146,39 @@ class TestDropDuplicatesCorrectness:
 
         pd_result = df.drop_duplicates(subset=["a"])
         ds_result = DataStore.from_file(path).drop_duplicates(subset=["a"])
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_subset_as_string(self, tmp_path):
+        """drop_duplicates('region') treats the string as one column name."""
+        df = pd.DataFrame({"region": ["n", "s", "n", "e"], "v": [1, 2, 3, 4]})
+        path = _make_parquet(df, tmp_path)
+
+        pd_result = df.drop_duplicates("region")
+        ds_result = DataStore.from_file(path).drop_duplicates("region")
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_distinct_subset_as_string(self, tmp_path):
+        """DataStore.distinct(subset='region') matches pandas drop_duplicates."""
+        df = pd.DataFrame({"region": ["n", "s", "n", "e"], "v": [1, 2, 3, 4]})
+        path = _make_parquet(df, tmp_path)
+
+        pd_result = df.drop_duplicates(subset="region")
+        ds_result = DataStore.from_file(path).distinct(subset="region")
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_subset_as_string_after_filter(self, tmp_path):
+        """String subset after a filter still dedups on that one column."""
+        df = pd.DataFrame(
+            {"region": ["n", "s", "n", "e", "s"], "v": [1, 2, 3, 4, 5]}
+        )
+        path = _make_parquet(df, tmp_path)
+
+        pd_result = df[df["v"] > 1].drop_duplicates("region")
+        ds = DataStore.from_file(path)
+        ds_result = ds[ds["v"] > 1].drop_duplicates("region")
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
