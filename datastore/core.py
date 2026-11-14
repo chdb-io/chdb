@@ -4390,7 +4390,8 @@ class DataStore(PandasCompatMixin):
             return None
         # The rows _execute() reads, in its order
         sql, settings = self._result_query(build_result)
-        if settings:
+        # Only the wrapping query needs them: the built query has them already
+        if settings and build_result.row_label_column is not None:
             sql = f"{sql} SETTINGS {', '.join(settings)}"
 
         if self._executor is None:

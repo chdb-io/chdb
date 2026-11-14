@@ -582,3 +582,21 @@ class TestSourceLocations:
             source = FileTableFunction(path=location, format="Parquet")
 
         assert source.has_row_positions(["k"]) is has_positions
+
+
+class TestToArrowSettings:
+    """to_arrow() reads the query _execute() runs, with each setting once."""
+
+    @pytest.mark.parametrize("fmt", ["csv", "jsonl"])
+    @pytest.mark.parametrize("method", ["first", "last"])
+    def test_group_first_row(self, tmp_path, executed_sql, fmt, method):
+        path = str(tmp_path / f"sales.{fmt}")
+        _write(SALES, path, fmt)
+        pd_result = getattr(SALES.groupby("region"), method)().reset_index()
+
+        table = getattr(DataStore.from_file(path).groupby("region"), method)().to_arrow()
+
+        pd.testing.assert_frame_equal(table.to_pandas(), pd_result, check_dtype=False)
+        native = [sql for sql in executed_sql if sql.startswith("to_arrow native SQL:")]
+        assert len(native) == 1
+        assert native[0].count("query_plan_enable_optimizations=0") == 1
