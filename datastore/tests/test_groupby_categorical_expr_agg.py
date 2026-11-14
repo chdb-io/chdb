@@ -6,6 +6,7 @@ mean), and a CategoricalIndex. Each case runs on a DataFrame source and on
 a file source whose key is made categorical in the pipeline.
 """
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -79,3 +80,40 @@ def test_as_index_false(source, observed):
         _grouped(FRAME, observed)["v"].sum().rename("total").reset_index()
     )
     assert_datastore_equals_pandas(ds_result, pd_result)
+
+
+@pytest.mark.parametrize("observed", [True, False])
+def test_aggregate_inside_case_when(source, observed):
+    ds = source()
+    ds_result = ds.groupby("g", observed=observed).agg(
+        flag=ds.when(col("v").sum() > 6, 1).otherwise(0)
+    )
+    sums = _grouped(FRAME, observed)["v"].sum()
+    # when(...).otherwise(...) of 1/0 is uint8 in DataStore, as its SQL path
+    # (CASE WHEN ... THEN 1 ELSE 0) and row-wise when() return
+    flags = np.where(sums > 6, 1, 0).astype("uint8")
+    pd_result = pd.DataFrame({"flag": flags}, index=sums.index)
+    assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
+
+
+@pytest.mark.parametrize("observed", [True, False])
+def test_group_key_in_output(source, observed):
+    ds_result = source().groupby("g", observed=observed).agg(key=col("g"), total=col("v").sum())
+    sums = _grouped(FRAME, observed)["v"].sum()
+    pd_result = pd.DataFrame({"key": sums.index.to_series(index=sums.index), "total": sums})
+    assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
+
+
+@pytest.mark.parametrize("observed", [True, False])
+def test_as_index_false_output_named_like_key(source, observed):
+    # pandas keeps the output and drops the key
+    ds_result = source().groupby("g", observed=observed, as_index=False).agg(g=col("v").sum())
+    pd_result = FRAME.groupby("g", observed=observed, as_index=False).agg(g=("v", "sum"))
+    assert_datastore_equals_pandas(ds_result, pd_result)
+
+
+def test_key_named_like_value_column(tmp_path):
+    frame = FRAME.rename(columns={"g": "__value__"})
+    ds_result = DataStore(frame.copy()).groupby("__value__", observed=True).agg(total=col("v").sum())
+    pd_result = frame.groupby("__value__", observed=True).agg(total=("v", "sum"))
+    assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
