@@ -138,11 +138,7 @@ FOLLOW_UPS = [
 # Some combinations are known to need additional work or have semantic
 # differences. Tag them as xfail / skip at collection time so the suite
 # stays green where it is supposed to.
-KNOWN_XFAIL = {
-    'groupby_agg_max__then__sort_descending_by_col': (
-        'tie order of a sorted groupby().agg() result differs from pandas (#701)'
-    ),
-}
+KNOWN_XFAIL = {}  # test id -> reason, populated as we discover them
 
 
 def _marks(test_id):
