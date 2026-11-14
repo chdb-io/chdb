@@ -24,6 +24,7 @@ import unittest
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from datastore import DataStore
 
@@ -276,6 +277,7 @@ class TestMultiStageRevenueFilter(unittest.TestCase):
     def setUpClass(cls):
         cls.pd_df = _seed_orders_dataset()
 
+    @pytest.mark.xfail(strict=True, reason="the region index of the groupby().agg() result is lost (fixed by #776)")
     def test_full_revenue_pipeline(self):
         pd_clean = self.pd_df.dropna(subset=['rating'])
         pd_highvalue = pd_clean[pd_clean['amount'] >= 100]

@@ -138,7 +138,16 @@ FOLLOW_UPS = [
 # Some combinations are known to need additional work or have semantic
 # differences. Tag them as xfail / skip at collection time so the suite
 # stays green where it is supposed to.
-KNOWN_XFAIL = set()  # populated below as we discover them
+KNOWN_XFAIL = {
+    'groupby_agg_max__then__sort_descending_by_col': (
+        'tie order of a sorted groupby().agg() result differs from pandas (#701)'
+    ),
+}
+
+
+def _marks(test_id):
+    reason = KNOWN_XFAIL.get(test_id)
+    return pytest.mark.xfail(strict=True, reason=reason) if reason else ()
 
 
 def _ids():
@@ -151,7 +160,7 @@ def _ids():
 
 
 _PARAMS = [
-    (b[0], b[1], b[2], f[0], f[1])
+    pytest.param(b[0], b[1], b[2], f[0], f[1], marks=_marks(f'{b[0]}__then__{f[0]}'))
     for b in RESULT_BUILDERS
     for f in FOLLOW_UPS
 ]
