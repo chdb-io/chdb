@@ -133,8 +133,8 @@ class TestDataSelection:
         """Select with iloc."""
         pd_result = pd_df.iloc[0:3, 0:2]
         ds_result = ds_df.iloc[0:3, 0:2]
-        # iloc returns pandas DataFrame directly
-        assert_frame_equal(ds_result, pd_result)
+        assert isinstance(ds_result, ds.DataStore)
+        assert_frame_equal(ds_result.to_pandas(), pd_result)
 
 
 # =============================================================================
