@@ -172,7 +172,7 @@ def test_first_last_skipna(engine, kind, column, method, skipna, tmp_path):
     )
 
 
-def test_sum_numeric_only_on_string_column_raises(kind, tmp_path):
+def test_sum_numeric_only_on_string_column_raises(engine, kind, tmp_path):
     """A string column is not numeric: numeric_only=True raises, as in pandas.
 
     The reduction is lazy, so the error surfaces when the result is materialized.
@@ -190,7 +190,7 @@ def test_sum_numeric_only_on_string_column_raises(kind, tmp_path):
     assert str(agg_err.value) == str(pd_err.value)
 
 
-def test_sum_numeric_only_on_numeric_column(kind, tmp_path):
+def test_sum_numeric_only_on_numeric_column(engine, kind, tmp_path):
     df = pd.DataFrame({"g": ["a", "a", "b"], "v": [1, 2, 3]})
     ds = _make(kind, df, tmp_path)
     assert_series_equal(
