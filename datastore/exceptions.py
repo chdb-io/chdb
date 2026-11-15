@@ -9,6 +9,7 @@ __all__ = [
     "ConnectionError",
     "SchemaError",
     "QueryError",
+    "JoinTypeError",
     "ExecutionError",
     "ValidationError",
     "UnsupportedOperationError",
@@ -38,6 +39,12 @@ class SchemaError(DataStoreError):
 
 class QueryError(DataStoreError):
     """Raised when query construction fails."""
+
+    pass
+
+
+class JoinTypeError(QueryError, ValueError):
+    """Raised for a join type ``join()`` and ``merge()`` don't support."""
 
     pass
 

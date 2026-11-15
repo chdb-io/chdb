@@ -44,18 +44,15 @@ class TestEmptyGroupbyColumnDrift(unittest.TestCase):
     groupby(cat).agg({'v':'sum'})`` produces an empty intermediate
     after the second filter, then aggregates an empty input. Pandas
     returns an empty DataFrame with just the aggregated column (``v``)
-    and an empty group-key index. DataStore's executor short-circuits
-    once an upstream segment returns zero rows and surfaces the
-    source-bound intermediate columns (``['sub', 'v', 'w']``) instead
-    of the agg's projected output.
+    and an empty group-key index. DataStore's executor used to
+    short-circuit once an upstream segment returned zero rows and
+    surface the source-bound intermediate columns (``['sub', 'v', 'w']``)
+    instead of the agg's projected output; an aggregation now runs its
+    SQL on the empty input.
 
-    Discovered by Hypothesis in CI (PR #578, commit 64f38b8). Marked
-    ``expectedFailure``; flip when the executor's empty-intermediate
-    handling projects to the agg's output columns regardless of
-    short-circuit.
+    Discovered by Hypothesis in CI (PR #578, commit 64f38b8).
     """
 
-    @unittest.expectedFailure
     def test_empty_filter_then_sort_then_agg_drops_non_agg_columns(self):
         df = _dataset()
 

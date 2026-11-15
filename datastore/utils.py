@@ -6,7 +6,9 @@ particular subsystem. SQL-specific utilities are in sql_executor.py.
 """
 
 from typing import TypeVar, Callable
+from contextlib import contextmanager
 from copy import copy
+import contextvars
 
 __all__ = [
     'immutable',
@@ -15,6 +17,7 @@ __all__ = [
     'format_alias',
     'normalize_ascending',
     'build_orderby_clause',
+    'merge_orderby_fields',
     'is_stable_sort',
     'map_agg_func',
     'row_order_alias',
@@ -122,6 +125,22 @@ def ignore_copy(func: Callable) -> Callable:
     return wrapper
 
 
+def unique_name(base: str, taken: set) -> str:
+    """
+    ``base``, or ``__<stem>_<n>__`` for the first free ``n``, unlike every
+    name in ``taken``, which it is added to. Internal temporary columns take
+    their names here, so no source column, group key or output is read in
+    their place.
+    """
+    stem = base.strip("_")
+    name, suffix = base, 1
+    while name in taken:
+        name = f"__{stem}_{suffix}__"
+        suffix += 1
+    taken.add(name)
+    return name
+
+
 def format_identifier(name: str, quote_char: str = '"') -> str:
     """
     Format an identifier (table/column name) with quotes, properly escaping special characters.
@@ -176,10 +195,84 @@ def row_order_alias(column_names) -> str:
 # ========== Sort Stability Constants and Functions ==========
 # These ensure DataStore sort matches pandas stable sort (kind='stable') behavior
 
+# Position of a row in a source without its own row positions (database
+# tables, generated rows): the order the rows reach the query.
+DEFAULT_ROW_POSITION = "rowNumberInAllBlocks()"
+
 # Tie-breaker for stable sort to preserve original row order when sort keys have duplicates.
-# For Python() table function: connection.py replaces this with _row_id at execution time
-# For file sources (Parquet, CSV): rowNumberInAllBlocks() works correctly as-is
-STABLE_SORT_TIEBREAKER = "rowNumberInAllBlocks() ASC"
+STABLE_SORT_TIEBREAKER = f"{DEFAULT_ROW_POSITION} ASC"
+
+
+class RowPositionScope:
+    """
+    The SQL for a row's position in the source of the query being built:
+    ``_row_id`` for a DataFrame source, the file reader's position for a
+    file (see ``TableFunction.row_position_source``), ``DEFAULT_ROW_POSITION``
+    otherwise. ``uses`` counts how often the built SQL read it.
+    """
+
+    def __init__(self, sql: str):
+        self.sql = sql
+        self.uses = 0
+
+    @property
+    def used(self) -> bool:
+        return self.uses > 0
+
+
+_row_position_scope = contextvars.ContextVar("row_position_scope", default=None)
+
+
+def row_position_sql() -> str:
+    """SQL for a row's position in its source, in the query being built."""
+    scope = _row_position_scope.get()
+    if scope is None:
+        return DEFAULT_ROW_POSITION
+    scope.uses += 1
+    return scope.sql
+
+
+def current_row_position_scope() -> "RowPositionScope":
+    """The row position scope SQL is being built in, or None."""
+    return _row_position_scope.get()
+
+
+@contextmanager
+def row_position_scope(sql: str):
+    """Build SQL in which a row's source position is ``sql``."""
+    scope = RowPositionScope(sql)
+    token = _row_position_scope.set(scope)
+    try:
+        yield scope
+    finally:
+        _row_position_scope.reset(token)
+
+
+def dataframe_sql(expr, quote_char: str = '"') -> str:
+    """
+    SQL for ``expr`` evaluated on a DataFrame through Python(), where a
+    row's source position is the DataFrame's virtual ``_row_id`` column.
+    """
+    with row_position_scope("_row_id"):
+        return expr.to_sql(quote_char=quote_char)
+
+
+def compose_slice(offset, limit, op_type: str, n: int):
+    """
+    ``(offset, limit)`` of the rows an ``op_type`` (``"OFFSET"`` or
+    ``"LIMIT"``) of ``n`` keeps from the rows ``OFFSET offset LIMIT limit``
+    selects. Each applies to the previous result, as ``df.iloc[n:]`` and
+    ``df.head(n)`` do, so any chain of offsets and limits is one slice.
+    ``None`` means no offset or no limit.
+    """
+    if op_type == "OFFSET":
+        offset = (offset or 0) + n
+        if limit is not None:
+            limit = max(limit - n, 0)
+    elif op_type == "LIMIT":
+        limit = n if limit is None else min(limit, n)
+    return offset, limit
+
 
 # Sort kinds that guarantee stability (matching pandas behavior)
 STABLE_SORT_KINDS = ('stable', 'mergesort')
@@ -228,9 +321,36 @@ def build_orderby_clause(orderby_fields: list, quote_char: str = '"', stable: bo
     from .config import is_performance_mode
 
     if stable and not is_performance_mode():
-        order_parts.append(STABLE_SORT_TIEBREAKER)
+        order_parts.append(f"{row_position_sql()} ASC")
 
     return ', '.join(order_parts)
+
+
+def merge_orderby_fields(earlier: list, later: list) -> list:
+    """
+    Combine two consecutive sorts into one ORDER BY list.
+
+    Sorting by ``earlier`` and then by ``later`` orders rows by ``later``,
+    with ties left in the order of the earlier sort, so the earlier keys
+    follow as tie-breakers. Keys ``later`` already sorts by are dropped.
+
+    Args:
+        earlier: (field, ascending) tuples of the first sort
+        later: (field, ascending) tuples of the second sort
+
+    Returns:
+        List of (field, ascending) tuples
+
+    Example:
+        >>> merge_orderby_fields([('w', True)], [('v', True)])
+        [('v', True), ('w', True)]
+    """
+
+    def key(field):
+        return field.to_sql(quote_char='"') if hasattr(field, 'to_sql') else str(field)
+
+    later_keys = {key(f) for f, _ in later}
+    return list(later) + [(f, asc) for f, asc in earlier if key(f) not in later_keys]
 
 
 def format_alias(sql: str, alias: str = None, quote_char: str = '"', use_as: bool = True) -> str:
@@ -297,6 +417,10 @@ SQL_AGG_FUNC_MAP = {
     'nunique': 'uniqExact',
     'size': 'count',
 }
+
+# pandas reductions that return NA for a group holding a missing value
+# when called with skipna=False
+SKIPNA_AGG_FUNCS = frozenset({'sum', 'mean', 'min', 'max', 'std', 'var', 'median', 'prod'})
 
 
 def map_agg_func(func: str) -> str:

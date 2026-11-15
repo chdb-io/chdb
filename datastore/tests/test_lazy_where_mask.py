@@ -625,10 +625,8 @@ class TestWhereMaskEngineSwitch:
     def test_engine_config_with_filter_chain(self):
         """Engine config works correctly with where + filter chain.
 
-        Note: When using Pandas execution for where, the filter condition
-        applies to the RESULT of where (where category may have changed),
-        not the original data. This is different from SQL pushdown where
-        filter applies to original column values.
+        The filter condition is read from the frame before where(), so it
+        filters by the original categories with either engine, as pandas does.
         """
         from datastore.function_executor import function_config
 
@@ -651,15 +649,10 @@ class TestWhereMaskEngineSwitch:
                 ds = DataStore.from_file(path)
                 ds_result = ds.where(ds['value'] > 250, 0)[ds['category'] == 'A']
 
-                # When Pandas executes where, then filter applies to RESULT
-                # pd_temp[pd_temp['category'] == 'A'] (not pd_temp[df['category'] == 'A'])
                 pd_temp = df.where(df['value'] > 250, 0)
-                pd_result = pd_temp[pd_temp['category'] == 'A']
+                pd_result = pd_temp[df['category'] == 'A']
 
-                # Row count and values should match
-                assert len(ds_result) == len(pd_result)
-                # Should be 2 rows (only id=2,4 where category is still 'A')
-                assert len(ds_result) == 2
+                assert_datastore_equals_pandas(ds_result, pd_result)
             finally:
                 function_config.reset()
 
@@ -1196,6 +1189,43 @@ class TestWhereWithFilterCombinations:
             np.testing.assert_array_equal(
                 ds_result.reset_index(drop=True).values, pd_result.reset_index(drop=True).values
             )
+
+
+class TestFilterThenWhereDataFrameSource:
+    """A filter before where()/mask() on a DataFrame source filters the
+    original rows, not the replaced values (issue #767)."""
+
+    def test_filter_then_where(self):
+        df = pd.DataFrame({'a': [1, 2, 3, 4, 5, 6]})
+        ds = DataStore(df)
+
+        ds_result = ds[ds.a % 2 == 0].where(ds.a > 1, 0)
+        pd_result = df[df.a % 2 == 0].where(df.a > 1, 0)
+
+        assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
+
+    def test_filter_then_mask(self):
+        df = pd.DataFrame({'a': [1, 2, 3, 4, 5, 6], 'b': [10, 20, 30, 40, 50, 60]})
+        ds = DataStore(df)
+
+        ds_result = ds[ds.a % 2 == 0].mask(ds.a > 5, 1)
+        pd_result = df[df.a % 2 == 0].mask(df.a > 5, 1)
+
+        assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
+
+    def test_filter_where_then_filter_replaced_values(self):
+        df = pd.DataFrame({'a': [1, 2, 3, 4, 5, 6], 'b': [10, 20, 30, 40, 50, 60]})
+        ds = DataStore(df)
+
+        ds_filtered = ds[ds.a > 1]
+        ds_where = ds_filtered.where(ds_filtered.a > 3, 0)
+        ds_result = ds_where[ds_where.a % 2 == 0]
+
+        pd_filtered = df[df.a > 1]
+        pd_where = pd_filtered.where(pd_filtered.a > 3, 0)
+        pd_result = pd_where[pd_where.a % 2 == 0]
+
+        assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
 
 
 class TestWhereWithComputedColumns:

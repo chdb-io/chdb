@@ -38,6 +38,8 @@ from typing import List, Optional, Tuple, Union, Set, Any
 from copy import copy
 
 from .expressions import Expression, Field
+from .functions import window_reads_row_number
+from .utils import compose_slice, merge_orderby_fields, row_position_sql
 from .conditions import Condition, CompoundCondition, BinaryCondition, NotCondition
 from .conditions import InCondition, BetweenCondition, UnaryCondition
 
@@ -133,9 +135,12 @@ class SQLLayer:
         if self.orderby_fields:
             orderby_clause = self._build_orderby_clause(quote_char)
             parts.append(orderby_clause)
-        elif self.preserve_row_order and not self.groupby_fields:
-            # Preserve original row order using rowNumberInAllBlocks()
-            parts.append("ORDER BY rowNumberInAllBlocks()")
+        elif not self.groupby_fields and (
+            self.preserve_row_order
+            or any(window_reads_row_number(e) for _, e in self.computed_columns)
+        ):
+            # Preserve original row order by source position
+            parts.append(f"ORDER BY {row_position_sql()}")
 
         # === LIMIT / OFFSET ===
         if self.limit_value is not None:
@@ -394,6 +399,7 @@ class SQLBuilder:
         Add ORDER BY clause.
 
         If any sort field references a computed column, wraps first.
+        A layer that is already sorted keeps its keys as tie-breakers.
 
         Args:
             fields: List of (field, ascending) tuples
@@ -410,17 +416,24 @@ class SQLBuilder:
         if referenced & current_computed:
             self._wrap_current_layer()
 
-        self.current_layer.orderby_fields = fields
+        self.current_layer.orderby_fields = merge_orderby_fields(
+            self.current_layer.orderby_fields, fields
+        )
         return self
 
     def add_limit(self, value: int) -> "SQLBuilder":
-        """Add LIMIT clause."""
-        self.current_layer.limit_value = value
-        return self
+        """Take at most ``value`` rows of the current layer's rows."""
+        return self._add_slice("LIMIT", value)
 
     def add_offset(self, value: int) -> "SQLBuilder":
-        """Add OFFSET clause."""
-        self.current_layer.offset_value = value
+        """Skip the first ``value`` rows of the current layer's rows."""
+        return self._add_slice("OFFSET", value)
+
+    def _add_slice(self, op_type: str, value: int) -> "SQLBuilder":
+        layer = self.current_layer
+        layer.offset_value, layer.limit_value = compose_slice(
+            layer.offset_value, layer.limit_value, op_type, value
+        )
         return self
 
     def add_groupby(self, fields: List[Field]) -> "SQLBuilder":

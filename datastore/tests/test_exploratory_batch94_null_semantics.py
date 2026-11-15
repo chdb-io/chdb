@@ -706,9 +706,6 @@ class TestAdditionalNullEdgeCases:
         # Only row 3 (3.0, 3.0, "z") has no NULL
         assert len(get_dataframe(ds_result)) == 1
 
-    @pytest.mark.xfail(
-        reason="BUG: DataStore does not properly support skipna=False parameter"
-    )
     def test_sum_skipna_false(self):
         """sum(skipna=False) should return NaN if any NULL present."""
         pd_df = pd.DataFrame({"a": [1.0, 2.0, np.nan, 4.0]})

@@ -276,7 +276,8 @@ def assert_datastore_equals_pandas(
     """
     Complete comparison between DataStore result and pandas DataFrame.
 
-    Compares: column names (with order), data values, row order, and dtypes.
+    Compares: column names (with order), data values, row order, dtypes and, with
+    check_index=True, the index.
 
     Args:
         ds_result: DataStore result (DataStore, LazySeries, or similar)
@@ -293,7 +294,8 @@ def assert_datastore_equals_pandas(
         check_nullable_dtype: If True, treat nullable and non-nullable dtypes as different
                              (e.g., Int64 != int64). If False, treat them as equivalent.
                              Common equivalents: int64↔Int64, float64↔Float64, bool↔boolean, uint64↔int64
-        check_index: If True, verify index matches (DataStore typically doesn't preserve index)
+        check_index: If True, the index values must match too (order follows check_row_order,
+                     index names and dtypes are not compared)
         rtol: Relative tolerance for float comparison
         atol: Absolute tolerance for float comparison
         msg: Additional message to include in assertion errors
@@ -317,6 +319,9 @@ def assert_datastore_equals_pandas(
         assert_datastore_equals_pandas(ds_result, pd_result, check_nullable_dtype=False)
     """
     prefix = f"{msg}: " if msg else ""
+
+    if check_index:
+        _assert_index_equals(ds_result, pd_result, check_row_order, prefix)
 
     # Handle Series comparison
     if isinstance(pd_result, pd.Series):
@@ -356,11 +361,13 @@ def assert_datastore_equals_pandas(
         pd_values = np.asarray(pd_result[col].values)
 
         if not check_row_order:
-            # Sort both for comparison when order doesn't matter
+            # Sort both for comparison when order doesn't matter, NA last.
+            # np.sort of an object array with NaN depends on where the NaN
+            # starts, as NaN compares False with everything.
             # Handle mixed types that can't be directly sorted
             try:
-                ds_values = np.sort(ds_values)
-                pd_values = np.sort(pd_values)
+                ds_values = pd.Series(ds_values).sort_values(na_position='last').to_numpy()
+                pd_values = pd.Series(pd_values).sort_values(na_position='last').to_numpy()
             except TypeError:
                 # Mixed types (e.g., float and str) - convert to string for comparison
                 ds_values = np.sort(np.array([str(x) if pd.notna(x) else '' for x in ds_values]))
@@ -416,6 +423,22 @@ def assert_datastore_equals_pandas(
                     f"DataStore dtype: {ds_dtype}\n"
                     f"Pandas dtype:    {pd_dtype}"
                 )
+
+
+def _assert_index_equals(ds_result, pd_result, check_order: bool, prefix: str) -> None:
+    """Helper to compare the index of a DataStore result with the pandas index."""
+    if isinstance(pd_result, pd.Series):
+        ds_index = get_series(ds_result).index
+    else:
+        ds_index = get_dataframe(ds_result).index
+    pd.testing.assert_index_equal(
+        ds_index,
+        pd_result.index,
+        exact=False,
+        check_names=False,
+        check_order=check_order,
+        obj=f"{prefix}index",
+    )
 
 
 def _assert_series_equals(

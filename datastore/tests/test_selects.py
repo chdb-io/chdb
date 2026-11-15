@@ -48,12 +48,13 @@ class SelectTests(unittest.TestCase):
         self.assertEqual(3, len(result.column_names))
 
     def test_select__star__replacement(self):
-        """Test that selecting * replaces previous selections"""
+        """Selecting * after a selection keeps the selected columns"""
         ds_query = self.ds.select("foo").select("*")
-        self.assertEqual('SELECT * FROM "abc"', ds_query.to_sql())
+        self.assertEqual('SELECT "foo" FROM "abc"', ds_query.to_sql())
 
         result = ds_query.execute()
         self.assertEqual(3, len(result))
+        self.assertEqual(["foo"], result.column_names)
 
     def test_select__distinct__single(self):
         """Test SELECT DISTINCT with single column"""
@@ -133,7 +134,8 @@ class SelectTests(unittest.TestCase):
         ds2 = self.ds.select("foo").select("bar")
 
         self.assertEqual('SELECT "foo", "bar" FROM "abc"', ds1.to_sql())
-        self.assertEqual('SELECT "foo", "bar" FROM "abc"', ds2.to_sql())
+        # The second select selects from the first one's columns
+        self.assertEqual('SELECT "bar" FROM "abc"', ds2.to_sql())
 
         # Execute both
         result1 = ds1.execute()
@@ -142,6 +144,7 @@ class SelectTests(unittest.TestCase):
         self.assertEqual(3, len(result1))
         self.assertEqual(3, len(result2))
         self.assertEqual(["foo", "bar"], result1.column_names)
+        self.assertEqual(["bar"], result2.column_names)
 
     def test_select__columns__multi__field(self):
         """Test SELECT multiple columns as Field objects"""

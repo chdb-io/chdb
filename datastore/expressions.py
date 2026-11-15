@@ -7,7 +7,7 @@ import numpy as np
 from typing import Any, Optional, Iterator, List, Type, TYPE_CHECKING
 from copy import copy
 
-from .utils import immutable, format_identifier, format_alias
+from .utils import immutable, format_identifier, format_alias, row_position_sql
 from .exceptions import ValidationError
 
 if TYPE_CHECKING:
@@ -651,17 +651,26 @@ class Field(Expression):
     """
     Represents a field (column) in a data source.
 
+    ``source_table`` is the name a JOIN gives the table of the DataStore the
+    column was taken from (``ds.col``, ``ds['col']``). It is not rendered;
+    ``join()`` qualifies the columns of an ON condition with it.
+
     Example:
         >>> Field('name')
         >>> Field('age', table='customers')
     """
 
     def __init__(
-        self, name: str, table: Optional[str] = None, alias: Optional[str] = None
+        self,
+        name: str,
+        table: Optional[str] = None,
+        alias: Optional[str] = None,
+        source_table: Optional[str] = None,
     ):
         super().__init__(alias)
         self.name = name
         self.table = table
+        self.source_table = source_table
 
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL for field."""
@@ -681,7 +690,7 @@ class Field(Expression):
         return field_sql
 
     def __copy__(self):
-        return Field(self.name, self.table, self.alias)
+        return Field(self.name, self.table, self.alias, self.source_table)
 
 
 # chDB's virtual row-position column, which windows order by to keep the
@@ -716,6 +725,31 @@ def _child_nodes(value) -> Iterator[Expression]:
         yield from _child_nodes(value.condition)
     elif isinstance(value, (DataStore, LazyOp, PandasFallbackExpr)) or hasattr(value, "_execute"):
         yield OpaqueValue(value)
+
+
+def qualify_columns(value, tables):
+    """
+    ``value`` with each unqualified Field taken from one of ``tables`` (its
+    ``source_table``) qualified with that table. Changed nodes are copied.
+    """
+    if isinstance(value, Field):
+        if value.table is None and value.source_table in tables:
+            return value.with_attrs(table=value.source_table)
+        return value
+    if isinstance(value, (list, tuple)):
+        items = [qualify_columns(item, tables) for item in value]
+        if all(new is old for new, old in zip(items, value)):
+            return value
+        return type(value)(items)
+    if not isinstance(value, Expression):
+        return value
+    changed = {}
+    for name, child in vars(value).items():
+        if name not in value._context_attributes:
+            new = qualify_columns(child, tables)
+            if new is not child:
+                changed[name] = new
+    return value.with_attrs(**changed) if changed else value
 
 
 class OpaqueValue(Expression):
@@ -767,6 +801,23 @@ class Star(Expression):
 
     def __repr__(self):
         return "Star()"
+
+
+class RowPosition(Expression):
+    """
+    A row's position in the source of the query it is rendered in (see
+    ``utils.row_position_sql``): first()/last(), cumulative windows and
+    tie-breakers read rows in source order through it.
+    """
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        sql = row_position_sql()
+        if kwargs.get("with_alias", False) and self.alias:
+            return format_alias(sql, self.alias, quote_char)
+        return sql
+
+    def __repr__(self):
+        return "RowPosition()"
 
 
 class Literal(Expression):

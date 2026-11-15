@@ -79,7 +79,6 @@ class TestCategoryAccessor:
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
-    @chdb_category_to_object  # chDB converts category -> object dtype
     def test_groupby_categorical(self):
         """GroupBy on categorical column."""
         pd_df = pd.DataFrame({

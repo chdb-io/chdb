@@ -242,6 +242,21 @@ class TestUnionCarriesLazyOps:
         assert_datastore_equals_pandas(ds_result, pd_result)
 
 
+class TestUnionOperandState:
+    """A union run in pandas reads the other side as it was at union()."""
+
+    @pytest.mark.parametrize("other_kind", ["dataframe", "file"])
+    def test_other_changed_after_union(self, sales_files, other_kind):
+        path, _ = sales_files
+        pd_result = pd.concat([SALES, SALES], ignore_index=True)
+
+        other = DataStore(SALES.copy()) if other_kind == "dataframe" else DataStore.from_file(path)
+        ds_result = DataStore(SALES.copy()).union(other, all=True)
+        other["qty"] = other["qty"] * 100
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+
 class TestUnionHelperColumnNames:
     """The SQL union orders rows with helper columns; user columns may share
     their names."""

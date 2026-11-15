@@ -12,7 +12,6 @@ Tests discovered through source code analysis focusing on:
 """
 
 import numpy as np
-from tests.xfail_markers import chdb_no_product_function
 import pandas as pd
 import pytest
 
@@ -902,7 +901,6 @@ class TestAdditionalEdgeCases:
         assert_series_equal(ds_var, pd_var)
         assert_series_equal(ds_std, pd_std)
 
-    @chdb_no_product_function
     def test_prod_with_zeros(self):
         """prod() with zeros in data."""
         pd_df = pd.DataFrame({
@@ -916,7 +914,6 @@ class TestAdditionalEdgeCases:
 
         assert_series_equal(ds_result, pd_result)
 
-    @chdb_no_product_function
     def test_prod_with_negatives(self):
         """prod() with negative numbers."""
         pd_df = pd.DataFrame({
