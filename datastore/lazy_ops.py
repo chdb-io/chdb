@@ -1549,8 +1549,9 @@ class LazyGroupByAgg(LazyOp):
             observed: For categorical keys, only show observed categories.
                       None (default) uses the pandas default.
             pandas_agg: ``(column, method, kwargs)``: the pandas reduction
-                of a column an ``expr_agg`` with one output stands for, run
-                when the step executes in pandas (categorical keys). Without
+                of a column, or of a row-wise expression's values, an
+                ``expr_agg`` with one output stands for, run when the step
+                executes in pandas (categorical keys). Without
                 it, the pandas form is derived from the expressions (see
                 ``_pandas_expr_agg``).
             **kwargs: Additional arguments passed to aggregation function
@@ -1579,6 +1580,20 @@ class LazyGroupByAgg(LazyOp):
 
         # Pass sort, as_index, dropna and observed parameters to pandas groupby
         observed_kwargs = {} if self.observed is None else {"observed": self.observed}
+        pandas_agg = self.pandas_agg
+        if self.expr_agg and pandas_agg is not None and isinstance(pandas_agg[0], Expression):
+            # A computed column: its values on the rows, grouped by the keys
+            # as a temporary column
+            from .expression_evaluator import ExpressionEvaluator
+            from .utils import unique_name
+
+            expr, method, method_kwargs = pandas_agg
+            values = ExpressionEvaluator(df, context).evaluate(expr)
+            value_column = unique_name("__value__", set(df.columns) | set(self.expr_agg))
+            df = df[list(self.groupby_cols)].copy()
+            # .array keeps an extension dtype (Int64 stays Int64)
+            df[value_column] = values.array if isinstance(values, pd.Series) else values
+            pandas_agg = (value_column, method, method_kwargs)
         grouped = df.groupby(
             self.groupby_cols,
             sort=self.sort,
@@ -1590,10 +1605,10 @@ class LazyGroupByAgg(LazyOp):
         if self.selected_columns:
             grouped = grouped[list(self.selected_columns)]
 
-        if self.expr_agg and self.pandas_agg is not None:
+        if self.expr_agg and pandas_agg is not None:
             # A column reduction the builder named the pandas form of
             (alias,) = self.expr_agg
-            column, method, method_kwargs = self.pandas_agg
+            column, method, method_kwargs = pandas_agg
             result = getattr(grouped[column], method)(**method_kwargs)
             if isinstance(result, pd.Series):
                 result = result.to_frame(alias)
@@ -1635,8 +1650,17 @@ class LazyGroupByAgg(LazyOp):
         a categorical group key needs: a SQL expression aggregate needs a
         pandas form (``pandas_agg``, or one derived from the expression).
         """
-        if not self.expr_agg or self.pandas_agg is not None:
+        if not self.expr_agg:
             return True
+        if self.pandas_agg is not None:
+            from .functions import AggregateFunction
+
+            column = self.pandas_agg[0]
+            # An expression's values are computed on the rows
+            return not isinstance(column, Expression) or not any(
+                getattr(node, "is_window", False) or isinstance(node, AggregateFunction)
+                for node in column.subtree()
+            )
         return all(_has_pandas_form(expr) for expr in self.expr_agg.values())
 
     def _pandas_expr_agg(self, df: pd.DataFrame, context, observed_kwargs: dict) -> pd.DataFrame:

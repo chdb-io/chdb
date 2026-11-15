@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from datastore import DataStore
+from datastore.pandas_col_compat import PANDAS_3_PLUS
 from tests.test_utils import assert_frame_equal, assert_series_equal
 
 
@@ -96,3 +97,58 @@ def test_groupby_on_cut_bins(source, tmp_path):
 
     assert_series_equal(chain(ds)["w"].sum(), chain(df)["w"].sum())
     assert_frame_equal(chain(ds).agg({"w": "sum"}).to_pandas(), chain(df).agg({"w": "sum"}))
+
+
+def _computed_df():
+    # #800: "d" is never observed
+    g = pd.Categorical(["b", "a", "b", "c", "a"], categories=["c", "b", "a", "d"])
+    return pd.DataFrame({"g": g, "v": [1.0, 2.0, None, 4.0, 5.0]})
+
+
+groupby_skipna = pytest.mark.skipif(not PANDAS_3_PLUS, reason="pandas < 3 groupby reductions don't take skipna")
+
+COMPUTED_REDUCTIONS = [
+    pytest.param(lambda s: s.mean(skipna=False), id="mean-skipna", marks=groupby_skipna),
+    pytest.param(lambda s: s.sum(skipna=False), id="sum-skipna", marks=groupby_skipna),
+    pytest.param(lambda s: s.max(skipna=False), id="max-skipna", marks=groupby_skipna),
+    pytest.param(lambda s: s.quantile(0.25), id="quantile"),
+    pytest.param(lambda s: s.std(ddof=0), id="std-ddof0"),
+    pytest.param(lambda s: s.first(), id="first"),
+    pytest.param(lambda s: s.mean(), id="mean"),
+]
+
+
+@pytest.mark.parametrize("source", ["dataframe", "parquet"])
+@pytest.mark.parametrize(
+    "groupby_kwargs",
+    [
+        pytest.param(dict(observed=True), id="observed"),
+        pytest.param(dict(observed=False), id="unobserved"),
+        pytest.param(dict(observed=True, sort=False), id="unsorted"),
+    ],
+)
+@pytest.mark.parametrize("reduce", COMPUTED_REDUCTIONS)
+def test_reduction_of_computed_column(reduce, groupby_kwargs, source, tmp_path):
+    """A computed column reduced with arguments the SQL step takes as a
+    parametrized expression (quantile(q), skipna=False) keeps the category
+    order and the CategoricalIndex (#800)."""
+    df = _computed_df()
+    if source == "dataframe":
+        ds = DataStore(df.copy())
+    else:
+        path = str(tmp_path / "t.parquet")
+        df.assign(g=df["g"].astype(str)).to_parquet(path)
+        ds = DataStore.from_file(path).astype({"g": df["g"].dtype})
+
+    ds_result = reduce(ds.groupby("g", **groupby_kwargs)["v"] * 2)
+    pd_result = reduce((df["v"] * 2).groupby(df["g"], **groupby_kwargs))
+    assert isinstance(pd_result.index, pd.CategoricalIndex)
+    assert_series_equal(ds_result, pd_result)
+
+
+@pytest.mark.parametrize("reduce", COMPUTED_REDUCTIONS)
+def test_reduction_of_computed_column_keys_as_columns(reduce):
+    df = _computed_df()
+    ds_result = reduce(DataStore(df.copy()).groupby("g", observed=True, as_index=False)["v"] * 2)
+    pd_result = reduce(df.assign(v=df["v"] * 2).groupby("g", observed=True, as_index=False)["v"])
+    assert_frame_equal(ds_result.to_pandas(), pd_result)
