@@ -1463,12 +1463,17 @@ class ColumnExpr:
                 dropna=dropna,
                 **({} if observed is None else {"observed": observed}),
             )
+            # numeric_only is not implemented by the SQL reduction
+            # (_sql_reduction_supports), so this pandas call is where it is
+            # honoured. SeriesGroupBy.sum(numeric_only=True) raises TypeError
+            # on a non-numeric dtype; dropping the flag concatenated strings.
+            # axis is not a SeriesGroupBy argument. skipna is passed separately
+            # because pandas < 3 groupby reductions do not all accept it.
             result = getattr(grouped[value_column], pandas_func)(
                 **{
                     k: v
                     for k, v in self._method_kwargs.items()
-                    if k not in ("axis", "numeric_only")
-                    # skipna_kwargs passes it to these where pandas takes it
+                    if k != "axis"
                     and not (k == "skipna" and pandas_func in SKIPNA_AGG_FUNCS)
                 },
                 **skipna_kwargs,

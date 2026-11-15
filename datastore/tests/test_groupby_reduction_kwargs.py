@@ -170,3 +170,30 @@ def test_first_last_skipna(engine, kind, column, method, skipna, tmp_path):
         get_series(getattr(ds.groupby("k")["v"], method)(skipna=skipna)),
         getattr(df.groupby("k")["v"], method)(skipna=skipna),
     )
+
+
+def test_sum_numeric_only_on_string_column_raises(engine):
+    """A string column is not numeric: numeric_only=True raises, as in pandas.
+
+    The reduction is lazy, so the error surfaces when the result is materialized.
+    """
+    df = pd.DataFrame({"g": ["a", "a", "b"], "v": ["x", "y", "z"]})
+    ds = DataStore(df)
+    with pytest.raises(TypeError) as ds_err:
+        ds.groupby("g")["v"].sum(numeric_only=True).to_pandas()
+    with pytest.raises(TypeError) as pd_err:
+        df.groupby("g")["v"].sum(numeric_only=True)
+    assert str(ds_err.value) == str(pd_err.value)
+
+    with pytest.raises(TypeError) as agg_err:
+        ds.groupby("g")["v"].agg("sum", numeric_only=True).to_pandas()
+    assert str(agg_err.value) == str(pd_err.value)
+
+
+def test_sum_numeric_only_on_numeric_column(engine):
+    df = pd.DataFrame({"g": ["a", "a", "b"], "v": [1, 2, 3]})
+    ds = DataStore(df)
+    assert_series_equal(
+        ds.groupby("g")["v"].sum(numeric_only=True).to_pandas(),
+        df.groupby("g")["v"].sum(numeric_only=True),
+    )
