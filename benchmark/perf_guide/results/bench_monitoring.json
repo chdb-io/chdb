@@ -1,0 +1,404 @@
+{
+  "suite": "bench_monitoring",
+  "machine": {
+    "hostname": "ryzen",
+    "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+    "python": "3.11.9",
+    "chdb_engine": "26.9.2.1",
+    "chdb_core": "26.9.0",
+    "max_threads": 16,
+    "repeat": 3,
+    "timestamp": "2026-10-13 17:01:19 +0800",
+    "pandas": "2.3.3",
+    "pyarrow": "26.0.0",
+    "cpu": "AMD EPYC 9654 96-Core Processor",
+    "cpu_threads": 192,
+    "mem_total_gb": 377.4,
+    "loadavg": [
+      33.93505859375,
+      25.2392578125,
+      19.154296875
+    ]
+  },
+  "cases": [
+    {
+      "case": "sampler_overhead",
+      "args": {
+        "interval": 0.0,
+        "queries": 20
+      },
+      "runs": [
+        {
+          "wall_s": 1.4929,
+          "peak_rss_mb": 1921.4,
+          "rss_start_mb": 320.6,
+          "query_wall_s": 1.467,
+          "samples": 0
+        },
+        {
+          "wall_s": 1.4881,
+          "peak_rss_mb": 1851.6,
+          "rss_start_mb": 317.3,
+          "query_wall_s": 1.465,
+          "samples": 0
+        },
+        {
+          "wall_s": 1.5351,
+          "peak_rss_mb": 1937.3,
+          "rss_start_mb": 317.8,
+          "query_wall_s": 1.51,
+          "samples": 0
+        }
+      ],
+      "wall_s": 1.4929,
+      "peak_rss_mb": 1937.3,
+      "rss_start_mb": 320.6,
+      "query_wall_s": 1.467,
+      "samples": 0
+    },
+    {
+      "case": "sampler_overhead",
+      "args": {
+        "interval": 0.1,
+        "queries": 20
+      },
+      "runs": [
+        {
+          "wall_s": 1.477,
+          "peak_rss_mb": 1770.3,
+          "rss_start_mb": 327.3,
+          "query_wall_s": 1.451,
+          "samples": 13
+        },
+        {
+          "wall_s": 1.31,
+          "peak_rss_mb": 1990.4,
+          "rss_start_mb": 317.1,
+          "query_wall_s": 1.288,
+          "samples": 12
+        },
+        {
+          "wall_s": 1.5622,
+          "peak_rss_mb": 1882.8,
+          "rss_start_mb": 315.0,
+          "query_wall_s": 1.538,
+          "samples": 12
+        }
+      ],
+      "wall_s": 1.477,
+      "peak_rss_mb": 1990.4,
+      "rss_start_mb": 327.3,
+      "query_wall_s": 1.451,
+      "samples": 13
+    },
+    {
+      "case": "sampler_overhead",
+      "args": {
+        "interval": 0.01,
+        "queries": 20
+      },
+      "runs": [
+        {
+          "wall_s": 1.5006,
+          "peak_rss_mb": 1787.5,
+          "rss_start_mb": 315.2,
+          "query_wall_s": 1.479,
+          "samples": 99
+        },
+        {
+          "wall_s": 1.447,
+          "peak_rss_mb": 1990.5,
+          "rss_start_mb": 317.8,
+          "query_wall_s": 1.422,
+          "samples": 104
+        },
+        {
+          "wall_s": 1.4523,
+          "peak_rss_mb": 1924.8,
+          "rss_start_mb": 316.9,
+          "query_wall_s": 1.428,
+          "samples": 101
+        }
+      ],
+      "wall_s": 1.4523,
+      "peak_rss_mb": 1990.5,
+      "rss_start_mb": 315.2,
+      "query_wall_s": 1.479,
+      "samples": 99
+    },
+    {
+      "case": "probe_cost",
+      "args": {},
+      "runs": [
+        {
+          "wall_s": 0.6083,
+          "peak_rss_mb": 345.5,
+          "rss_start_mb": 317.1,
+          "metrics_probe_us": 944,
+          "events_probe_us": 1967
+        },
+        {
+          "wall_s": 0.627,
+          "peak_rss_mb": 347.7,
+          "rss_start_mb": 320.1,
+          "metrics_probe_us": 1038,
+          "events_probe_us": 1965
+        },
+        {
+          "wall_s": 0.6319,
+          "peak_rss_mb": 343.9,
+          "rss_start_mb": 316.7,
+          "metrics_probe_us": 1027,
+          "events_probe_us": 1999
+        }
+      ],
+      "wall_s": 0.627,
+      "peak_rss_mb": 347.7,
+      "rss_start_mb": 317.1,
+      "metrics_probe_us": 944,
+      "events_probe_us": 1967
+    },
+    {
+      "case": "memory_trace",
+      "args": {
+        "external_bytes": 0
+      },
+      "runs": [
+        {
+          "wall_s": 1.088,
+          "peak_rss_mb": 10815.6,
+          "rss_start_mb": 315.9,
+          "groups": 40580669,
+          "query_wall_s": 1.065,
+          "engine_peak_mb": 8620.427021,
+          "rss_peak_mb": 10783.4,
+          "trace": [
+            [
+              0.248,
+              139.6,
+              984.1
+            ],
+            [
+              0.3,
+              1524.5,
+              2144.0
+            ],
+            [
+              0.353,
+              2143.5,
+              3033.5
+            ],
+            [
+              0.405,
+              2692.7,
+              3719.1
+            ],
+            [
+              0.458,
+              2704.2,
+              3917.9
+            ],
+            [
+              0.512,
+              2997.2,
+              4461.4
+            ],
+            [
+              0.564,
+              3777.7,
+              5410.0
+            ],
+            [
+              0.617,
+              4671.1,
+              6450.9
+            ],
+            [
+              0.669,
+              5695.0,
+              7552.3
+            ],
+            [
+              0.72,
+              6800.4,
+              8631.6
+            ],
+            [
+              0.773,
+              7927.1,
+              9637.0
+            ],
+            [
+              0.825,
+              8620.4,
+              10138.0
+            ],
+            [
+              0.877,
+              8442.5,
+              10676.3
+            ],
+            [
+              0.929,
+              6022.4,
+              10703.5
+            ],
+            [
+              0.981,
+              3906.9,
+              10762.8
+            ],
+            [
+              1.033,
+              1564.3,
+              10783.4
+            ]
+          ]
+        }
+      ],
+      "wall_s": 1.088,
+      "peak_rss_mb": 10815.6,
+      "rss_start_mb": 315.9,
+      "groups": 40580669,
+      "query_wall_s": 1.065,
+      "engine_peak_mb": 8620.427021,
+      "rss_peak_mb": 10783.4
+    },
+    {
+      "case": "memory_trace",
+      "args": {
+        "external_bytes": 1073741824
+      },
+      "runs": [
+        {
+          "wall_s": 1.5668,
+          "peak_rss_mb": 4171.6,
+          "rss_start_mb": 315.3,
+          "groups": 40580669,
+          "query_wall_s": 1.544,
+          "engine_peak_mb": 1490.855039,
+          "rss_peak_mb": 4236.4,
+          "trace": [
+            [
+              0.259,
+              133.4,
+              1221.6
+            ],
+            [
+              0.443,
+              1490.9,
+              2355.9
+            ],
+            [
+              0.496,
+              1170.7,
+              2531.7
+            ],
+            [
+              0.548,
+              1262.8,
+              2809.5
+            ],
+            [
+              0.6,
+              1146.0,
+              2932.7
+            ],
+            [
+              0.652,
+              1080.8,
+              3220.6
+            ],
+            [
+              0.704,
+              1316.0,
+              3439.7
+            ],
+            [
+              0.756,
+              1162.3,
+              3567.9
+            ],
+            [
+              0.808,
+              993.1,
+              3679.8
+            ],
+            [
+              0.86,
+              452.5,
+              3625.2
+            ],
+            [
+              0.912,
+              666.3,
+              3682.5
+            ],
+            [
+              0.964,
+              901.8,
+              4171.3
+            ],
+            [
+              1.018,
+              774.6,
+              4188.5
+            ],
+            [
+              1.071,
+              974.4,
+              4198.3
+            ],
+            [
+              1.124,
+              804.0,
+              4234.8
+            ],
+            [
+              1.177,
+              774.4,
+              4236.4
+            ],
+            [
+              1.23,
+              901.2,
+              4228.8
+            ],
+            [
+              1.283,
+              863.7,
+              4226.6
+            ],
+            [
+              1.336,
+              1053.1,
+              4215.8
+            ],
+            [
+              1.39,
+              958.9,
+              4174.8
+            ],
+            [
+              1.442,
+              128.8,
+              4176.0
+            ],
+            [
+              1.495,
+              128.8,
+              4176.0
+            ]
+          ]
+        }
+      ],
+      "wall_s": 1.5668,
+      "peak_rss_mb": 4171.6,
+      "rss_start_mb": 315.3,
+      "groups": 40580669,
+      "query_wall_s": 1.544,
+      "engine_peak_mb": 1490.855039,
+      "rss_peak_mb": 4236.4
+    }
+  ]
+}
