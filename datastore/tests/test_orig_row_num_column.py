@@ -13,7 +13,7 @@ import os
 import pandas as pd
 
 from datastore import DataStore
-from datastore.utils import row_order_alias
+from datastore.sql_executor import SQLExecutionEngine
 from tests.test_utils import assert_datastore_equals_pandas
 
 
@@ -29,12 +29,29 @@ def _assign_filter_tail(frame):
 
 
 def test_row_order_alias_skips_taken_names():
-    """The fallback alias still contains the row-order sentinel substring."""
-    assert row_order_alias([]) == "__orig_row_num__"
-    assert row_order_alias(["__orig_row_num__"]) == "__orig_row_num___"
-    both = row_order_alias(["__orig_row_num__", "__orig_row_num___"])
-    assert both == "__orig_row_num____"
-    assert "__orig_row_num__" in both
+    """The injected alias comes from unique_name, including its numbered fallback."""
+    plain = SQLExecutionEngine(DataStore(pd.DataFrame({"v": [1]})))
+    assert plain._row_order_alias() == "__orig_row_num__"
+
+    taken = SQLExecutionEngine(
+        DataStore(pd.DataFrame({"__orig_row_num__": [1], "v": [1]}))
+    )
+    alias = taken._row_order_alias()
+    assert alias == "__orig_row_num_1__"
+    assert taken._row_order_alias() == alias
+
+    both = SQLExecutionEngine(
+        DataStore(
+            pd.DataFrame(
+                {
+                    "__orig_row_num__": [1],
+                    "__orig_row_num_1__": [2],
+                    "v": [1],
+                }
+            )
+        )
+    )
+    assert both._row_order_alias() == "__orig_row_num_2__"
 
 
 class TestUserOrigRowNumColumn:
@@ -82,7 +99,7 @@ class TestUserOrigRowNumColumn:
         df = pd.DataFrame(
             {
                 "__orig_row_num__": [5, 6, 7, 8],
-                "__orig_row_num___": [9, 8, 7, 6],
+                "__orig_row_num_1__": [9, 8, 7, 6],
                 "v": [1, 2, 3, 4],
             }
         )

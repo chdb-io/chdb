@@ -53,7 +53,6 @@ from .utils import (
     merge_orderby_fields,
     is_stable_sort,
     format_identifier,
-    row_order_alias,
     compose_slice,
     current_row_position_scope,
     row_position_scope,
@@ -861,8 +860,8 @@ class SQLExecutionEngine:
     def _row_order_alias(self) -> str:
         """Alias for the injected row number, distinct from user columns."""
         getter = getattr(self.ds, "_get_all_column_names", None)
-        names = getter() if getter is not None else []
-        return row_order_alias(names or [])
+        taken = set(getter() or []) if getter is not None else set()
+        return unique_name("__orig_row_num__", taken)
 
     def source_preserves_row_order(self) -> bool:
         """
