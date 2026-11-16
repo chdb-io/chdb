@@ -9,6 +9,19 @@ doc_type: 'guide'
 
 [Apache Arrow](https://arrow.apache.org/) is a standardized column-oriented memory format that's gained popularity in the data community.
 In this guide, we will learn how to query Apache Arrow using the `Python` table function.
+An Arrow `Table` holds batches of columnar data; a `RecordBatchReader` supplies batches as they are requested and may be consumed only once. `Python(table)` reads the Python object already in your application rather than requiring a stored chDB table.
+
+## Arrow documentation in this Python binding
+
+| What you need | Where to look |
+| --- | --- |
+| Query an in-memory `pyarrow.Table` or one-shot `RecordBatchReader` | This guide's [`Python(arrow_table)` example](#querying-apache-arrow); [core reader behavior tests](https://github.com/chdb-io/chdb-core/blob/main/tests/test_arrow_c_stream_protocol.py) for one-shot streams |
+| Install chDB and use the existing `ArrowTable` or streaming result formats | [Python installation and examples](/chdb/install/python); [Python API reference](/chdb/api/python) |
+| Use Arrow with the pandas-like DataStore layer | [DataStore I/O](/chdb/datastore/io) and [class reference](/chdb/datastore/class-reference) — a separate API from `Python(tbl)` |
+| Use Arrow Database Connectivity (ADBC), the standard database-driver API for Arrow results or bulk ingest | [ADBC installation and usage](https://clickhouse.com/docs/chdb/install/adbc); ordinary ADBC `BindStream` passes query parameters, not a temporary SQL table like `Python(tbl)` |
+| Work on the native Arrow contract or C examples | [Binding contract](https://github.com/chdb-io/chdb-core/blob/main/docs/NATIVE_ARROW_BINDING_CONTRACT.md), [input example](https://github.com/chdb-io/chdb-core/blob/main/examples/chdbArrowTest.c), [query-output example](https://github.com/chdb-io/chdb-core/blob/main/examples/chdbArrowQueryTest.c) |
+
+This is the Python binding's Arrow documentation entry point. `ArrowTable`/`Arrow` result formats serialize Arrow data using its Inter-Process Communication (IPC) format; the pandas-like DataStore Arrow interface is another API. Consult their linked guides rather than assuming identical streaming or ownership behavior.
 
 ## Setup {#setup}
 

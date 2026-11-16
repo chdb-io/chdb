@@ -1516,21 +1516,20 @@ class ColumnExpr:
                 aggregated = AggregateFunction(self._agg_func_name, column)
                 if skipna_kwargs:
                     aggregated = null_if_any_missing(aggregated, column)
-            # The same reduction in pandas, for a column the frame holds
-            pandas_agg = None
-            if isinstance(column, Field):
-                pandas_agg = (
-                    column.name,
-                    pandas_func,
-                    {
-                        **{
-                            k: v
-                            for k, v in self._method_kwargs.items()
-                            if k not in ("axis", "numeric_only", "skipna")
-                        },
-                        **skipna_kwargs,
+            # The same reduction in pandas, of a column the frame holds or of
+            # the computed values
+            pandas_agg = (
+                column.name if isinstance(column, Field) else column,
+                pandas_func,
+                {
+                    **{
+                        k: v
+                        for k, v in self._method_kwargs.items()
+                        if k not in ("axis", "numeric_only", "skipna")
                     },
-                )
+                    **skipna_kwargs,
+                },
+            )
             agg = LazyGroupByAgg(
                 groupby_cols=groupby_col_names,
                 expr_agg={col_name: aggregated},
