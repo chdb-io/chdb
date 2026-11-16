@@ -250,7 +250,7 @@ for _name in (
         globals()[_name] = getattr(_chdb, _name)
         _udf_exports.append(_name)
 
-_lazy_submodules = {"agents", "dbapi", "session", "udf", "utils"}
+_lazy_submodules = {"agents", "arrow", "dbapi", "session", "udf", "utils"}
 
 # Decorators re-exported from chdb.udf. `agg` is absent on chdb-core releases
 # that pre-date Python UDAF support.
@@ -289,11 +289,31 @@ for _name in _udf_decorators:
         globals()[_name] = _decorator
         _udf_exports.append(_name)
 
+
+def query_arrow(sql, *, path="", params=None, settings=None, options=None):
+    """Return a PyArrow table via chDB's direct C Data result path.
+
+    Unlike ``query(sql, 'ArrowTable')``, this does not encode Arrow IPC.
+    Requires a chdb-core build with the native Python Arrow bridge.
+    """
+    from .arrow import query_arrow as _query_arrow
+
+    return _query_arrow(sql, path=path, params=params, settings=settings, options=options)
+
+
+def query_arrow_batches(sql, *, path="", params=None, settings=None, options=None):
+    """Return a closable iterator of PyArrow batches from a streaming query."""
+    from .arrow import query_arrow_batches as _query_arrow_batches
+
+    return _query_arrow_batches(sql, path=path, params=params, settings=settings, options=options)
+
 __all__ = [
     "_chdb",
     "PyReader",
     "ChdbError",
     "query",
+    "query_arrow",
+    "query_arrow_batches",
     "sql",
     "chdb_version",
     "engine_version",
@@ -304,5 +324,6 @@ __all__ = [
     "udf",
     "utils",
     "connect",
+    "arrow",
     "agents",
 ] + _udf_exports
