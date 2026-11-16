@@ -1,25 +1,20 @@
-# Direct PyArrow queries in chDB (experimental)
+# Direct PyArrow queries in chDB
 
 The `chdb.arrow` module provides a native Arrow C Data result path. It does not
 serialize an Arrow IPC file or stream between chDB and PyArrow. Conversion
 between ClickHouse columns and Arrow buffers may still copy data. Existing
 `chdb.query(sql, "ArrowTable")` and `FORMAT Arrow` retain their IPC behavior.
 
-This API needs a `chdb-core` build with the `query_arrow_reader`,
-`send_query_arrow`, and `streaming_fetch_arrow` Python extension methods. Older
-builds raise a clear error; the current package minimum requirement is not a
-claim that every compatible wheel already has these methods.
+This API requires `chdb-core>=26.11.1`, whose Python extension exposes
+`query_arrow_reader`, `send_query_arrow`, and `streaming_fetch_arrow`. The
+package dependency enforces that minimum; calling a direct API against an
+incompatible manually installed core raises a clear error.
 
-Validation status (2026-11-10): the #323-repaired C `libchdb.so` passes the
-registration example's 155 checks and 11 C Data→PyArrow tests. That build
-used `ENABLE_PYTHON=0`. A separate Python-enabled build of this branch now
-provides `_chdb.abi3.so`; with Python 3.9.25 and PyArrow 21.0.0, all four
-core direct-output tests and the main wrapper's public end-to-end test pass.
-The latter covers `register_arrow`, direct whole-result/batch output,
-deferred source cleanup, insert, and module-level helpers. This does not
-validate other Python/Arrow versions, release wheels, or the build script's
-later attempts to generate every Python shim (it stopped at missing pyenv
-Python 3.10 after producing the working Python 3.9 extension).
+The published `chdb-core` 26.11.1 macOS arm64 wheel was validated with Python
+3.9.25 and PyArrow 21.0.0: four native Arrow tests and twelve wrapper tests
+passed, including in-memory input, direct output, early cancellation, and
+insertion. Other Python, PyArrow, and platform combinations rely on their
+own CI and should not be inferred from this single local check.
 
 ```python
 import chdb
@@ -43,7 +38,7 @@ with chdb.arrow.connect() as session:
         print(summary)
     with session.query_arrow_batches("SELECT number FROM numbers(1000000)") as batches:
         for batch in batches:
-            consume(batch)
+            print(batch.num_rows)
             break
 ```
 

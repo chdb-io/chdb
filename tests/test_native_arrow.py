@@ -133,37 +133,21 @@ class TestNativeArrowHelpers(unittest.TestCase):
         native = FakeConnection()
         native.query_arrow_reader = None
         with patch.object(arrow._chdb, "connect", return_value=native):
-            with self.assertRaisesRegex(RuntimeError, "does not expose the Python native Arrow bridge"):
+            with self.assertRaisesRegex(RuntimeError, "chdb-core>=26.11.1"):
                 arrow.connect()
         self.assertTrue(native.closed)
 
     def test_insert_arrow_reuses_existing_python_arrow_scan(self):
-        native = chdb._chdb.connect(":memory:")
-        # The installed engine predates the new direct-output bridge. This
-        # focused test exercises only the already-supported Python input path.
-        session = object.__new__(arrow.ArrowSession)
-        session._conn = native
-        session._active = None
-        session._sources = set()
-        session._closed = False
-        try:
-            native.query("CREATE TABLE arrow_insert_test (id Int64, name String) ENGINE=Memory", "Null")
+        with arrow.connect() as session:
+            session.execute("CREATE TABLE arrow_insert_test (id Int64, name String) ENGINE=Memory")
             source = pa.table({"name": ["é", "你好"], "id": [1, 2]})
             written = session.insert_arrow("arrow_insert_test", source, columns=("name", "id"))
             self.assertEqual(written, 2)
-            result = native.query("SELECT id, name FROM arrow_insert_test ORDER BY id", "TabSeparated")
+            result = session.query("SELECT id, name FROM arrow_insert_test ORDER BY id", "TabSeparated")
             self.assertEqual(result.bytes().decode(), "1\té\n2\t你好\n")
-        finally:
-            session.close()
 
     def test_registered_table_is_scoped_and_queryable(self):
-        native = chdb._chdb.connect(":memory:")
-        session = object.__new__(arrow.ArrowSession)
-        session._conn = native
-        session._active = None
-        session._sources = set()
-        session._closed = False
-        try:
+        with arrow.connect() as session:
             with session.register_arrow(pa.table({"id": [1, 2]})) as source:
                 sql = f"SELECT sum(id) FROM {source.sql_expr}"
                 self.assertEqual(session.query(sql, "CSV").bytes().strip(), b"3")
@@ -171,27 +155,17 @@ class TestNativeArrowHelpers(unittest.TestCase):
             self.assertNotIn(source._name, vars(arrow))
             with self.assertRaisesRegex(RuntimeError, "closed"):
                 _ = source.sql_expr
-        finally:
-            session.close()
 
     def test_registered_reader_is_one_shot(self):
-        native = chdb._chdb.connect(":memory:")
-        session = object.__new__(arrow.ArrowSession)
-        session._conn = native
-        session._active = None
-        session._sources = set()
-        session._closed = False
         reader = pa.RecordBatchReader.from_batches(
             pa.schema([pa.field("id", pa.int64())]),
             [pa.record_batch({"id": [1, 2]})],
         )
-        try:
+        with arrow.connect() as session:
             with session.register_arrow(reader) as source:
                 sql = f"SELECT count() FROM {source.sql_expr}"
                 self.assertEqual(session.query(sql, "CSV").bytes().strip(), b"2")
                 self.assertEqual(session.query(sql, "CSV").bytes().strip(), b"0")
-        finally:
-            session.close()
 
     def test_close_source_during_stream_defers_cleanup(self):
         native = FakeConnection()
@@ -205,12 +179,12 @@ class TestNativeArrowHelpers(unittest.TestCase):
                         _ = source.sql_expr
                 self.assertNotIn(source._name, vars(arrow))
 
-    def test_public_direct_arrow_end_to_end_when_bridge_is_available(self):
+    def test_public_direct_arrow_end_to_end(self):
         probe = chdb._chdb.connect(":memory:")
-        available = hasattr(probe, "query_arrow_reader")
-        probe.close()
-        if not available:
-            self.skipTest("chdb-core Python native Arrow bridge is unavailable")
+        try:
+            self.assertTrue(callable(getattr(probe, "query_arrow_reader", None)))
+        finally:
+            probe.close()
 
         source = pa.table({"id": [1, 2], "name": ["é", None]})
         with arrow.connect() as session:

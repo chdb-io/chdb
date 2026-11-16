@@ -1,6 +1,6 @@
 """Direct Arrow C Data query helpers for the embedded chDB Python binding.
 
-This module needs a chdb-core build exposing the native Arrow query methods.
+This module requires chdb-core 26.11.1 or newer for native Arrow query methods.
 The existing ``query(..., 'ArrowTable')`` IPC interface remains unchanged.
 """
 
@@ -29,8 +29,8 @@ def _native_connection(path: str, settings: Mapping[str, Any] | None):
     )):
         conn.close()
         raise RuntimeError(
-            "This chdb-core build does not expose the Python native Arrow bridge; "
-            "use a build with query_arrow_reader/send_query_arrow or the existing ArrowTable IPC format"
+            "Direct Arrow queries require chdb-core>=26.11.1 with "
+            "query_arrow_reader/send_query_arrow; use ArrowTable for older builds"
         )
     return conn
 
