@@ -28,14 +28,14 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-    "chdb-core>=26.7.0",
+    "chdb-core>=26.11.1",
     "pandas>=2.1.0",
     "pyarrow>=13.0.0"
 ]
 
 [project.optional-dependencies]
 adbc = [
-    "chdb-core>=26.7.0",
+    "chdb-core>=26.11.1",
     "adbc-driver-manager>=1.11.0; python_version >= '3.10'",
 ]
 dev = ["pytest", "pytest-cov"]
