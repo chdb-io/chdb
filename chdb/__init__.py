@@ -147,6 +147,10 @@ def to_datastore(df):
 
 
 g_conn_lock = threading.Lock()
+# The lock serializes module-level query startup and cleanup. A batch stream
+# keeps the engine busy after startup, so reject overlapping calls rather than
+# holding this non-reentrant lock across user code.
+g_arrow_stream_active = threading.Event()
 
 from .progress_display import (  # noqa: E402
     is_notebook as _is_notebook,
@@ -205,6 +209,8 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None, options=N
         output_format = "Arrow"
 
     with g_conn_lock:
+        if g_arrow_stream_active.is_set():
+            raise RuntimeError("Finish the active Arrow batch stream first")
         conn = _chdb.connect(conn_str)
         progress_callback = None
         if progress_mode == "auto":

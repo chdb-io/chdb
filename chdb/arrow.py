@@ -11,7 +11,7 @@ import uuid
 import weakref
 from typing import Any, Callable, Mapping, Sequence
 
-from . import ChdbError, _chdb, g_conn_lock
+from . import ChdbError, _chdb, g_arrow_stream_active, g_conn_lock
 
 
 def _connection_string(path: str, settings: Mapping[str, Any] | None) -> str:
@@ -71,7 +71,7 @@ class ArrowBatchStream:
             except StopIteration:
                 self.close()
                 raise
-            except Exception:
+            except BaseException:
                 self.close()
                 raise
             return batch
@@ -277,6 +277,8 @@ def query_arrow(sql: str, *, path: str = "", params: Mapping[str, Any] | None = 
                 settings: Mapping[str, Any] | None = None, options: Mapping[str, bool] | None = None):
     """Execute one query and return a ``pyarrow.Table`` without Arrow IPC."""
     with g_conn_lock:
+        if g_arrow_stream_active.is_set():
+            raise RuntimeError("Finish the active Arrow batch stream first")
         with connect(path, settings=settings) as session:
             return session.query_arrow(sql, params=params, options=options)
 
@@ -285,23 +287,28 @@ def query_arrow_batches(sql: str, *, path: str = "", params: Mapping[str, Any] |
                         settings: Mapping[str, Any] | None = None,
                         options: Mapping[str, bool] | None = None) -> ArrowBatchStream:
     """Return a closable batch iterator; use ``with`` for early termination."""
-    g_conn_lock.acquire()
-    conn = None
-    try:
-        conn = _native_connection(path, settings)
-        result = conn.send_query_arrow(sql, params=dict(params or {}), options=dict(options or {}))
-
-        def done():
-            try:
-                conn.close()
-            finally:
-                g_conn_lock.release()
-
-        return ArrowBatchStream(conn, result, done)
-    except Exception:
+    with g_conn_lock:
+        if g_arrow_stream_active.is_set():
+            raise RuntimeError("Finish the active Arrow batch stream first")
+        conn = None
         try:
-            if conn is not None:
-                conn.close()
-        finally:
-            g_conn_lock.release()
-        raise
+            conn = _native_connection(path, settings)
+            result = conn.send_query_arrow(sql, params=dict(params or {}), options=dict(options or {}))
+
+            def done():
+                with g_conn_lock:
+                    try:
+                        conn.close()
+                    finally:
+                        g_arrow_stream_active.clear()
+
+            stream = ArrowBatchStream(conn, result, done)
+            g_arrow_stream_active.set()
+            return stream
+        except BaseException:
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                g_arrow_stream_active.clear()
+            raise

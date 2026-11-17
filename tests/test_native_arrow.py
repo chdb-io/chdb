@@ -82,12 +82,28 @@ class TestNativeArrowHelpers(unittest.TestCase):
         native = FakeConnection()
         with patch.object(arrow, "_native_connection", return_value=native):
             with arrow.query_arrow_batches("SELECT n") as stream:
+                self.assertTrue(arrow.g_arrow_stream_active.is_set())
+                self.assertTrue(arrow.g_conn_lock.acquire(blocking=False))
+                arrow.g_conn_lock.release()
                 self.assertEqual(next(stream).column("n").to_pylist(), [1, 2])
             self.assertTrue(native.cancelled)
             self.assertTrue(native.closed)
             self.assertEqual(list(stream), [])
+            self.assertFalse(arrow.g_arrow_stream_active.is_set())
             self.assertTrue(arrow.g_conn_lock.acquire(blocking=False))
             arrow.g_conn_lock.release()
+
+    def test_module_queries_reject_active_stream_without_blocking(self):
+        native = FakeConnection()
+        with patch.object(arrow, "_native_connection", return_value=native):
+            with arrow.query_arrow_batches("SELECT n"):
+                with self.assertRaisesRegex(RuntimeError, "active Arrow batch stream"):
+                    chdb.query("SELECT 1")
+                with self.assertRaisesRegex(RuntimeError, "active Arrow batch stream"):
+                    chdb.query_arrow("SELECT 1")
+                with self.assertRaisesRegex(RuntimeError, "active Arrow batch stream"):
+                    arrow.query_arrow_batches("SELECT 1")
+            self.assertFalse(arrow.g_arrow_stream_active.is_set())
 
     def test_active_stream_prevents_overlapping_query(self):
         native = FakeConnection()
@@ -117,8 +133,39 @@ class TestNativeArrowHelpers(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "query rejected"):
                 arrow.query_arrow_batches("SELECT 1")
         self.assertTrue(native.closed)
+        self.assertFalse(arrow.g_arrow_stream_active.is_set())
         self.assertTrue(arrow.g_conn_lock.acquire(blocking=False))
         arrow.g_conn_lock.release()
+
+    def test_stream_start_interrupt_releases_global_lock(self):
+        native = FakeConnection()
+
+        def interrupt(*args, **kwargs):
+            raise KeyboardInterrupt
+
+        native.send_query_arrow = interrupt
+        with patch.object(arrow, "_native_connection", return_value=native):
+            with self.assertRaises(KeyboardInterrupt):
+                arrow.query_arrow_batches("SELECT 1")
+        self.assertTrue(native.closed)
+        self.assertFalse(arrow.g_arrow_stream_active.is_set())
+        self.assertTrue(arrow.g_conn_lock.acquire(blocking=False))
+        arrow.g_conn_lock.release()
+
+    def test_fetch_interrupt_closes_module_stream(self):
+        native = FakeConnection()
+
+        def interrupt(*args, **kwargs):
+            raise KeyboardInterrupt
+
+        native.streaming_fetch_arrow = interrupt
+        with patch.object(arrow, "_native_connection", return_value=native):
+            stream = arrow.query_arrow_batches("SELECT 1")
+            with self.assertRaises(KeyboardInterrupt):
+                next(stream)
+        self.assertTrue(native.cancelled)
+        self.assertTrue(native.closed)
+        self.assertFalse(arrow.g_arrow_stream_active.is_set())
 
     def test_insert_uses_source_names_and_quotes_identifiers(self):
         native = FakeConnection()
