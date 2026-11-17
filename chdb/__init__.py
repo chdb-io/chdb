@@ -31,15 +31,18 @@ for _sp in sys.path:
         __path__.append(_core_dir)
 
 
-class ChdbError(Exception):
-    """Exception raised when chDB query execution fails."""
-
+# chdb-core keeps ChdbError and the polars conversion out of its own
+# __init__.py, which this file shadows, so both are shared with the engine.
+from ._exceptions import ChdbError  # noqa: E402
+from .polars_io import to_polars, _require_polars  # noqa: E402
 
 _arrow_format = set({"arrowtable"})
+_polars_format = set({"polars"})
 _df_format = set({"dataframe", "datastore"})
 _process_result_format_funs = {
     "arrowtable": lambda x: to_arrowTable(x),
     "datastore": lambda x: to_datastore(x),
+    "polars": lambda x: to_polars(x),
 }
 
 g_udf_path = ""
@@ -159,7 +162,8 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None, options=N
 
     Args:
         sql: SQL query string to execute
-        output_format: Output format (CSV, JSON, Arrow, Parquet, DataFrame, ArrowTable, Debug)
+        output_format: Output format (CSV, JSON, Arrow, Parquet, DataFrame, ArrowTable,
+            Polars, Debug)
         path: Database file path ("" for in-memory, or a file path)
         udf_path: Path to User-Defined Functions directory
         params: Named query parameters matching placeholders like {key:Type}
@@ -201,7 +205,10 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None, options=N
 
     lower_output_format = output_format.lower()
     result_func = _process_result_format_funs.get(lower_output_format, lambda x: x)
-    if lower_output_format in _arrow_format:
+    if lower_output_format in _polars_format:
+        # Fail before running the query, like Connection.query does.
+        _require_polars(f'output format "{output_format}"')
+    if lower_output_format in _arrow_format or lower_output_format in _polars_format:
         output_format = "Arrow"
 
     with g_conn_lock:
@@ -215,11 +222,14 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None, options=N
         try:
             if lower_output_format in _df_format:
                 res = conn.query_df(sql, params=params)
-                return result_func(res)
-
-            res = conn.query(sql, output_format, params=params)
-
-            if res.has_error():
+            else:
+                res = conn.query(sql, output_format, params=params)
+        except RuntimeError as e:
+            if isinstance(e, ChdbError):
+                raise
+            raise ChdbError(str(e)) from e.with_traceback(None)
+        else:
+            if lower_output_format not in _df_format and res.has_error():
                 raise ChdbError(res.error_message())
             return result_func(res)
         finally:
@@ -245,6 +255,7 @@ for _name in (
     "drop_aggregate_function",
     "NullHandling",
     "ExceptionHandling",
+    "UDFType",
 ):
     if hasattr(_chdb, _name):
         globals()[_name] = getattr(_chdb, _name)
@@ -299,6 +310,7 @@ __all__ = [
     "engine_version",
     "to_arrowTable",
     "to_datastore",
+    "to_polars",
     "dbapi",
     "session",
     "udf",
