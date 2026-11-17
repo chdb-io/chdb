@@ -780,3 +780,40 @@ class TestCaseWhenExecutionEngine(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestCaseWhenIntegerLiteralDtype(unittest.TestCase):
+    """Integer-literal CASE results are int64 like pandas, not uint8 (#797)."""
+
+    def setUp(self):
+        self.df = pd.DataFrame({"k": ["a", "a", "b"], "v": [1, 2, 3]})
+
+    def test_row_wise_dtype_and_subtraction(self):
+        store = ds.DataStore(self.df.copy())
+        got = store.assign(f=store.when(store["v"] > 1, 1).otherwise(0)).to_pandas()["f"]
+        exp = pd.Series(np.where(self.df["v"] > 1, 1, 0), name="f")
+        self.assertEqual(got.dtype, exp.dtype)
+        self.assertEqual((got - 2).tolist(), (exp - 2).tolist())
+
+    def test_inside_groupby_agg_dtype(self):
+        from datastore.expressions import col
+
+        store = ds.DataStore(self.df.copy())
+        got = store.groupby("k").agg(f=store.when(col("v").sum() > 2, 1).otherwise(0)).to_pandas()["f"]
+        exp = (self.df.groupby("k")["v"].sum() > 2).astype("int64").rename("f")
+        self.assertEqual(got.dtype, exp.dtype)
+        self.assertEqual((got - 2).tolist(), (exp - 2).tolist())
+
+    def test_non_integer_branches_unchanged(self):
+        store = ds.DataStore(self.df.copy())
+        got = store.assign(f=store.when(store["v"] > 1, 1.5).otherwise(0)).to_pandas()["f"]
+        self.assertEqual(got.tolist(), [0.0, 1.5, 1.5])
+
+    def test_integers_beyond_int64_are_not_cast(self):
+        from datastore.expressions import col
+
+        store = ds.DataStore(self.df.copy())
+        got = store.groupby("k").agg(
+            f=store.when(col("v").sum() > 0, 2**63).otherwise(2**63 + 1)
+        ).to_pandas()["f"]
+        self.assertTrue((got > 0).all())
