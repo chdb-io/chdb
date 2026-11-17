@@ -89,9 +89,7 @@ def test_aggregate_inside_case_when(source, observed):
         flag=ds.when(col("v").sum() > 6, 1).otherwise(0)
     )
     sums = _grouped(FRAME, observed)["v"].sum()
-    # when(...).otherwise(...) of 1/0 is uint8 in DataStore, as its SQL path
-    # (CASE WHEN ... THEN 1 ELSE 0) and row-wise when() return
-    flags = np.where(sums > 6, 1, 0).astype("uint8")
+    flags = np.where(sums > 6, 1, 0)
     pd_result = pd.DataFrame({"flag": flags}, index=sums.index)
     assert_datastore_equals_pandas(ds_result, pd_result, check_index=True)
 

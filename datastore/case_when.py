@@ -94,12 +94,17 @@ class CaseWhenExpr(Expression):
             )
         parts = ["CASE"]
 
+        # ClickHouse types small integer literals as UInt8, so a CASE whose
+        # branches are all integer literals comes back as uint8 and wraps on
+        # later subtraction. pandas gives int64 (np.select / np.where).
+        widen = self._all_integer_literals()
+
         for condition, value in self._cases:
             cond_sql = self._condition_to_sql(condition, quote_char)
-            val_sql = self._value_to_sql(value)
+            val_sql = self._value_to_sql(value, widen)
             parts.append(f"WHEN {cond_sql} THEN {val_sql}")
 
-        parts.append(f"ELSE {self._value_to_sql(self._default)}")
+        parts.append(f"ELSE {self._value_to_sql(self._default, widen)}")
         parts.append("END")
 
         result = " ".join(parts)
@@ -127,8 +132,22 @@ class CaseWhenExpr(Expression):
         else:
             raise ValueError(f"Cannot convert {type(condition)} to SQL condition")
 
-    def _value_to_sql(self, value: Any) -> str:
-        """Convert a value to SQL literal."""
+    def _all_integer_literals(self) -> bool:
+        """True iff every THEN/ELSE value is a plain integer that fits Int64 (not bool, not NULL)."""
+        values = [v for _, v in self._cases] + [self._default]
+        return all(
+            isinstance(v, (int, np.integer))
+            and not isinstance(v, (bool, np.bool_))
+            and -(2**63) <= int(v) < 2**63
+            for v in values
+        )
+
+    def _value_to_sql(self, value: Any, widen_int: bool = False) -> str:
+        """Convert a value to SQL literal.
+
+        With ``widen_int`` an integer literal is cast to Int64 so the CASE
+        result matches pandas' int64 instead of ClickHouse's UInt8.
+        """
         from .column_expr import ColumnExpr
 
         if value is None:
@@ -142,7 +161,11 @@ class CaseWhenExpr(Expression):
         elif isinstance(value, (int, float)):
             if pd.isna(value):
                 return "NULL"
+            if widen_int and isinstance(value, int):
+                return f"toInt64({value})"
             return str(value)
+        elif isinstance(value, np.integer) and widen_int:
+            return f"toInt64({int(value)})"
         elif isinstance(value, Expression):
             return value.to_sql(quote_char='"')
         elif isinstance(value, ColumnExpr):
