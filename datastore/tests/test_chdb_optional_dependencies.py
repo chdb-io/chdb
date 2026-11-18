@@ -52,6 +52,8 @@ def test_pyproject_keeps_base_dependencies_and_defines_adbc_extra():
         "pandas>=2.1.0",
         "pyarrow>=13.0.0",
     ]
+    requirements = (project_root / "requirements.txt").read_text().splitlines()
+    assert "chdb-core>=26.11.1" in requirements
 
     optional_dependencies = pyproject["project"]["optional-dependencies"]
 

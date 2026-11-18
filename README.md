@@ -502,6 +502,13 @@ arrow_table = pa.table(
 chdb.query("SELECT b, sum(a) FROM Python(arrow_table) GROUP BY b ORDER BY b").show()
 ```
 
+Direct C Data results are available with `chdb-core>=26.11.1`:
+`chdb.query_arrow` collects a `pyarrow.Table`, and
+`chdb.query_arrow_batches` yields typed batches incrementally. Unlike the
+existing `ArrowTable` output format, these entry points do not encode Arrow
+IPC. See [direct PyArrow queries](docs/python-arrow-direct.md) for input
+examples and resource-lifetime rules.
+
 see also: [test_query_py.py](tests/test_query_py.py).
 </details>
 
