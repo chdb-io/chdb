@@ -1463,12 +1463,14 @@ class ColumnExpr:
                 dropna=dropna,
                 **({} if observed is None else {"observed": observed}),
             )
+            # numeric_only is honoured by the pandas reduction; axis is not a
+            # SeriesGroupBy argument, and skipna is passed separately because
+            # pandas < 3 groupby reductions don't all accept it.
             result = getattr(grouped[value_column], pandas_func)(
                 **{
                     k: v
                     for k, v in self._method_kwargs.items()
-                    if k not in ("axis", "numeric_only")
-                    # skipna_kwargs passes it to these where pandas takes it
+                    if k != "axis"
                     and not (k == "skipna" and pandas_func in SKIPNA_AGG_FUNCS)
                 },
                 **skipna_kwargs,
