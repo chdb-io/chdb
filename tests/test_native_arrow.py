@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import pyarrow as pa
@@ -68,6 +70,29 @@ class FakeConnection:
 
 
 class TestNativeArrowHelpers(unittest.TestCase):
+    def test_connection_settings_keep_existing_readonly_parameter(self):
+        native = FakeConnection()
+        with patch.object(arrow._chdb, "connect", return_value=native) as connect:
+            with arrow.connect("data.db?mode=ro", settings={"max_threads": 2}):
+                pass
+        connect.assert_called_once_with("data.db?mode=ro&max_threads=2")
+        self.assertTrue(native.closed)
+
+        self.assertEqual(arrow._connection_string("data.db", {"max_threads": 2}),
+                         "data.db?max_threads=2")
+
+    def test_readonly_connection_with_settings_rejects_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "readonly-db")
+            with arrow.connect(path) as session:
+                session.execute("CREATE TABLE t (id UInt64) ENGINE=MergeTree ORDER BY id")
+                session.execute("INSERT INTO t VALUES (1)")
+
+            with arrow.connect(f"{path}?mode=ro", settings={"max_threads": 2}) as session:
+                self.assertEqual(session.query_arrow("SELECT id FROM t").column("id").to_pylist(), [1])
+                with self.assertRaisesRegex(RuntimeError, "READONLY"):
+                    session.execute("INSERT INTO t VALUES (2)")
+
     def test_materialized_result_and_options(self):
         native = FakeConnection()
         with patch.object(arrow, "_native_connection", return_value=native):

@@ -18,7 +18,7 @@ def _connection_string(path: str, settings: Mapping[str, Any] | None) -> str:
     conn_str = path or ":memory:"
     if settings:
         parts = [key if value == "" else f"{key}={value}" for key, value in settings.items()]
-        conn_str += "?" + "&".join(parts)
+        conn_str += ("&" if "?" in conn_str else "?") + "&".join(parts)
     return conn_str
 
 
