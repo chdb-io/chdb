@@ -17,6 +17,7 @@ Four contract pillars:
 import asyncio
 import json
 import threading
+import types
 
 from .descriptors import tool_specs as _tool_specs
 from .errors import NETWORK_HINT, ChDBError, ChDBReadOnlyError, parse_error
@@ -31,7 +32,10 @@ from .safety import (
 
 __all__ = ["ChDBTool", "QueryResult"]
 
-_MISSING = object()  # sentinel for "name absent from globals" in dataframe_query
+
+def _invoke_with_tables(_run):
+    """Call ``_run()`` inside a frame whose ``f_globals`` carries scoped tables."""
+    return _run()
 
 # Sessions with a watchdog-abandoned call still in flight. Destroying one
 # mid-call is UB, so they leak here for process lifetime instead of crashing.
@@ -148,6 +152,7 @@ class ChDBTool:
             else max(1, _int_arg(network_timeout, "network_timeout"))
         )
         self._poisoned = False
+        self._df_lock = threading.RLock()
         # Engine memory bound (bytes); exceeding raises MEMORY_LIMIT_EXCEEDED.
         self.max_memory_usage = (
             None if max_memory_usage is None else max(1, _int_arg(max_memory_usage, "max_memory_usage"))
@@ -268,11 +273,11 @@ class ChDBTool:
 
     # ---- core query -------------------------------------------------------
 
-    def query(self, sql, *, params=None, max_rows=None, _permit_fns=frozenset()):
+    def query(self, sql, *, params=None, max_rows=None, _permit_fns=frozenset(), _table_scope=None):
         """Run read SQL. Values MUST be passed via `params` ({name:Type} + dict),
         never formatted into `sql`. Returns a `QueryResult`; raises `ChDBError`.
-        (`_permit_fns` is internal: dataframe_query exempts the Python() table
-        function it itself injects from the allowlist gate.)
+        (`_permit_fns` and `_table_scope` are internal: dataframe_query exempts
+        the Python() table function it binds into its call-local scope.)
         """
         if not isinstance(sql, str) or sql.strip() == "":
             raise ChDBError("sql must be a non-empty string")
@@ -295,7 +300,7 @@ class ChDBTool:
         # typed ChDBError rather than a bare JSONDecodeError leaking to the caller.
         try:
             if self.network_timeout and find_source_calls(sql, NETWORK_TABLE_FUNCTIONS):
-                res = self._run_with_network_deadline(sql, params)
+                res = self._run_with_network_deadline(sql, params, _table_scope=_table_scope)
             else:
                 res = self._session.query(sql, "JSON", params=params or {})
             obj = json.loads(res.bytes().decode() or "{}")
@@ -325,7 +330,7 @@ class ChDBTool:
                     break
         return QueryResult(rows, truncated, cols, stats.get("elapsed"), stats.get("bytes_read"))
 
-    def _run_with_network_deadline(self, sql, params):
+    def _run_with_network_deadline(self, sql, params, *, _table_scope=None):
         """Engine call with a deadline (CONTRACT P5). The blocked native call
         can't be cancelled, so on expiry it is abandoned and the tool poisoned.
         Runs on a daemon thread: an executor's non-daemon worker would make a
@@ -342,7 +347,13 @@ class ChDBTool:
 
         def _call():
             try:
-                outcome["res"] = session.query(sql, "JSON", params=params or {})
+                if _table_scope is not None:
+                    scoped = types.FunctionType(_invoke_with_tables.__code__, _table_scope)
+                    outcome["res"] = scoped(
+                        lambda: session.query(sql, "JSON", params=params or {})
+                    )
+                else:
+                    outcome["res"] = session.query(sql, "JSON", params=params or {})
             except BaseException as e:
                 outcome["exc"] = e
             finally:
@@ -470,26 +481,24 @@ class ChDBTool:
         Python-only / co-located capability (not part of the cross-language
         contract): `dataframes` maps the name used in `Python(<name>)` to a
         DataFrame. Reference them as `SELECT ... FROM Python(orders)` with
-        `dataframes={'orders': df}`. The names are injected into this module's
-        globals only for the duration of the call (that is where `Python()`
-        resolves them from) and restored afterward.
+        `dataframes={'orders': df}`. The names are bound in an isolated
+        call-local frame namespace rather than module `globals()`, so concurrent
+        threads or `aquery()` calls never race on shared table aliases.
         """
         if not isinstance(dataframes, dict) or not dataframes:
             raise ChDBError("dataframe_query requires a non-empty {name: DataFrame} mapping")
-        g = globals()
-        saved = {k: g.get(k, _MISSING) for k in dataframes}
-        try:
-            g.update(dataframes)
-            # Python() resolves the names this method itself injected, so the
-            # allowlist gate (which treats python as an RCE-class source) is
-            # lifted for exactly this one function on this one call.
-            return self.query(sql, max_rows=max_rows, _permit_fns=frozenset(("python",)))
-        finally:
-            for k, v in saved.items():
-                if v is _MISSING:
-                    g.pop(k, None)
-                else:
-                    g[k] = v
+        call_globals = {"__builtins__": __builtins__}
+        call_globals.update(dataframes)
+        scoped_call = types.FunctionType(_invoke_with_tables.__code__, call_globals)
+        with self._df_lock:
+            return scoped_call(
+                lambda: self.query(
+                    sql,
+                    max_rows=max_rows,
+                    _permit_fns=frozenset(("python",)),
+                    _table_scope=call_globals,
+                )
+            )
 
     # ---- introspection ----------------------------------------------------
 

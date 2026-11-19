@@ -6,6 +6,7 @@ supporting various data sources with their specific capabilities and settings.
 """
 
 import os
+import threading
 from urllib.parse import urlsplit
 from typing import Dict, Any, List, Optional
 from abc import ABC, abstractmethod
@@ -1260,6 +1261,7 @@ class GenerateRandomTableFunction(TableFunction):
 # Keys are unique identifiers, values are pandas DataFrames
 _PYTHON_DATAFRAME_REGISTRY: Dict[str, Any] = {}
 _PYTHON_DATAFRAME_COUNTER = 0
+_PYTHON_DATAFRAME_LOCK = threading.Lock()
 
 
 def _register_dataframe(df) -> str:
@@ -1273,33 +1275,40 @@ def _register_dataframe(df) -> str:
         Unique identifier for the DataFrame
     """
     global _PYTHON_DATAFRAME_COUNTER
-    _PYTHON_DATAFRAME_COUNTER += 1
-    df_id = f"__datastore_df_{_PYTHON_DATAFRAME_COUNTER:06d}"
-
-    # Store in the registry
-    _PYTHON_DATAFRAME_REGISTRY[df_id] = df
-
-    # Store in __main__ module so chDB's Python() can find it
     import __main__
+    from . import connection as _connection_module
 
-    setattr(__main__, df_id, df)
+    with _PYTHON_DATAFRAME_LOCK:
+        _PYTHON_DATAFRAME_COUNTER += 1
+        df_id = f"__datastore_df_{_PYTHON_DATAFRAME_COUNTER:06d}"
+        _PYTHON_DATAFRAME_REGISTRY[df_id] = df
+        # Expose in both datastore.connection (always on the stack of worker
+        # threads running DataStore queries) and __main__.
+        setattr(_connection_module, df_id, df)
+        setattr(__main__, df_id, df)
 
     return df_id
 
 
 def _unregister_dataframe(df_id: str):
     """Remove a DataFrame from the registry."""
-    if df_id in _PYTHON_DATAFRAME_REGISTRY:
-        del _PYTHON_DATAFRAME_REGISTRY[df_id]
+    with _PYTHON_DATAFRAME_LOCK:
+        _PYTHON_DATAFRAME_REGISTRY.pop(df_id, None)
+        try:
+            from . import connection as _connection_module
 
-    try:
-        import __main__
+            if hasattr(_connection_module, df_id):
+                delattr(_connection_module, df_id)
+        except Exception:
+            pass
+        try:
+            import __main__
 
-        if hasattr(__main__, df_id):
-            delattr(__main__, df_id)
-    except Exception:
-        # Ignore errors during cleanup (e.g., interpreter shutdown)
-        pass
+            if hasattr(__main__, df_id):
+                delattr(__main__, df_id)
+        except Exception:
+            # Ignore errors during cleanup (e.g., interpreter shutdown)
+            pass
 
 
 class PythonTableFunction(TableFunction):

@@ -45,10 +45,12 @@ with chdb.arrow.connect() as session:
 `query_arrow` materializes the whole result; `query_arrow_batches` fetches
 incrementally and supports early close/cancellation. A session accepts only
 one active batch stream at a time. Do not concurrently use the same connection
-from multiple threads. While a module-level batch iterator is active, other
-module-level queries fail immediately instead of waiting for that iterator to
-close; prefer a `with` block. Returned batches can outlive the iterator after
-their data has been imported into PyArrow.
+from multiple threads. Module-level `query_arrow` and `query_arrow_batches`
+calls borrow independent `:memory:` connections from an internal pool, so
+concurrent threads and other module-level queries can run while a batch
+iterator is open; still prefer a `with` block so partial reads cancel promptly.
+Returned batches can outlive the iterator after their data has been imported
+into PyArrow.
 
 `register_arrow` returns a closable, opaque SQL source expression. It uses the
 existing Python `Python(...)` table function and PyArrow C Stream conversion,
