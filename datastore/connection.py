@@ -14,8 +14,8 @@ All chDB execution should go through this module for:
 """
 
 from typing import Any, Optional, Dict, List, Tuple
-import gc
 import re
+import threading
 import time
 import chdb
 import pandas as pd
@@ -166,6 +166,7 @@ class Connection:
         self.connection_params = kwargs
         self._conn = None
         self._cursor = None
+        self._lock = threading.RLock()
         self._logger = get_logger()
 
     def _build_connection_string(self) -> str:
@@ -193,24 +194,27 @@ class Connection:
 
     def connect(self) -> "Connection":
         """Establish connection to chdb."""
-        try:
-            conn_str = self._build_connection_string()
-            self._conn = chdb.connect(conn_str)
+        with self._lock:
             if self._conn is not None:
-                _freeze_chdb_settings()
-                try:
-                    self._apply_external_sort_default()
-                except Exception:
+                return self
+            try:
+                conn_str = self._build_connection_string()
+                self._conn = chdb.connect(conn_str)
+                if self._conn is not None:
+                    _freeze_chdb_settings()
                     try:
-                        self._conn.close()
+                        self._apply_external_sort_default()
                     except Exception:
-                        pass
-                    self._conn = None
-                    raise
-            self._logger.debug("[chDB] Connected: %s", conn_str)
-            return self
-        except Exception as e:
-            raise ConnectionError(f"Failed to connect to chdb: {e}")
+                        try:
+                            self._conn.close()
+                        except Exception:
+                            pass
+                        self._conn = None
+                        raise
+                self._logger.debug("[chDB] Connected: %s", conn_str)
+                return self
+            except Exception as e:
+                raise ConnectionError(f"Failed to connect to chdb: {e}")
 
     def _apply_external_sort_default(self) -> None:
         """Enable external sort with half of the server memory limit as threshold."""
@@ -239,14 +243,15 @@ class Connection:
 
     def cursor(self):
         """Get a cursor for executing queries."""
-        if self._conn is None:
-            raise ConnectionError("Not connected. Call connect() first.")
+        with self._lock:
+            if self._conn is None:
+                raise ConnectionError("Not connected. Call connect() first.")
 
-        try:
-            self._cursor = self._conn.cursor()
-            return self._cursor
-        except Exception as e:
-            raise ConnectionError(f"Failed to create cursor: {e}")
+            try:
+                self._cursor = self._conn.cursor()
+                return self._cursor
+            except Exception as e:
+                raise ConnectionError(f"Failed to create cursor: {e}")
 
     def execute(self, sql: str, output_format: str = "Dataframe") -> "QueryResult":
         """
@@ -261,35 +266,36 @@ class Connection:
         Returns:
             QueryResult object with data and metadata
         """
-        if self._conn is None:
-            raise ConnectionError("Not connected. Call connect() first.")
+        with self._lock:
+            if self._conn is None:
+                raise ConnectionError("Not connected. Call connect() first.")
 
-        self._log_query(sql, "Connection", output_format)
+            self._log_query(sql, "Connection", output_format)
 
-        try:
-            start_time = time.perf_counter()
-            if output_format.lower() == "dataframe":
-                result = self._query_df_streaming(sql)
-            else:
-                result = self._conn.query(sql, output_format)
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            try:
+                start_time = time.perf_counter()
+                if output_format.lower() == "dataframe":
+                    result = self._query_df_streaming(sql)
+                else:
+                    result = self._conn.query(sql, output_format)
+                elapsed_ms = (time.perf_counter() - start_time) * 1000
 
-            self._log_result(result, output_format)
-            self._logger.debug("[chDB] Query time: %.2fms", elapsed_ms)
+                self._log_result(result, output_format)
+                self._logger.debug("[chDB] Query time: %.2fms", elapsed_ms)
 
-            profiler = get_profiler()
-            if profiler:
-                sql_preview = sql[:50] + "..." if len(sql) > 50 else sql
-                with profiler.step(
-                    "chDB Query", sql=sql_preview, duration_ms=elapsed_ms
-                ):
-                    pass
+                profiler = get_profiler()
+                if profiler:
+                    sql_preview = sql[:50] + "..." if len(sql) > 50 else sql
+                    with profiler.step(
+                        "chDB Query", sql=sql_preview, duration_ms=elapsed_ms
+                    ):
+                        pass
 
-            return QueryResult(data=result, output_format=output_format)
-        except Exception as e:
-            self._logger.error("[chDB] Query failed: %s", e)
-            friendly_msg = translate_remote_error(e)
-            raise ExecutionError(f"Query execution failed: {friendly_msg}\nSQL: {sql}")
+                return QueryResult(data=result, output_format=output_format)
+            except Exception as e:
+                self._logger.error("[chDB] Query failed: %s", e)
+                friendly_msg = translate_remote_error(e)
+                raise ExecutionError(f"Query execution failed: {friendly_msg}\nSQL: {sql}")
 
     def query_arrow(self, sql: str):
         """
@@ -305,16 +311,17 @@ class Connection:
         Returns:
             pyarrow.Table
         """
-        if self._conn is None:
-            raise ConnectionError("Not connected. Call connect() first.")
+        with self._lock:
+            if self._conn is None:
+                raise ConnectionError("Not connected. Call connect() first.")
 
-        self._log_query(sql, "Connection", "ArrowTable")
-        try:
-            return self._conn.query(sql, "ArrowTable")
-        except Exception as e:
-            self._logger.error("[chDB] Arrow query failed: %s", e)
-            friendly_msg = translate_remote_error(e)
-            raise ExecutionError(f"Query execution failed: {friendly_msg}\nSQL: {sql}")
+            self._log_query(sql, "Connection", "ArrowTable")
+            try:
+                return self._conn.query(sql, "ArrowTable")
+            except Exception as e:
+                self._logger.error("[chDB] Arrow query failed: %s", e)
+                friendly_msg = translate_remote_error(e)
+                raise ExecutionError(f"Query execution failed: {friendly_msg}\nSQL: {sql}")
 
     def query_df(
         self,
@@ -996,15 +1003,9 @@ class Connection:
 
         try:
             chunks = []
-            gc_was_enabled = gc.isenabled()
-            gc.disable()
-            try:
-                with self._conn.send_query(sql, "DataFrame") as stream:
-                    for chunk in stream:
-                        chunks.append(chunk)
-            finally:
-                if gc_was_enabled:
-                    gc.enable()
+            with self._conn.send_query(sql, "DataFrame") as stream:
+                for chunk in stream:
+                    chunks.append(chunk)
             if not chunks:
                 sql_upper = sql.strip().upper()
                 if sql_upper.startswith(("SELECT", "DESCRIBE", "SHOW", "EXPLAIN", "WITH")):
@@ -1029,11 +1030,14 @@ class Connection:
         Streaming is NOT used here because send_query() cannot find
         __df__ across stack frames (scope is bound to this function).
         """
-        df_converted = _convert_nullable_dtypes(df)
-        __df__ = df_converted  # noqa: F841 - Required for conn.query to access via Python(__df__)
-        if df_name != "__df__":
-            exec(f"{df_name} = df_converted")
-        return self._conn.query(sql, "DataFrame")
+        with self._lock:
+            if self._conn is None:
+                raise ConnectionError("Not connected. Call connect() first.")
+            df_converted = _convert_nullable_dtypes(df)
+            __df__ = df_converted  # noqa: F841 - Required for conn.query to access via Python(__df__)
+            if df_name != "__df__":
+                exec(f"{df_name} = df_converted")
+            return self._conn.query(sql, "DataFrame")
 
     def eval_expression(
         self, expr_sql: str, df: pd.DataFrame, result_column: str = "__result__"
@@ -1099,7 +1103,10 @@ class Connection:
 
         try:
             start_time = time.perf_counter()
-            result_df = self._conn.query(query, "DataFrame")
+            with self._lock:
+                if self._conn is None:
+                    raise ConnectionError("Not connected. Call connect() first.")
+                result_df = self._conn.query(query, "DataFrame")
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
             result_series = result_df[result_column]
@@ -1246,24 +1253,24 @@ class Connection:
 
     def close(self):
         """Close cursor and connection."""
-        # Use local references to avoid race conditions during GC
-        cursor = self._cursor
-        conn = self._conn
+        with self._lock:
+            cursor = self._cursor
+            conn = self._conn
 
-        self._cursor = None
-        self._conn = None
+            self._cursor = None
+            self._conn = None
 
-        if cursor:
-            try:
-                cursor.close()
-            except Exception:
-                pass
+            if cursor:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
 
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def __enter__(self):
         """Context manager entry."""

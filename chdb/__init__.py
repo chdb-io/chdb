@@ -60,19 +60,25 @@ try:
 except Exception:
     core_version = "unknown"
 
+__chdb_core_version__ = core_version
+
+
 def _preload_chdb_with_deepbind():
     if sys.platform != "linux":
         return
     import ctypes
+    import importlib.machinery
+
     _RTLD_DEEPBIND = 0x00008
     for candidate_dir in [_this_dir] + [p for p in __path__ if p != _this_dir]:
-        _abi3 = os.path.join(candidate_dir, "_chdb.abi3.so")
-        if os.path.exists(_abi3):
-            try:
-                ctypes.CDLL(_abi3, mode=sys.getdlopenflags() | _RTLD_DEEPBIND)
-            except OSError:
-                pass
-            return
+        for suffix in importlib.machinery.EXTENSION_SUFFIXES:
+            ext_path = os.path.join(candidate_dir, "_chdb" + suffix)
+            if os.path.exists(ext_path):
+                try:
+                    ctypes.CDLL(ext_path, mode=sys.getdlopenflags() | _RTLD_DEEPBIND)
+                except OSError:
+                    pass
+                return
 
 
 if sys.version_info[:2] >= (3, 7):
@@ -85,23 +91,38 @@ if sys.version_info[:2] >= (3, 7):
         raise ImportError(
             "chdb-core engine not found. Install it with: pip install chdb-core"
         ) from e
-    conn = _chdb.connect()
-    engine_version = str(conn.query("SELECT version();", "CSV").bytes())[3:-4]
-    conn.close()
 else:
     raise NotImplementedError("Python 3.6 or lower version is not supported")
 
+from ._pool import (  # noqa: E402
+    MemoryConnectionPool as _MemoryConnectionPool,
+    classify_sql as _classify_sql,
+    install_subpackage_hooks as _install_subpackage_hooks,
+    is_memory_path as _is_memory_path,
+)
 
-# chdb-core up to 26.9 tears down an engine still open at process exit during
-# C++ static destruction, after the thread pools it needs are destroyed (heap
-# corruption and SIGABRT on macOS, chdb-io/chdb-core#254). Python's atexit
-# handlers run before that, so close whatever is still open there. Every
-# long-lived engine connection (chdb.connect(), Session, dbapi, DataStore,
-# durable) is owned by a chdb.state.sqlitelike.Connection, and instances of
-# Python classes are always tracked by the garbage collector, so they can be
-# found without wrapping anything in chdb-core. Not needed once
-# chdb-core >= 26.11 is required.
+_memory_pool = _MemoryConnectionPool(_chdb)
+_install_subpackage_hooks(_memory_pool)
+
+if callable(getattr(_chdb, "engine_version", None)):
+    engine_version = str(_chdb.engine_version())
+
+
+# Close pooled `:memory:` handles and any user-owned Python connections at
+# interpreter exit before C++ static destruction runs.
 def _close_open_connections():
+    _memory_pool.shutdown()
+
+    arrow_mod = sys.modules.get("chdb.arrow")
+    if arrow_mod is not None:
+        arrow_session_cls = getattr(arrow_mod, "ArrowSession", None)
+        if arrow_session_cls is not None:
+            for obj in [o for o in gc.get_objects() if isinstance(o, arrow_session_cls)]:
+                try:
+                    obj.close()
+                except Exception:
+                    pass
+
     sqlitelike = sys.modules.get("chdb.state.sqlitelike")
     if sqlitelike is None:
         return
@@ -149,11 +170,8 @@ def to_datastore(df):
     return DataStore(df)
 
 
-g_conn_lock = threading.Lock()
-# The lock serializes module-level query startup and cleanup. A batch stream
-# keeps the engine busy after startup, so reject overlapping calls rather than
-# holding this non-reentrant lock across user code.
-g_arrow_stream_active = threading.Event()
+g_conn_lock = threading.RLock()
+_udf_lock = threading.Lock()
 
 from .progress_display import (  # noqa: E402
     is_notebook as _is_notebook,
@@ -182,11 +200,13 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None, options=N
     global g_udf_path
     params = params or {}
     options = dict(options or {})
-    if udf_path != "":
-        g_udf_path = udf_path
+    with _udf_lock:
+        if udf_path != "":
+            g_udf_path = udf_path
+        active_udf_path = g_udf_path
     conn_str = ":memory:" if path == "" else f"{path}"
-    if g_udf_path != "":
-        options["udf_path"] = g_udf_path
+    if active_udf_path != "":
+        options["udf_path"] = active_udf_path
     if output_format == "Debug":
         output_format = "CSV"
         options.setdefault("verbose", "")
@@ -215,10 +235,32 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None, options=N
     if lower_output_format in _arrow_format or lower_output_format in _polars_format:
         output_format = "Arrow"
 
-    with g_conn_lock:
-        if g_arrow_stream_active.is_set():
-            raise RuntimeError("Finish the active Arrow batch stream first")
-        conn = _chdb.connect(conn_str)
+    if progress_mode != "auto" and _is_memory_path(conn_str):
+        sql_class = "READ_ONLY"
+        had_error = True
+        conn, gen, owner_tid = _memory_pool.borrow()
+        try:
+            sql_class = _classify_sql(conn, sql)
+            if lower_output_format in _df_format:
+                res = conn.query_df(sql, params=params)
+            else:
+                res = conn.query(sql, output_format, params=params)
+        except RuntimeError as e:
+            if isinstance(e, ChdbError):
+                raise
+            raise ChdbError(str(e)) from e.with_traceback(None)
+        else:
+            if lower_output_format not in _df_format and res.has_error():
+                raise ChdbError(res.error_message())
+            out = result_func(res)
+            had_error = False
+            return out
+        finally:
+            _memory_pool.release(conn, gen, owner_tid, sql_class=sql_class, had_error=had_error)
+
+    with _memory_pool.transient_connection(conn_str) as ctx:
+        conn = ctx.conn
+        ctx.mark_dirty_if_mutating(_classify_sql(conn, sql))
         progress_callback = None
         if progress_mode == "auto":
             progress_callback = _create_auto_progress_callback()
@@ -242,7 +284,6 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None, options=N
             if progress_callback is not None:
                 progress_callback.close()
                 conn.set_progress_callback(None)
-            conn.close()
 
 
 sql = query
@@ -283,6 +324,10 @@ def _import_udf_decorator(name):
 
 
 def __getattr__(name):
+    if name == "engine_version":
+        ver = _memory_pool.resolve_engine_version(core_version)
+        globals()["engine_version"] = ver
+        return ver
     if name in _lazy_submodules:
         module = importlib.import_module(f"{__name__}.{name}")
         globals()[name] = module
@@ -293,6 +338,10 @@ def __getattr__(name):
             globals()[name] = decorator
             return decorator
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals().keys()) | _lazy_submodules | {"engine_version"})
 
 
 def connect(*args, **kwargs):
