@@ -22,6 +22,9 @@ on:
       - 'docs/**'
       - '.github/workflows/external_clickhouse_integration.yaml'
 
+permissions:
+  contents: read
+
 jobs:
   test_datastore:
     name: Test DataStore (macOS arm64)

@@ -36,6 +36,9 @@ on:
   # time, and re-running it would only burn self-hosted runner minutes
   # without adding signal.
 
+permissions:
+  contents: read
+
 jobs:
   integration:
     name: External ClickHouse (${{ matrix.arch.name }})

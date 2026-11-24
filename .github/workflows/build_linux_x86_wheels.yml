@@ -22,6 +22,9 @@ on:
       - 'docs/**'
       - '.github/workflows/external_clickhouse_integration.yaml'
 
+permissions:
+  contents: read
+
 jobs:
   build_and_test:
     name: Build & Test (Linux x86_64)
