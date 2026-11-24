@@ -90,7 +90,7 @@ jobs:
             python -m pip install setuptools tox pandas pyarrow wheel pytest pytest-cov
             pyenv shell --unset
           done
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v3.7.0
         with:
           fetch-depth: 0
           persist-credentials: false

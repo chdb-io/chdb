@@ -12,14 +12,14 @@ jobs:
     runs-on: gh-64c
     steps:
       - name: Clone chDB repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v2.8.0
         with:
           repository: "chdb-io/chdb"
           ref: "refs/pull/${{ github.event.pull_request.number }}/merge"
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v2.3.4
         with:
           python-version: 3.11
 

@@ -20,7 +20,7 @@ jobs:
     name: Every llms.txt / llms-full.txt link resolves
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5.1.0
 
       - name: Check links
         run: |
@@ -85,7 +85,7 @@ jobs:
     name: Coverage vs clickhouse.com/docs/llms.txt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5.1.0
 
       - name: Diff curated links against the docs-site index
         run: |

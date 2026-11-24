@@ -121,7 +121,7 @@ jobs:
             python -m pip install setuptools tox pandas pyarrow twine wheel pytest pytest-cov
             pyenv shell --unset
           done
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v3.7.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -288,7 +288,7 @@ jobs:
           gh release upload ${{ github.ref_name }} dist/*.whl --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: chdb-wheel
           path: ./dist/*.whl
