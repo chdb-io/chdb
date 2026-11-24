@@ -67,6 +67,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # Probe runner for required tooling up front so failures surface
       # with a clear "this runner is not provisioned correctly" message

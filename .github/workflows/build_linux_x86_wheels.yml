@@ -121,6 +121,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Update version for release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
