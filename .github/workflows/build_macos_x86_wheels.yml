@@ -37,7 +37,16 @@ jobs:
           echo "System info: $(uname -a)"
       - name: Setup pyenv
         run: |
-          curl https://pyenv.run | bash
+          # pyenv from its release tag instead of the pyenv.run installer. The
+          # check fails the job if the tag ever points to another commit. Bump
+          # both values together to get newer Python patch releases.
+          PYENV_GIT_TAG=v2.8.15
+          PYENV_GIT_COMMIT=03ffc48ef3cd33808899773df586f3cc7f74470a
+          git -c advice.detachedHead=false clone --depth 1 --branch "$PYENV_GIT_TAG" https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+          if [ "$(git -C "$HOME/.pyenv" rev-parse HEAD)" != "$PYENV_GIT_COMMIT" ]; then
+            echo "pyenv $PYENV_GIT_TAG is not at $PYENV_GIT_COMMIT"
+            exit 1
+          fi
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
 
