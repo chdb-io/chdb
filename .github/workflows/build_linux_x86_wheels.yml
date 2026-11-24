@@ -22,6 +22,9 @@ on:
       - 'docs/**'
       - '.github/workflows/external_clickhouse_integration.yaml'
 
+permissions:
+  contents: read
+
 jobs:
   build_and_test:
     name: Build & Test (Linux x86_64)
@@ -49,7 +52,16 @@ jobs:
       - name: Setup pyenv
         run: |
           rm -rf $HOME/.pyenv
-          curl https://pyenv.run | bash
+          # pyenv from its release tag instead of the pyenv.run installer. The
+          # check fails the job if the tag ever points to another commit. Bump
+          # both values together to get newer Python patch releases.
+          PYENV_GIT_TAG=v2.8.15
+          PYENV_GIT_COMMIT=03ffc48ef3cd33808899773df586f3cc7f74470a
+          git -c advice.detachedHead=false clone --depth 1 --branch "$PYENV_GIT_TAG" https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+          if [ "$(git -C "$HOME/.pyenv" rev-parse HEAD)" != "$PYENV_GIT_COMMIT" ]; then
+            echo "pyenv $PYENV_GIT_TAG is not at $PYENV_GIT_COMMIT"
+            exit 1
+          fi
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           plain_pyenv_version() {
@@ -109,9 +121,10 @@ jobs:
             python -m pip install setuptools tox pandas pyarrow twine wheel pytest pytest-cov
             pyenv shell --unset
           done
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v3.7.0
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Update version for release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -275,7 +288,7 @@ jobs:
           gh release upload ${{ github.ref_name }} dist/*.whl --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: chdb-wheel
           path: ./dist/*.whl

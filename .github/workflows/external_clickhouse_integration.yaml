@@ -36,6 +36,9 @@ on:
   # time, and re-running it would only burn self-hosted runner minutes
   # without adding signal.
 
+permissions:
+  contents: read
+
 jobs:
   integration:
     name: External ClickHouse (${{ matrix.arch.name }})
@@ -64,9 +67,10 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # Probe runner for required tooling up front so failures surface
       # with a clear "this runner is not provisioned correctly" message
@@ -85,7 +89,16 @@ jobs:
         run: |
           set -e
           if [ ! -d "$HOME/.pyenv" ]; then
-            curl https://pyenv.run | bash
+            # pyenv from its release tag instead of the pyenv.run installer. The
+            # check fails the job if the tag ever points to another commit. Bump
+            # both values together to get newer Python patch releases.
+            PYENV_GIT_TAG=v2.8.15
+            PYENV_GIT_COMMIT=03ffc48ef3cd33808899773df586f3cc7f74470a
+            git -c advice.detachedHead=false clone --depth 1 --branch "$PYENV_GIT_TAG" https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+            if [ "$(git -C "$HOME/.pyenv" rev-parse HEAD)" != "$PYENV_GIT_COMMIT" ]; then
+              echo "pyenv $PYENV_GIT_TAG is not at $PYENV_GIT_COMMIT"
+              exit 1
+            fi
           fi
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
