@@ -2404,17 +2404,7 @@ class DataStore(PandasCompatMixin):
             elif df is None:
                 df = pd.DataFrame()
 
-            # SQL GROUP BY orders category labels as plain values and drops
-            # the categorical dtype; pandas groups in category order.
-            groupby_agg = segment.plan.groupby_agg if segment.plan else None
-            if (
-                groupby_agg is not None
-                and groupby_agg.runs_in_pandas()
-                and any(
-                    isinstance(df.dtypes.get(col), pd.CategoricalDtype)
-                    for col in groupby_agg.groupby_cols
-                )
-            ):
+            if self._use_pandas_for_categorical_groupby(segment.plan, df):
                 self._logger.debug("  Categorical group key: executing segment with pandas")
                 for op in segment.ops:
                     df = op.execute(df, self)
@@ -2663,18 +2653,17 @@ class DataStore(PandasCompatMixin):
         row = self._executor.execute(sql).rows[0]
         return {col for col, has_null in zip(cols, row) if has_null}
 
+    @staticmethod
+    def _use_pandas_for_categorical_groupby(plan, df: pd.DataFrame) -> bool:
+        """Use pandas when grouping must retain category order and dtype."""
+        groupby = plan.groupby_agg if plan else None
+        return groupby is not None and groupby.runs_in_pandas() and any(
+            isinstance(df.dtypes.get(col), pd.CategoricalDtype)
+            for col in groupby.groupby_cols
+        )
+
     def _build_execution_sql(self) -> Optional[str]:
-        """
-        Build SQL query that will be executed for lazy operations.
-
-        This method generates the exact SQL that _execute() would run,
-        ensuring that explain() and to_sql() show consistent SQL with actual execution.
-
-        Returns:
-            SQL query string if there's a SQL source and lazy operations,
-            None if no SQL source or no operations.
-        """
-        # Only generate SQL if we have a SQL source
+        """Render SQL for a table or table-function source."""
         if not (self._table_function or self.table_name):
             return None
         result = self._plan_build_result()
@@ -2683,38 +2672,33 @@ class DataStore(PandasCompatMixin):
         return result.sql
 
     def _plan_build_result(self, quote_char: Optional[str] = None) -> Optional["SQLBuildResult"]:
-        """
-        SQL of the lazy-op plan's first step against the source, built as
-        ``_execute()`` builds it (identifiers quoted with ``quote_char``,
-        default this DataStore's); None without a SQL source or lazy ops, or
-        when the first step runs in pandas.
-        """
-        if not (self._table_function or self.table_name) or not self._lazy_ops:
+        """Build the SQL preview against the initial source."""
+        from .lazy_ops import LazyDataFrameSource
+
+        ops = self._lazy_ops
+        if not ops:
             return None
 
-        # Use QueryPlanner segmented planning (same as _execute). This
-        # method models "the SQL ``_execute()`` would issue against the
-        # original source" - i.e. the FIRST step the executor runs.
-        # Cases:
-        # - First segment is SQL: return that segment's SQL.
-        # - First segment is Pandas (cost-aware planner, e.g. ORDER BY
-        #   without LIMIT): the executor first materializes data via a
-        #   plain ``SELECT * FROM source``, so return None and let the
-        #   caller render that. Returning a later SQL-on-DataFrame segment
-        #   would be misleading - its FROM is ``Python(__df__)``, not the
-        #   original source.
-        # - No segments / single Pandas-only segment: same fallback.
+        has_sql_source = bool(self._table_function or self.table_name)
+        frame_source = isinstance(ops[0], LazyDataFrameSource) and not has_sql_source
+        if not (has_sql_source or frame_source):
+            return None
+
         exec_plan, schema = self._plan_segments()
-        first_segment = exec_plan.segments[0] if exec_plan.segments else None
-        if (
-            first_segment is None
-            or not first_segment.is_sql()
-            or first_segment.plan is None
-        ):
-            return None
+        segments = exec_plan.segments
+        engine = SQLExecutionEngine(self, quote_char=quote_char)
+        if frame_source:
+            frame = ops[0]._df
+            # Loading the frame is a source step, not a pandas transformation.
+            if len(segments) > 1 and segments[0].ops == [ops[0]] and segments[1].is_sql():
+                plan = segments[1].plan
+                if plan is not None and not self._use_pandas_for_categorical_groupby(plan, frame):
+                    return SQLBuildResult(engine.build_dataframe_sql(frame, plan, schema))
+            return SQLBuildResult("SELECT * FROM __df__")
 
-        sql_engine = SQLExecutionEngine(self, quote_char=quote_char)
-        return sql_engine.build_sql_from_plan(first_segment.plan, schema)
+        if not segments or not segments[0].is_sql() or segments[0].plan is None:
+            return None
+        return engine.build_sql_from_plan(segments[0].plan, schema)
 
     def _plan_segments(self, ops: Optional[list] = None):
         """
@@ -2729,8 +2713,9 @@ class DataStore(PandasCompatMixin):
         """
         from .query_planner import QueryPlanner
 
+        has_table = bool(self._table_function or self.table_name)
         try:
-            schema = self.schema() or {}
+            schema = (self.schema() if has_table else self._schema) or {}
         except (ConnectionError, ExecutionError) as e:
             self._logger.debug("Planning with an unknown schema: %s", e)
             schema = {}
@@ -2739,9 +2724,7 @@ class DataStore(PandasCompatMixin):
         )
         exec_plan = QueryPlanner().plan_segments(
             self._lazy_ops if ops is None else ops,
-            has_sql_source=bool(
-                self._table_function or self.table_name or self._source_df is not None
-            ),
+            has_sql_source=has_table or self._source_df is not None,
             schema=schema,
             local_source=local_source,
         )
@@ -9776,6 +9759,8 @@ class DataStore(PandasCompatMixin):
         one query: its SQL is the first step only, run on the source before
         the pandas steps and the SQL steps on their result. ``explain()``
         shows every step, and ``execute()`` runs the whole pipeline.
+        Replay an in-memory query with ``Connection.query_df(sql, frame)`` to
+        bind ``__df__``. A pandas-first frame pipeline previews the source.
 
         Args:
             quote_char: Quote character for identifiers
