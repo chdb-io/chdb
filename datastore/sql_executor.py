@@ -3158,35 +3158,27 @@ class SQLExecutionEngine:
 
         return " ".join(parts)
 
+    def build_dataframe_sql(
+        self,
+        df: pd.DataFrame,
+        plan: "QueryPlan",
+        schema: Dict[str, str] = None,
+    ) -> str:
+        """Build SQL with the frame bound as __df__ and _row_id for row position."""
+        self.reads_dataframe = True
+        with row_position_scope("_row_id"):
+            return self._build_sql_for_dataframe(df, plan, schema)
+
     def execute_sql_on_dataframe(
         self,
         df: pd.DataFrame,
         plan: "QueryPlan",
         schema: Dict[str, str] = None,
     ) -> pd.DataFrame:
-        """
-        Execute a SQL segment on an existing DataFrame using chDB's Python() table function.
-
-        This enables SQL execution on intermediate DataFrames in the pipeline,
-        supporting true SQL-Pandas-SQL interleaving.
-
-        Args:
-            df: Input DataFrame to query
-            plan: QueryPlan for this SQL segment
-            schema: Column schema for type-aware SQL generation
-
-        Returns:
-            Result DataFrame after SQL execution
-        """
+        """Execute the plan against an in-memory frame via Python()."""
         from .executor import get_executor
 
-        schema = schema or {}
-
-        # Build SQL query using Python() table function; a row's position
-        # is the DataFrame's virtual _row_id
-        self.reads_dataframe = True
-        with row_position_scope("_row_id"):
-            sql = self._build_sql_for_dataframe(df, plan, schema)
+        sql = self.build_dataframe_sql(df, plan, schema)
 
         self._logger.debug(
             "  [SQL on DataFrame] Executing: %s",
