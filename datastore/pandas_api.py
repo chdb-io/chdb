@@ -1064,6 +1064,7 @@ def concat(objs, axis=0, join="outer", ignore_index=False, keys=None, **kwargs):
         and join == "outer"
         and keys is None
         and not kwargs.get("verify_integrity", False)
+        and not kwargs.get("sort", False)
         and all(isinstance(obj, DataStore) for obj in objs)
         and len(objs) >= 2
     ):

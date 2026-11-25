@@ -1919,6 +1919,7 @@ class PandasCompatMixin:
             and join == 'outer'
             and keys is None
             and not verify_integrity
+            and not sort
             and len(objs) >= 2
             and all(isinstance(obj, DataStore) for obj in objs)
         ):

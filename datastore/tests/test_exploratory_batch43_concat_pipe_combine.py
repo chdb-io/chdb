@@ -27,6 +27,18 @@ from tests.test_utils import assert_datastore_equals_pandas
 class TestConcatWithLazyChains:
     """Test concat function with subsequent lazy operations."""
 
+    @pytest.mark.parametrize("concat_api", ["module", "datastore"])
+    @pytest.mark.parametrize("sort", [False, True])
+    def test_concat_sort_with_ignore_index(self, concat_api, sort):
+        frames = [pd.DataFrame({"z": [1]}, index=[10]), pd.DataFrame({"a": [2]}, index=[20])]
+        stores = [ds.DataStore(frame) for frame in frames]
+        concat = ds.concat if concat_api == "module" else stores[0].concat
+
+        result = concat(stores, ignore_index=True, sort=sort)
+        expected = pd.concat(frames, ignore_index=True, sort=sort)
+
+        pd.testing.assert_frame_equal(result.to_pandas(), expected)
+
     def test_concat_then_filter(self):
         """Concat followed by filter operation."""
         pd_df1 = pd.DataFrame({'a': [1, 2, 3], 'b': ['x', 'y', 'z']})
