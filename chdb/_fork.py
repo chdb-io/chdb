@@ -44,8 +44,15 @@ _fork_parent_pid: Optional[int] = None
 _fork_child_pid: Optional[int] = None
 _needs_fast_exit_on_shutdown: bool = False
 _child_exit_code: Optional[int] = None
+_child_main_tid: Optional[int] = None
+_fork_last_exc: Any = None
+_fork_last_value: Any = None
+_mon_tool_id: Optional[int] = None
+_trace_fn: Any = None
+_trace_root_frame_id: Optional[int] = None
+_trace_root_done: bool = False
 _orig_sys_exit: Any = None
-_exit_hook_installed: bool = False
+_sys_exit_wrapped: bool = False
 
 _live_handles: dict[int, weakref.ref] = {}
 # Pin inherited native pybind11 handles in a forked-after-init child so GC
@@ -85,25 +92,171 @@ def should_fast_exit_on_shutdown() -> bool:
     return _needs_fast_exit_on_shutdown
 
 
-def _install_child_exit_hook() -> None:
-    """Track sys.exit() status in a forked child that must bypass C++ teardown."""
-    global _orig_sys_exit, _exit_hook_installed
-    if _exit_hook_installed:
+def _coerce_exit_status(status: Any) -> int:
+    if status is None:
+        return 0
+    if isinstance(status, int):
+        val = int(status)
+        if val < -2147483648 or val > 2147483647:
+            return 255
+        return val
+    return 1
+
+
+def _install_monitoring_exit_tracker() -> bool:
+    """Use PEP 669 sys.monitoring (Python 3.12+) to track main-thread SystemExit."""
+    global _mon_tool_id
+    mon = getattr(sys, "monitoring", None)
+    if mon is None:
+        return False
+
+    if _mon_tool_id is not None:
+        try:
+            if mon.get_tool(_mon_tool_id) == "chdb_fork_exit":
+                return True
+        except Exception:
+            pass
+        _mon_tool_id = None
+
+    tool_id: Optional[int] = None
+    for candidate in (4, 3, 5, 2, 1, 0):
+        try:
+            if mon.get_tool(candidate) is None:
+                mon.use_tool_id(candidate, "chdb_fork_exit")
+                tool_id = candidate
+                break
+        except ValueError:
+            continue
+    if tool_id is None:
+        return False
+
+    def _on_raise(_code: Any, _offset: int, exc: BaseException) -> None:
+        global _child_exit_code
+        if threading.get_ident() != _child_main_tid:
+            return
+        if isinstance(exc, SystemExit):
+            _child_exit_code = _coerce_exit_status(exc.code)
+
+    def _on_handled(_code: Any, _offset: int, exc: BaseException) -> None:
+        global _child_exit_code
+        if threading.get_ident() != _child_main_tid:
+            return
+        if isinstance(exc, SystemExit):
+            _child_exit_code = None
+
+    try:
+        mon.register_callback(tool_id, mon.events.RAISE, _on_raise)
+        mon.register_callback(tool_id, mon.events.RERAISE, _on_raise)
+        mon.register_callback(tool_id, mon.events.EXCEPTION_HANDLED, _on_handled)
+        mon.set_events(
+            tool_id,
+            mon.events.RAISE | mon.events.RERAISE | mon.events.EXCEPTION_HANDLED,
+        )
+    except Exception:
+        try:
+            mon.free_tool_id(tool_id)
+        except Exception:
+            pass
+        return False
+
+    _mon_tool_id = tool_id
+    return True
+
+
+def _install_trace_exit_tracker() -> bool:
+    """Fallback SystemExit tracker via sys.settrace (Python 3.9-3.11 or busy monitoring slots)."""
+    global _trace_fn, _trace_root_frame_id, _trace_root_done
+    existing = sys.gettrace()
+    if existing is not None and existing is not _trace_fn:
+        return False
+
+    import dis
+
+    return_ops = frozenset(
+        op
+        for op_name in ("RETURN_VALUE", "RETURN_CONST")
+        if (op := dis.opmap.get(op_name)) is not None
+    )
+    _trace_root_done = False
+
+    def _trace(frame: Any, event: str, arg: Any) -> Any:
+        global _child_exit_code, _trace_root_done
+        if _trace_root_done or threading.get_ident() != _child_main_tid:
+            return None
+        if event == "call":
+            frame.f_trace_lines = False
+            return _trace
+        if event == "exception":
+            exc_val = arg[1]
+            if isinstance(exc_val, SystemExit):
+                _child_exit_code = _coerce_exit_status(exc_val.code)
+            elif frame.f_back is None:
+                _child_exit_code = None
+        elif event == "return":
+            if id(frame) == _trace_root_frame_id:
+                _trace_root_done = True
+                lasti = frame.f_lasti
+                co_code = frame.f_code.co_code
+                if 0 <= lasti < len(co_code) and co_code[lasti] in return_ops:
+                    _child_exit_code = None
+                if sys.gettrace() is _trace:
+                    sys.settrace(None)
+                return None
+        return _trace
+
+    _trace_fn = _trace
+    try:
+        sys.settrace(_trace)
+        frame = sys._getframe()
+        root = frame
+        while frame is not None:
+            frame.f_trace = _trace
+            frame.f_trace_lines = False
+            root = frame
+            frame = frame.f_back
+        _trace_root_frame_id = id(root)
+    except Exception:
+        if sys.gettrace() is _trace:
+            sys.settrace(None)
+        return False
+    return True
+
+
+def _install_sys_exit_wrapper() -> None:
+    """Last-resort fallback if neither sys.monitoring nor sys.settrace is available."""
+    global _orig_sys_exit, _sys_exit_wrapped
+    if _sys_exit_wrapped:
         return
-    _exit_hook_installed = True
+    _sys_exit_wrapped = True
     _orig_sys_exit = sys.exit
 
     def _tracked_exit(status: Any = None) -> None:
         global _child_exit_code
-        if status is None:
-            _child_exit_code = 0
-        elif isinstance(status, int):
-            _child_exit_code = int(status)
-        else:
-            _child_exit_code = 1
+        _child_exit_code = _coerce_exit_status(status)
         _orig_sys_exit(status)
 
     sys.exit = _tracked_exit
+
+
+def _install_child_exit_hook() -> None:
+    """Track exit status in a forked child that must bypass C++ teardown.
+
+    Captures ``raise SystemExit(...)``, ``sys.exit(...)``, and pre-fork aliases
+    of ``sys.exit`` via ``sys.monitoring`` (Python 3.12+) or ``sys.settrace``
+    (Python <3.12), falling back to wrapping ``sys.exit`` only if all tracing
+    slots are already occupied by an external tool.
+    """
+    global _child_exit_code, _child_main_tid, _fork_last_exc, _fork_last_value
+    _child_exit_code = None
+    _child_main_tid = threading.get_ident()
+    _fork_last_exc = getattr(sys, "last_exc", None)
+    _fork_last_value = getattr(sys, "last_value", None)
+
+    if _install_monitoring_exit_tracker():
+        return
+    if _install_trace_exit_tracker():
+        return
+    _install_sys_exit_wrapper()
 
 
 def fast_exit_child() -> None:
@@ -120,7 +273,13 @@ def fast_exit_child() -> None:
                 stream.flush()
             except Exception:
                 pass
-    if getattr(sys, "last_value", None) is not None or getattr(sys, "last_exc", None) is not None:
+    cur_last_exc = getattr(sys, "last_exc", None)
+    cur_last_value = getattr(sys, "last_value", None)
+    has_unhandled_exc = (
+        (cur_last_exc is not None and cur_last_exc is not _fork_last_exc)
+        or (cur_last_value is not None and cur_last_value is not _fork_last_value)
+    )
+    if has_unhandled_exc:
         code = 1
     elif _child_exit_code is not None:
         code = _child_exit_code
@@ -175,7 +334,10 @@ def neutralize_handle(obj: Any, _seen: Optional[set[int]] = None) -> bool:
         return True
 
     had_native = False
-    obj_dict = getattr(obj, "__dict__", None)
+    try:
+        obj_dict = object.__getattribute__(obj, "__dict__")
+    except Exception:
+        return False
     if not isinstance(obj_dict, dict):
         return False
 
@@ -232,7 +394,27 @@ def _collect_gc_handles() -> list[Any]:
     if not wrapper_types:
         return []
     type_tuple = tuple(wrapper_types)
-    return [obj for obj in gc.get_objects() if isinstance(obj, type_tuple)]
+    matched: list[Any] = []
+    is_wrapper_cache: dict[type, bool] = {}
+    try:
+        objects = gc.get_objects()
+    except Exception:
+        return matched
+    for obj in objects:
+        # Use type(obj) rather than isinstance(obj, ...) so retained dead
+        # weakref.proxy objects in the heap never dereference __class__ and
+        # raise ReferenceError mid-scan.
+        obj_type = type(obj)
+        is_wrapper = is_wrapper_cache.get(obj_type)
+        if is_wrapper is None:
+            try:
+                is_wrapper = issubclass(obj_type, type_tuple)
+            except Exception:
+                is_wrapper = False
+            is_wrapper_cache[obj_type] = is_wrapper
+        if is_wrapper:
+            matched.append(obj)
+    return matched
 
 
 def _reset_python_state_in_child(engine_was_initialized: bool) -> bool:
@@ -302,12 +484,24 @@ def _handle_detected_fork(current_pid: int) -> None:
 
     seen: set[int] = set()
     for ref in refs:
-        obj = ref()
-        if obj is not None and neutralize_handle(obj, seen):
+        try:
+            obj = ref()
+            if obj is not None and neutralize_handle(obj, seen):
+                had_open_handle = True
+        except Exception:
             had_open_handle = True
 
-    for obj in _collect_gc_handles():
-        if neutralize_handle(obj, seen):
+    try:
+        gc_handles = _collect_gc_handles()
+    except Exception:
+        gc_handles = []
+        had_open_handle = True
+
+    for obj in gc_handles:
+        try:
+            if neutralize_handle(obj, seen):
+                had_open_handle = True
+        except Exception:
             had_open_handle = True
 
     if had_active_ops or had_open_handle:

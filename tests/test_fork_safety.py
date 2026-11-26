@@ -525,3 +525,238 @@ print("NESTED_FORKS_OK")
 """
         )
         assert "NESTED_FORKS_OK" in proc.stdout
+
+    def test_dead_weakref_proxy_in_heap_across_fork(self):
+        """Retained dead weakref.proxy in heap must not abort after_in_child or cause deadlock."""
+        proc = _assert_ok(
+            """
+import gc
+import os
+import weakref
+import chdb
+
+class _Target:
+    pass
+
+target = _Target()
+dead_proxy = weakref.proxy(target)
+del target
+gc.collect()
+
+conn = chdb.connect()
+assert conn.query("SELECT 1", "CSV").bytes().strip() == b"1"
+
+# Child 1: normal return (implicit exit 0) with dead_proxy still live in heap
+p1 = os.fork()
+if p1 == 0:
+    assert dead_proxy is not None
+    assert chdb._fork.is_forked_after_init()
+    assert chdb._fork.should_fast_exit_on_shutdown()
+    os._exit(0)
+_, st1 = os.waitpid(p1, 0)
+assert os.waitstatus_to_exitcode(st1) == 0, st1
+
+# Child 2: real Python shutdown through atexit -> fast_exit_child()
+p2 = os.fork()
+if p2 == 0:
+    assert chdb._fork.should_fast_exit_on_shutdown()
+    raise SystemExit(0)
+_, st2 = os.waitpid(p2, 0)
+assert os.waitstatus_to_exitcode(st2) == 0, st2
+
+# Keep dead_proxy referenced until after forks complete
+assert type(dead_proxy) is weakref.ProxyType
+conn.close()
+print("DEAD_PROXY_OK")
+"""
+        )
+        assert "DEAD_PROXY_OK" in proc.stdout
+        assert "ReferenceError" not in proc.stderr
+        assert "Exception ignored" not in proc.stderr
+
+    def test_fork_child_system_exit_and_alias_preserve_exit_status(self):
+        """Direct raise SystemExit(...) and pre-fork sys.exit aliases preserve exact exit code and stderr."""
+        proc = _assert_ok(
+            """
+import os
+import sys
+import threading
+import chdb
+
+# Capture sys.exit alias BEFORE fork (and before engine init)
+exit_fn = sys.exit
+
+conn = chdb.connect()
+assert conn.query("SELECT 1", "CSV").bytes().strip() == b"1"
+
+def run_child(fn):
+    r_fd, w_fd = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        os.close(r_fd)
+        os.dup2(w_fd, 2)
+        os.close(w_fd)
+        fn()
+    os.close(w_fd)
+    chunks = []
+    while True:
+        chunk = os.read(r_fd, 4096)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    os.close(r_fd)
+    _, status = os.waitpid(pid, 0)
+    return os.waitstatus_to_exitcode(status), b"".join(chunks).decode("utf-8", "replace")
+
+# 1. raise SystemExit(42) directly
+def _raise_42():
+    raise SystemExit(42)
+
+rc, err = run_child(_raise_42)
+assert rc == 42, (rc, err)
+
+# 2. raise SystemExit("error message") -> exit 1 + message on stderr
+def _raise_msg():
+    raise SystemExit("error message")
+
+rc, err = run_child(_raise_msg)
+assert rc == 1, (rc, err)
+assert "error message" in err, repr(err)
+
+# 3. raise SystemExit() -> exit 0
+def _raise_none():
+    raise SystemExit()
+
+rc, err = run_child(_raise_none)
+assert rc == 0, (rc, err)
+
+# 4. Pre-fork alias exit_fn(42)
+rc, err = run_child(lambda: exit_fn(42))
+assert rc == 42, (rc, err)
+
+# 5. Pre-fork alias exit_fn("aliased error") -> exit 1 + message on stderr
+rc, err = run_child(lambda: exit_fn("aliased error"))
+assert rc == 1, (rc, err)
+assert "aliased error" in err, repr(err)
+
+# 6. Caught SystemExit(42) followed by SystemExit(0) -> exit 0
+def _caught_then_ok():
+    try:
+        raise SystemExit(42)
+    except SystemExit:
+        pass
+    raise SystemExit(0)
+
+rc, err = run_child(_caught_then_ok)
+assert rc == 0, (rc, err)
+
+# 7. try ... finally propagating SystemExit(42) -> exit 42
+def _finally_se():
+    try:
+        raise SystemExit(42)
+    finally:
+        _ = 1
+
+rc, err = run_child(_finally_se)
+assert rc == 42, (rc, err)
+
+# 8. Background thread SystemExit(42) does not override main thread exit 0
+def _bg_thread_se():
+    t = threading.Thread(target=lambda: sys.exit(42))
+    t.start()
+    t.join()
+    raise SystemExit(0)
+
+rc, err = run_child(_bg_thread_se)
+assert rc == 0, (rc, err)
+
+conn.close()
+print("SYSTEM_EXIT_ALL_OK")
+"""
+        )
+        assert "SYSTEM_EXIT_ALL_OK" in proc.stdout
+
+    def test_fork_child_caught_system_exit_normal_fallthrough(self):
+        """A child that catches SystemExit(42) and returns normally from <module> exits 0."""
+        proc = _assert_ok(
+            """
+import os
+import chdb
+
+conn = chdb.connect()
+assert conn.query("SELECT 1", "CSV").bytes().strip() == b"1"
+
+pid = os.fork()
+if pid == 0:
+    try:
+        raise SystemExit(42)
+    except SystemExit:
+        pass
+else:
+    _, status = os.waitpid(pid, 0)
+    conn.close()
+    assert os.waitstatus_to_exitcode(status) == 0, status
+    print("CAUGHT_FALLTHROUGH_OK")
+"""
+        )
+        assert "CAUGHT_FALLTHROUGH_OK" in proc.stdout
+
+    def test_fork_child_exit_codes_trace_fallback(self):
+        """Exercise the sys.settrace fallback path (used on Python <3.12 or busy monitoring)."""
+        proc = _assert_ok(
+            """
+import os
+import sys
+import chdb
+import chdb._fork as fork_mod
+
+exit_fn = sys.exit
+fork_mod._install_monitoring_exit_tracker = lambda: False
+
+conn = chdb.connect()
+assert conn.query("SELECT 1", "CSV").bytes().strip() == b"1"
+
+# 1. raise SystemExit(42) at top level
+p1 = os.fork()
+if p1 == 0:
+    raise SystemExit(42)
+_, st1 = os.waitpid(p1, 0)
+assert os.waitstatus_to_exitcode(st1) == 42, st1
+
+# 2. raise SystemExit("trace error") -> exit 1 + message on stderr
+r_fd, w_fd = os.pipe()
+p2 = os.fork()
+if p2 == 0:
+    os.close(r_fd)
+    os.dup2(w_fd, 2)
+    os.close(w_fd)
+    raise SystemExit("trace error")
+os.close(w_fd)
+err = os.read(r_fd, 4096).decode("utf-8", "replace")
+os.close(r_fd)
+_, st2 = os.waitpid(p2, 0)
+assert os.waitstatus_to_exitcode(st2) == 1, (st2, err)
+assert "trace error" in err, repr(err)
+
+# 3. Pre-fork alias exit_fn(42)
+p3 = os.fork()
+if p3 == 0:
+    exit_fn(42)
+_, st3 = os.waitpid(p3, 0)
+assert os.waitstatus_to_exitcode(st3) == 42, st3
+
+# 4. Caught SystemExit(42) falling through normally -> exit 0
+p4 = os.fork()
+if p4 == 0:
+    try:
+        raise SystemExit(42)
+    except SystemExit:
+        pass
+else:
+    _, st4 = os.waitpid(p4, 0)
+    conn.close()
+    assert os.waitstatus_to_exitcode(st4) == 0, st4
+    print("TRACE_FALLBACK_OK")
+"""
+        )
+        assert "TRACE_FALLBACK_OK" in proc.stdout
