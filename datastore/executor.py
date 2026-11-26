@@ -119,6 +119,13 @@ class Executor:
     def close(self):
         """Close the connection if we own it."""
         if self._owns_connection and self.connection:
+            import chdb
+
+            fork_mod = getattr(chdb, "_fork", None)
+            if fork_mod is not None and fork_mod.is_forked_after_init():
+                fork_mod.neutralize_handle(self.connection)
+                self.connection = None
+                return
             self.connection.close()
             self.connection = None
 

@@ -126,6 +126,23 @@ def _select_chdb_version(query) -> Optional[str]:
     return text or None
 
 
+def _get_fork_module():
+    import chdb
+
+    return getattr(chdb, "_fork", None)
+
+
+def _check_fork_safety() -> None:
+    fork_mod = _get_fork_module()
+    if fork_mod is not None:
+        fork_mod.check_fork_safety()
+
+
+def _is_fork_after_init_error(exc: BaseException) -> bool:
+    fork_mod = _get_fork_module()
+    return fork_mod is not None and isinstance(exc, fork_mod.ForkAfterInitError)
+
+
 def _probe_engine_version() -> Optional[str]:
     """Read the version from a throwaway in-memory engine.
 
@@ -135,22 +152,38 @@ def _probe_engine_version() -> Optional[str]:
     """
     if _LIVE_CONNECTIONS:
         return None
-    try:
-        import chdb
+    import chdb
 
+    fork_mod = getattr(chdb, "_fork", None)
+    if fork_mod is not None:
+        fork_mod.check_fork_safety()
+    try:
         connection = getattr(getattr(chdb, "_chdb", None), "connect", None)
         if connection is None:
             return None
-        conn = connection()
-    except Exception:
+        if fork_mod is not None:
+            with fork_mod.native_operation():
+                conn = connection()
+                try:
+                    return _select_chdb_version(conn.query)
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        else:
+            conn = connection()
+            try:
+                return _select_chdb_version(conn.query)
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+    except Exception as exc:
+        if _is_fork_after_init_error(exc):
+            raise
         return None
-    try:
-        return _select_chdb_version(conn.query)
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
 
 
 def engine_version() -> str:
@@ -231,6 +264,10 @@ class ManagedConnection:
         global _ENGINE_VERSION, _LIVE_CONNECTIONS
         from chdb.state import sqlitelike
 
+        fork_mod = _get_fork_module()
+        if fork_mod is not None:
+            fork_mod.check_fork_safety()
+            fork_mod.ensure_sqlitelike_patched()
         self._counted = False
         args = dict(_SYNCHRONOUS_SETTINGS)
         # `backups.allowed_path` is what makes backup/restore possible at all:
@@ -243,10 +280,14 @@ class ManagedConnection:
         try:
             self._conn = sqlitelike.Connection(conn_str)
         except Exception as exc:
+            if _is_fork_after_init_error(exc):
+                raise
             raise EngineError(f"could not start the chDB engine: {exc}") from exc
         _LIVE_CONNECTIONS += 1
         self._counted = True
         self._raw = getattr(self._conn, "_conn", None)
+        if fork_mod is not None:
+            fork_mod.track_handle(self)
         missing = [n for n in _REQUIRED_ABI if not hasattr(self._raw, n)]
         if missing:
             self.close()
@@ -267,9 +308,12 @@ class ManagedConnection:
     def query(self, sql: str, fmt: str = "CSV", *, redact: bool = False):
         """Run `sql`. `redact=True` keeps a failed statement's text out of the
         exception, for SQL the analysis flagged as carrying a credential."""
+        _check_fork_safety()
         try:
             return self._conn.query(sql, fmt)
         except Exception as exc:
+            if _is_fork_after_init_error(exc):
+                raise
             if redact:
                 raise EngineError("statement failed (text withheld: it carries a credential)") from None
             raise EngineError(str(exc)) from exc
@@ -295,9 +339,12 @@ class ManagedConnection:
 
     # -- Durable V1 ABI ---------------------------------------------------
     def analyze(self, sql: str, target_database: str) -> QueryAnalysis:
+        _check_fork_safety()
         try:
             report = self._raw.classify_query(sql, target_database)
         except Exception as exc:
+            if _is_fork_after_init_error(exc):
+                raise
             raise EngineError(f"query analysis failed: {exc}") from exc
         return QueryAnalysis(
             query_class=getattr(report["query_class"], "name", str(report["query_class"])),
@@ -314,24 +361,35 @@ class ManagedConnection:
         records the base's *local path*, which does not survive the trip
         through object storage, so V1 publishes full checkpoints only (§3.2).
         """
+        _check_fork_safety()
         if not os.path.isabs(file_path):
             raise EngineError(f"backup path must be absolute: {file_path!r}")
         try:
             self._raw.backup_database(database, file_path)
         except Exception as exc:
+            if _is_fork_after_init_error(exc):
+                raise
             raise EngineError(f"backup of database {database!r} failed: {exc}") from exc
 
     def restore(self, database: str, file_path: str) -> None:
+        _check_fork_safety()
         if not os.path.isabs(file_path):
             raise EngineError(f"restore path must be absolute: {file_path!r}")
         try:
             self._raw.restore_database(database, file_path)
         except Exception as exc:
+            if _is_fork_after_init_error(exc):
+                raise
             raise EngineError(f"restore of database {database!r} failed: {exc}") from exc
 
     # -- lifecycle --------------------------------------------------------
     def close(self) -> None:
         global _LIVE_CONNECTIONS
+        fork_mod = _get_fork_module()
+        if fork_mod is not None and fork_mod.is_forked_after_init():
+            fork_mod.neutralize_handle(self)
+            self._counted = False
+            return
         conn, self._conn, self._raw = getattr(self, "_conn", None), None, None
         if getattr(self, "_counted", False):
             _LIVE_CONNECTIONS -= 1
