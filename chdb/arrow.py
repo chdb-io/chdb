@@ -11,7 +11,7 @@ import uuid
 import weakref
 from typing import Any, Callable, Mapping, Sequence
 
-from . import ChdbError, _chdb, g_arrow_stream_active, g_conn_lock
+from . import ChdbError, _chdb, _fork, g_arrow_stream_active, g_conn_lock
 
 
 def _connection_string(path: str, settings: Mapping[str, Any] | None) -> str:
@@ -23,6 +23,7 @@ def _connection_string(path: str, settings: Mapping[str, Any] | None) -> str:
 
 
 def _native_connection(path: str, settings: Mapping[str, Any] | None):
+    _fork.mark_engine_initialized()
     conn = _chdb.connect(_connection_string(path, settings))
     if not all(callable(getattr(conn, name, None)) for name in (
         "query_arrow_reader", "send_query_arrow", "streaming_fetch_arrow"
@@ -54,11 +55,13 @@ class ArrowBatchStream:
         self._on_close = on_close
         self._lock = threading.RLock()
         self._closed = False
+        _fork.track_handle(self)
 
     def __iter__(self):
         return self
 
     def __next__(self):
+        _fork.check_fork_safety()
         with self._lock:
             if self._closed:
                 raise StopIteration
@@ -77,6 +80,9 @@ class ArrowBatchStream:
             return batch
 
     def close(self):
+        if _fork.is_forked_after_init():
+            _fork.neutralize_handle(self)
+            return
         with self._lock:
             if self._closed:
                 return
@@ -151,12 +157,16 @@ class ArrowSession:
     """
 
     def __init__(self, path: str = "", *, settings: Mapping[str, Any] | None = None):
-        self._conn = _native_connection(path, settings)
+        _fork.check_fork_safety()
+        with _fork.native_operation():
+            self._conn = _native_connection(path, settings)
         self._active: ArrowBatchStream | None = None
         self._sources: set[ArrowSource] = set()
         self._closed = False
+        _fork.track_handle(self)
 
     def _ready(self):
+        _fork.check_fork_safety()
         if self._closed:
             raise RuntimeError("ArrowSession is closed")
         if self._active is not None:
@@ -249,6 +259,9 @@ class ArrowSession:
         return result.rows_written()
 
     def close(self):
+        if _fork.is_forked_after_init():
+            _fork.neutralize_handle(self)
+            return
         if self._closed:
             return
         try:
@@ -276,7 +289,9 @@ def connect(path: str = "", *, settings: Mapping[str, Any] | None = None) -> Arr
 def query_arrow(sql: str, *, path: str = "", params: Mapping[str, Any] | None = None,
                 settings: Mapping[str, Any] | None = None, options: Mapping[str, bool] | None = None):
     """Execute one query and return a ``pyarrow.Table`` without Arrow IPC."""
+    _fork.check_fork_safety()
     with g_conn_lock:
+        _fork.check_fork_safety()
         if g_arrow_stream_active.is_set():
             raise RuntimeError("Finish the active Arrow batch stream first")
         with connect(path, settings=settings) as session:
@@ -287,13 +302,16 @@ def query_arrow_batches(sql: str, *, path: str = "", params: Mapping[str, Any] |
                         settings: Mapping[str, Any] | None = None,
                         options: Mapping[str, bool] | None = None) -> ArrowBatchStream:
     """Return a closable batch iterator; use ``with`` for early termination."""
+    _fork.check_fork_safety()
     with g_conn_lock:
+        _fork.check_fork_safety()
         if g_arrow_stream_active.is_set():
             raise RuntimeError("Finish the active Arrow batch stream first")
         conn = None
         try:
-            conn = _native_connection(path, settings)
-            result = conn.send_query_arrow(sql, params=dict(params or {}), options=dict(options or {}))
+            with _fork.native_operation():
+                conn = _native_connection(path, settings)
+                result = conn.send_query_arrow(sql, params=dict(params or {}), options=dict(options or {}))
 
             def done():
                 with g_conn_lock:

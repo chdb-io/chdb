@@ -25,6 +25,21 @@ from .exceptions import ConnectionError, ExecutionError, translate_remote_error
 from .config import get_logger, get_profiler, get_chdb_settings, _freeze_chdb_settings
 
 
+def _get_fork_module():
+    return getattr(chdb, "_fork", None)
+
+
+def _check_fork_safety() -> None:
+    fork_mod = _get_fork_module()
+    if fork_mod is not None:
+        fork_mod.check_fork_safety()
+
+
+def _is_fork_after_init_error(exc: BaseException) -> bool:
+    fork_mod = _get_fork_module()
+    return fork_mod is not None and isinstance(exc, fork_mod.ForkAfterInitError)
+
+
 def _mask_quoted(sql: str) -> str:
     """
     Return ``sql`` with the contents of quoted strings and identifiers
@@ -193,10 +208,14 @@ class Connection:
 
     def connect(self) -> "Connection":
         """Establish connection to chdb."""
+        _check_fork_safety()
         try:
             conn_str = self._build_connection_string()
             self._conn = chdb.connect(conn_str)
             if self._conn is not None:
+                fork_mod = _get_fork_module()
+                if fork_mod is not None:
+                    fork_mod.track_handle(self)
                 _freeze_chdb_settings()
                 try:
                     self._apply_external_sort_default()
@@ -210,6 +229,8 @@ class Connection:
             self._logger.debug("[chDB] Connected: %s", conn_str)
             return self
         except Exception as e:
+            if _is_fork_after_init_error(e):
+                raise
             raise ConnectionError(f"Failed to connect to chdb: {e}")
 
     def _apply_external_sort_default(self) -> None:
@@ -239,6 +260,7 @@ class Connection:
 
     def cursor(self):
         """Get a cursor for executing queries."""
+        _check_fork_safety()
         if self._conn is None:
             raise ConnectionError("Not connected. Call connect() first.")
 
@@ -246,6 +268,8 @@ class Connection:
             self._cursor = self._conn.cursor()
             return self._cursor
         except Exception as e:
+            if _is_fork_after_init_error(e):
+                raise
             raise ConnectionError(f"Failed to create cursor: {e}")
 
     def execute(self, sql: str, output_format: str = "Dataframe") -> "QueryResult":
@@ -261,6 +285,7 @@ class Connection:
         Returns:
             QueryResult object with data and metadata
         """
+        _check_fork_safety()
         if self._conn is None:
             raise ConnectionError("Not connected. Call connect() first.")
 
@@ -287,6 +312,8 @@ class Connection:
 
             return QueryResult(data=result, output_format=output_format)
         except Exception as e:
+            if _is_fork_after_init_error(e):
+                raise
             self._logger.error("[chDB] Query failed: %s", e)
             friendly_msg = translate_remote_error(e)
             raise ExecutionError(f"Query execution failed: {friendly_msg}\nSQL: {sql}")
@@ -305,6 +332,7 @@ class Connection:
         Returns:
             pyarrow.Table
         """
+        _check_fork_safety()
         if self._conn is None:
             raise ConnectionError("Not connected. Call connect() first.")
 
@@ -312,6 +340,8 @@ class Connection:
         try:
             return self._conn.query(sql, "ArrowTable")
         except Exception as e:
+            if _is_fork_after_init_error(e):
+                raise
             self._logger.error("[chDB] Arrow query failed: %s", e)
             friendly_msg = translate_remote_error(e)
             raise ExecutionError(f"Query execution failed: {friendly_msg}\nSQL: {sql}")
@@ -346,6 +376,7 @@ class Connection:
         Returns:
             Result DataFrame with original row order preserved (if preserve_order=True)
         """
+        _check_fork_safety()
         if self._conn is None:
             raise ConnectionError("Not connected. Call connect() first.")
 
@@ -471,6 +502,8 @@ class Connection:
 
             return result
         except Exception as e:
+            if _is_fork_after_init_error(e):
+                raise
             self._logger.error("[chDB] DataFrame query failed: %s", e)
             friendly_msg = translate_remote_error(e)
             raise ExecutionError(f"Failed to execute SQL on DataFrame: {friendly_msg}")
@@ -1060,6 +1093,7 @@ class Connection:
         Returns:
             Result Series with the original DataFrame's index (when possible)
         """
+        _check_fork_safety()
         if self._conn is None:
             raise ConnectionError("Not connected. Call connect() first.")
 
@@ -1146,6 +1180,8 @@ class Connection:
 
             return result_series
         except Exception as e:
+            if _is_fork_after_init_error(e):
+                raise
             self._logger.error("[chDB] Expression evaluation failed: %s", e)
             friendly_msg = translate_remote_error(e)
             raise ExecutionError(
@@ -1246,6 +1282,11 @@ class Connection:
 
     def close(self):
         """Close cursor and connection."""
+        fork_mod = _get_fork_module()
+        if fork_mod is not None and fork_mod.is_forked_after_init():
+            fork_mod.neutralize_handle(self)
+            return
+
         # Use local references to avoid race conditions during GC
         cursor = self._cursor
         conn = self._conn

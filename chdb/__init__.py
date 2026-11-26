@@ -60,6 +60,9 @@ try:
 except Exception:
     core_version = "unknown"
 
+__chdb_core_version__ = core_version
+
+
 def _preload_chdb_with_deepbind():
     if sys.platform != "linux":
         return
@@ -85,11 +88,12 @@ if sys.version_info[:2] >= (3, 7):
         raise ImportError(
             "chdb-core engine not found. Install it with: pip install chdb-core"
         ) from e
-    conn = _chdb.connect()
-    engine_version = str(conn.query("SELECT version();", "CSV").bytes())[3:-4]
-    conn.close()
 else:
     raise NotImplementedError("Python 3.6 or lower version is not supported")
+
+from . import _fork  # noqa: E402
+
+_fork.install(sys.modules[__name__], _chdb)
 
 
 # chdb-core up to 26.9 tears down an engine still open at process exit during
@@ -114,7 +118,16 @@ def _close_open_connections():
             pass
 
 
-atexit.register(_close_open_connections)
+def _on_process_exit():
+    if _fork.should_fast_exit_on_shutdown():
+        _fork.fast_exit_child()
+        return
+    if _fork.is_forked_after_init():
+        return
+    _close_open_connections()
+
+
+atexit.register(_on_process_exit)
 
 chdb_version = tuple(__version__.split("."))
 
@@ -180,6 +193,7 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None, options=N
         ChdbError: If the SQL query execution fails
     """
     global g_udf_path
+    _fork.check_fork_safety()
     params = params or {}
     options = dict(options or {})
     if udf_path != "":
@@ -216,33 +230,35 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None, options=N
         output_format = "Arrow"
 
     with g_conn_lock:
+        _fork.check_fork_safety()
         if g_arrow_stream_active.is_set():
             raise RuntimeError("Finish the active Arrow batch stream first")
-        conn = _chdb.connect(conn_str)
-        progress_callback = None
-        if progress_mode == "auto":
-            progress_callback = _create_auto_progress_callback()
-            if progress_callback is not None:
-                conn.set_progress_callback(progress_callback)
+        with _fork.native_operation():
+            conn = _chdb.connect(conn_str)
+            progress_callback = None
+            if progress_mode == "auto":
+                progress_callback = _create_auto_progress_callback()
+                if progress_callback is not None:
+                    conn.set_progress_callback(progress_callback)
 
-        try:
-            if lower_output_format in _df_format:
-                res = conn.query_df(sql, params=params)
+            try:
+                if lower_output_format in _df_format:
+                    res = conn.query_df(sql, params=params)
+                else:
+                    res = conn.query(sql, output_format, params=params)
+            except RuntimeError as e:
+                if isinstance(e, ChdbError):
+                    raise
+                raise ChdbError(str(e)) from e.with_traceback(None)
             else:
-                res = conn.query(sql, output_format, params=params)
-        except RuntimeError as e:
-            if isinstance(e, ChdbError):
-                raise
-            raise ChdbError(str(e)) from e.with_traceback(None)
-        else:
-            if lower_output_format not in _df_format and res.has_error():
-                raise ChdbError(res.error_message())
-            return result_func(res)
-        finally:
-            if progress_callback is not None:
-                progress_callback.close()
-                conn.set_progress_callback(None)
-            conn.close()
+                if lower_output_format not in _df_format and res.has_error():
+                    raise ChdbError(res.error_message())
+                return result_func(res)
+            finally:
+                if progress_callback is not None:
+                    progress_callback.close()
+                    conn.set_progress_callback(None)
+                conn.close()
 
 
 sql = query
@@ -282,10 +298,36 @@ def _import_udf_decorator(name):
         return None
 
 
+def _resolve_engine_version():
+    native_version = getattr(_chdb, "engine_version", None)
+    if callable(native_version):
+        return str(native_version())
+    _fork.check_fork_safety()
+    with _fork.native_operation():
+        try:
+            conn = _chdb.connect()
+        except RuntimeError as e:
+            import re
+
+            match = re.search(r"already initialized with path '([^']+)'", str(e))
+            if not match:
+                raise
+            conn = _chdb.connect(match.group(1))
+        try:
+            return conn.query("SELECT version();", "CSV").bytes().decode("utf-8").strip().strip('"')
+        finally:
+            conn.close()
+
+
 def __getattr__(name):
+    if name == "engine_version":
+        version = _resolve_engine_version()
+        globals()["engine_version"] = version
+        return version
     if name in _lazy_submodules:
         module = importlib.import_module(f"{__name__}.{name}")
         globals()[name] = module
+        _fork.ensure_sqlitelike_patched()
         return module
     if name in _udf_decorators:
         decorator = _import_udf_decorator(name)
@@ -295,9 +337,15 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+def __dir__():
+    return sorted(set(globals()) | set(__all__))
+
+
 def connect(*args, **kwargs):
+    _fork.check_fork_safety()
     from .state import connect as _connect
 
+    _fork.ensure_sqlitelike_patched()
     return _connect(*args, **kwargs)
 
 for _name in _udf_decorators:
